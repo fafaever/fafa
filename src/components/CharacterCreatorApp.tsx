@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, UserPlus, Sparkles, AlertCircle, Smile, HelpCircle, Edit3, MessageSquare, Trash2, Check, Upload, FileText, Zap } from "lucide-react";
+import { apiAnalyzeCharacterFile } from "../lib/api";
+
 import { Character, AppSettings } from "../types";
 
 interface CharacterCreatorAppProps {
@@ -235,24 +237,11 @@ export default function CharacterCreatorApp({
           const fileBase64 = btoa(binary);
 
           // Call backend endpoint to analyze and extract details
-          const response = await fetch("/api/analyze-character-file", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-              fileBase64,
-              fileName,
-              settings
-            })
+          const result = await apiAnalyzeCharacterFile({
+            fileBase64: fileBase64,
+            fileName: file.name,
+            settings
           });
-
-          if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData.error || `服务端返回错误 (${response.status})`);
-          }
-
-          const result = await response.json();
           if (result.success && result.data) {
             const data = result.data;
             setName(data.name || "");
@@ -265,7 +254,7 @@ export default function CharacterCreatorApp({
             }
             setSuccessMsg("🎉 成功自动识别并导入角色人设！已自动填充所有字段，您可以继续微调设定。");
           } else {
-            throw new Error(result.error || "提取数据失败");
+            throw new Error("提取数据失败");
           }
         } catch (err: any) {
           console.error(err);

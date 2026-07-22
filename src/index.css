@@ -8,6 +8,14 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+@layer base {
+  html, body, #root {
+    min-height: 100dvh;
+    margin: 0;
+    padding: 0;
+  }
+}
+
 @layer utilities {
   .animate-fade-in {
     animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;

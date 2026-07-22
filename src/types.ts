@@ -56,12 +56,14 @@ export interface ApiPreset {
   apiUrl: string;
   apiKey: string;
   model: string;
+  apiFormat?: 'openai' | 'gemini';
 }
 
 export interface AppSettings {
   apiUrl: string;
   apiKey: string;
   model: string;
+  apiFormat?: 'openai' | 'gemini';
   apiPresets?: ApiPreset[];
   activePresetId?: string;
   worldBookGroups?: string[];

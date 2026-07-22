@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ChevronLeft, Volume2, VolumeX, RotateCw, RotateCcw, AlertCircle, Sparkles, Check, HelpCircle, Pause, Play, History, Save, Trash2, Clock, Trophy, Award, FolderOpen, X } from "lucide-react";
+import { apiUnoDialogue, apiUnoMove } from "../lib/api";
+
 import { Character, AppSettings } from "../types";
 
 // Card Definitions
@@ -534,20 +536,9 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
 
     // Call server endpoint for customized, highly-personalized AI dialogue
     try {
-      const res = await fetch("/api/uno-dialogue", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          character: player.character,
-          event,
-          cardDetails,
-          context: gameContext,
-          settings,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.dialogue) {
-        updatePlayerDialogueState(playerIndex, data.dialogue);
+      const data = await apiUnoDialogue({ character: player.character, event, cardDetails, context: gameContext, settings });
+      if (data.text) {
+        updatePlayerDialogueState(playerIndex, data.text);
       }
     } catch (err) {
       console.warn("Could not fetch custom AI dialogue, staying with fallback:", err);
@@ -1120,26 +1111,18 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
 
     if (playableCards.length > 0) {
       try {
+        const relativeCardsStr = playersRef.current.map(p => `${p.name}剩余${p.cards.length}张`).join("，");
+        const gameContext = `当前局势：自己手牌还剩 ${aiPlayer.cards.length} 张牌。其他玩家：${relativeCardsStr}。`;
         const topCard = discardPileRef.current[discardPileRef.current.length - 1];
-        const res = await fetch("/api/uno-move", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            character: { name: aiPlayer.name, description: aiPlayer.character?.description },
-            playableCards,
-            topCard,
-            currentColor: currentColorRef.current,
-            context: `AI玩家剩 ${aiPlayer.cards.length} 张手牌`,
-            settings
-          })
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          const selectedCard = playableCards.find(c => c.id === data.cardId) || playableCards[0];
-          const chosenColor = data.chosenColor as "red" | "yellow" | "green" | "blue" | undefined;
-          
-          executePlayCardAction(aiIndex, selectedCard, chosenColor, data.dialogue);
+        const moveData = await apiUnoMove({ character: { name: aiPlayer.name, description: aiPlayer.character?.description }, playableCards, topCard, currentColor: currentColorRef.current, context: gameContext, settings });
+        if (moveData && moveData.cardId) {
+          let selectedCard = playableCards.find(c => c.id === moveData.cardId) || playableCards[0];
+          if (moveData.chosenColor && selectedCard.color === "wild") {
+             // We can't mutate the card directly if it's frozen, but let's just assume we can or clone it.
+             selectedCard = { ...selectedCard, chosenColor: moveData.chosenColor as any };
+          }
+          if (moveData.dialogue) updatePlayerDialogueState(aiIndex, moveData.dialogue);
+          executePlayCardAction(aiIndex, selectedCard);
           return;
         }
       } catch (err) {

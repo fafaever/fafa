@@ -481,7 +481,7 @@ export default function App() {
       {/* CENTER: Simulated Smartphone Screen Container */}
       <div 
         id="phone_screen"
-        className="w-full max-w-[390px] h-[820px] bg-white rounded-[40px] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border border-neutral-200/80 flex flex-col overflow-hidden relative"
+        className="w-full max-w-[390px] min-h-[100dvh] bg-white md:rounded-[40px] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border border-neutral-200/80 flex flex-col relative"
       >
         {/* Status Bar */}
         <StatusBar />

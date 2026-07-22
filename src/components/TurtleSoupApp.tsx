@@ -21,6 +21,8 @@ import {
   Eye,
   AlertCircle
 } from "lucide-react";
+import { apiChat, apiGenerateTurtlesoupBatch } from "../lib/api";
+
 import { Character, AppSettings } from "../types";
 import { TURTLE_SOUP_PRESETS, TurtleSoupPuzzle } from "../data/turtleSoupPuzzles";
 
@@ -516,19 +518,11 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
     setIsGenerating(true);
 
     try {
-      const response = await fetch("/api/generate-turtlesoup-batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ settings }),
-      });
+      const data = await apiGenerateTurtlesoupBatch({ settings });
+      // response error checked internally
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `HTTP error ${response.status}`);
-      }
-
-      const data = await response.json();
-      if (data.success && Array.isArray(data.puzzles)) {
+      // data already parsed
+      if (data && Array.isArray(data.puzzles)) {
         // Ensure proper IDs and formatted titles
         const puzzlesWithIds: TurtleSoupPuzzle[] = data.puzzles.map((p: any, index: number) => {
           let title = p.title || `新海龟汤 #${index + 1}`;
@@ -635,21 +629,16 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
 若为猜汤底：
 请判断玩家是否猜中了完整的真相或核心动机。若基本符合真相，请回复：{"answer": "恭喜猜中汤底！", "isCorrect": true}；若偏离，回复：{"answer": "推测不完整或不准确，再想想看！", "isCorrect": false}`;
 
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const data = await apiChat({
             messages: [
               { role: "system", content: systemPrompt },
-              { role: "user", content: `玩家${isGuess ? "猜汤底" : "提问"}：${questionText}` },
+              { role: "user", content: `玩家的提问/推测：${questionText}\n请根据以上推测，判断是/否/无关/猜中汤底。` }
             ],
             settings,
-          }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          const text = data.content || data.message || "";
+          });
+        if (data) {
+          // data already parsed
+          const text = data.text || "";
           
           if (isGuess) {
             const isCorrect = text.includes("恭喜") || text.includes("猜中") || text.includes("正确") || text.includes("正确！");

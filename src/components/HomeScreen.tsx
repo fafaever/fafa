@@ -251,18 +251,18 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
 
   return (
     <div 
-      className="flex-1 flex overflow-hidden bg-neutral-50 relative"
+      className="flex-1 flex flex-col min-h-[100dvh] bg-neutral-50 relative"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
       <div 
-        className="w-full h-full flex transition-transform duration-300 ease-out"
+        className="w-full flex transition-transform duration-300 ease-out flex-1"
         style={{ transform: `translateX(-${currentPage * 100}%)` }}
       >
         {/* Page 1: Main View */}
-        <div className="w-full h-full flex-shrink-0 flex flex-col justify-between px-5 pt-4 pb-2 text-neutral-900 select-none overflow-y-auto scrollbar-none">
-          {/* Top: Clock & Date Widget */}
-          <div className="flex flex-col items-center mt-6 text-center animate-fade-in shrink-0">
+        <div className="w-full min-h-[100dvh] flex-shrink-0 flex flex-col px-5 pt-4 pb-20 text-neutral-900 select-none overflow-y-auto">
+          {/* Top: Clock & Date Widget - sticky */}
+          <div className="flex flex-col items-center mt-6 text-center animate-fade-in shrink-0 sticky top-0 bg-neutral-50/90 z-10 py-2">
         <h1 className="text-3xl font-mono tracking-tight font-bold text-neutral-950 mb-1 flex items-center gap-2">
           {time} 
           {isEditingGreeting ? (
@@ -416,7 +416,7 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
     </div>
 
         {/* Page 2: Second Screen View */}
-        <div className="w-full h-full flex-shrink-0 flex flex-col px-5 pt-8 pb-2 text-neutral-900 select-none overflow-y-auto scrollbar-none relative">
+        <div className="w-full min-h-[100dvh] flex-shrink-0 flex flex-col px-5 pt-8 pb-20 text-neutral-900 select-none relative">
           
           {/* Gallery Carousel (15% height) */}
           <div className="w-full h-[100px] flex flex-col items-center justify-center relative select-none overflow-hidden mt-4">
@@ -524,10 +524,12 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
         </div>
       </div>
 
-      {/* Pagination Indicators */}
-      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5 pb-1">
-        <button onClick={() => setCurrentPage(0)} className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 0 ? "bg-black w-3" : "bg-neutral-300 w-1.5"}`} />
-        <button onClick={() => setCurrentPage(1)} className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 1 ? "bg-black w-3" : "bg-neutral-300 w-1.5"}`} />
+      {/* Pagination Indicators - Sticky Footer */}
+      <div className="sticky bottom-0 left-0 w-full flex justify-center pb-2 bg-neutral-50 z-20">
+        <div className="flex gap-1.5">
+          <button onClick={() => setCurrentPage(0)} className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 0 ? "bg-black w-3" : "bg-neutral-300 w-1.5"}`} />
+          <button onClick={() => setCurrentPage(1)} className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 1 ? "bg-black w-3" : "bg-neutral-300 w-1.5"}`} />
+        </div>
       </div>
 
       {/* Long press menu */}

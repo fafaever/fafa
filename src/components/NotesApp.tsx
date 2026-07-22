@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, Plus, Trash2, Edit3, Check, Wand2, Loader2, Share2, Lock } from "lucide-react";
+import { apiGenerateNote } from "../lib/api";
+
 import { Character, AppSettings } from "../types";
 
 interface Note {
@@ -87,18 +89,7 @@ export default function NotesApp({ characters, settings, onClose }: NotesAppProp
     
     setIsGenerating(true);
     try {
-      const response = await fetch("/api/generate-note", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          character: selectedChar,
-          settings: settings,
-        })
-      });
-      const data = await response.json();
-      if (!response.ok || data.error) {
-        throw new Error(data.error || "请求失败");
-      }
+      const data = await apiGenerateNote({ character: selectedChar, settings });
       if (data.text) {
         const isSharedRandomly = shareEnabled && Math.random() > 0.5; // Randomly share some if global share is on
         const newNote: Note = { 

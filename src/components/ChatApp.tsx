@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet } from "lucide-react";
+import { apiChat } from "../lib/api";
 import { Character, Message, LoreEntry, AppSettings, ChatSession } from "../types";
 import ProfileView from "./ProfileView";
 
@@ -996,27 +997,14 @@ export default function ChatApp({
         parentChatContext: parentChatContext,
       };
       console.log('请求参数:', requestParams);
-      let response;
-      try {
-        response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestParams),
-        });
-      } catch (networkErr: any) {
-        throw new Error("网络连接失败，无法与后端 API 通信。请确认本地服务已启动并在 3000 端口监听。 (Details: " + networkErr.message + ")");
-      }
-
       let data;
       try {
-        data = await response.json();
-      } catch (jsonErr: any) {
-        throw new Error(`服务器响应格式不正确 (HTTP status ${response.status})。请检查服务器状态。`);
+        data = await apiChat(requestParams);
+      } catch (networkErr: any) {
+        throw networkErr;
       }
 
-      if (!response.ok) {
-        throw new Error(data.error || `服务器返回了错误状态 (HTTP status ${response.status})`);
-      }
+        
 
       // 3. Build Assistant Messages (handling split messages and splitting into short sentences)
       const text = data.text || "";
@@ -1220,27 +1208,14 @@ export default function ChatApp({
         memories: memories,
       };
       console.log('请求参数:', requestParams);
-      let response;
-      try {
-        response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestParams),
-        });
-      } catch (networkErr: any) {
-        throw new Error("网络连接失败，无法与后端 API 通信。请确认本地服务已启动并在 3000 端口监听。 (Details: " + networkErr.message + ")");
-      }
-
       let data;
       try {
-        data = await response.json();
-      } catch (jsonErr: any) {
-        throw new Error(`服务器响应格式不正确 (HTTP status ${response.status})。请检查服务器状态。`);
+        data = await apiChat(requestParams);
+      } catch (networkErr: any) {
+        throw networkErr;
       }
 
-      if (!response.ok) {
-        throw new Error(data.error || `服务器返回了错误状态 (HTTP status ${response.status})`);
-      }
+        
 
       // 3. Build Assistant Messages (handling split messages and splitting into short sentences)
       const text = data.text || "";

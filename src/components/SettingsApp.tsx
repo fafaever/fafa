@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, Key, Database, Download, Upload, Trash2, Eye, EyeOff, Layers, Check } from "lucide-react";
+import { apiFetchModels } from "../lib/api";
+
 import { AppSettings, ApiPreset } from "../types";
 
 interface SettingsAppProps {
@@ -17,6 +19,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
   const [apiUrl, setApiUrl] = useState(settings.apiUrl || "");
   const [apiKey, setApiKey] = useState(settings.apiKey || "");
   const [model, setModel] = useState(settings.model || "");
+  const [apiFormat, setApiFormat] = useState<'openai' | 'gemini'>(settings.apiFormat || 'openai');
   const [showKey, setShowKey] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   
@@ -67,17 +70,9 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
     }
     setFetchingModels(true);
     try {
-      const response = await fetch("/api/fetch-models", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apiUrl, apiKey }),
-      });
-      const data = await response.json();
-      if (response.ok && data.success) {
-        setFetchedModels(data.models || []);
-      } else {
-        alert(data.message || "拉取模型列表失败");
-      }
+      const data = await apiFetchModels({ apiUrl, apiKey });
+      // data already parsed
+      setFetchedModels(data.models || []);
     } catch (err: any) {
       alert(err.message || "网络请求异常");
     } finally {
@@ -95,7 +90,8 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
       name: presetName.trim(),
       apiUrl,
       apiKey,
-      model
+      model,
+      apiFormat
     };
     const updatedPresets = [...presets, newPreset];
     setPresets(updatedPresets);
@@ -109,7 +105,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
     let updatedPresets = [...presets];
     if (activePresetId !== "default") {
       updatedPresets = updatedPresets.map(p => 
-        p.id === activePresetId ? { ...p, apiUrl, apiKey, model } : p
+        p.id === activePresetId ? { ...p, apiUrl, apiKey, model, apiFormat } : p
       );
     }
 
@@ -118,6 +114,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
       apiUrl,
       apiKey,
       model,
+      apiFormat,
       apiPresets: updatedPresets,
       activePresetId
     });
@@ -256,6 +253,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                     setApiUrl("");
                     setApiKey("");
                     setModel("");
+                    setApiFormat("openai");
                   }}
                   className={`p-2.5 rounded-lg border text-left cursor-pointer flex items-center justify-between transition-colors ${activePresetId === "default" ? "bg-black text-white border-black" : "bg-neutral-50 hover:bg-neutral-100 border-neutral-200"}`}
                 >
@@ -274,6 +272,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                       setApiUrl(preset.apiUrl);
                       setApiKey(preset.apiKey);
                       setModel(preset.model);
+                      setApiFormat(preset.apiFormat || 'openai');
                     }}
                     className={`p-2.5 rounded-lg border text-left cursor-pointer flex items-center justify-between transition-colors ${activePresetId === preset.id ? "bg-black text-white border-black" : "bg-neutral-50 hover:bg-neutral-100 border-neutral-200"}`}
                   >
@@ -299,6 +298,18 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
             <div className="bg-white rounded-xl p-4 border border-neutral-200 shadow-sm space-y-4">
               <div className="text-xs font-bold text-neutral-500">
                 {activePresetId === "default" ? "正在编辑 (新建配置)" : "编辑当前配置"}
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-wider mb-1 block">API 请求格式</label>
+                <select
+                  value={apiFormat}
+                  onChange={(e) => setApiFormat(e.target.value as 'openai' | 'gemini')}
+                  className="w-full text-xs border border-neutral-200 hover:border-neutral-300 focus:border-black px-3 py-2.5 rounded-lg outline-none transition-colors bg-white"
+                >
+                  <option value="openai">OpenAI 兼容格式</option>
+                  <option value="gemini">Gemini 原生格式</option>
+                </select>
               </div>
 
               <div>
