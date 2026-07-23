@@ -219,27 +219,23 @@ export default function CharacterCreatorApp({
 
     try {
       const fileName = file.name;
+      const lowerName = fileName.toLowerCase();
+      if (!lowerName.endsWith(".txt") && !lowerName.endsWith(".docx")) {
+        throw new Error("仅支持 .txt 或 .docx 格式的文本文件。");
+      }
+
       const reader = new FileReader();
 
       reader.onload = async (event) => {
         try {
-          const arrayBuffer = event.target?.result as ArrayBuffer;
-          if (!arrayBuffer) {
+          const fileText = event.target?.result as string;
+          if (fileText === undefined || fileText === null) {
             throw new Error("无法读取文件内容。");
           }
 
-          // Convert ArrayBuffer to Base64
-          const uint8 = new Uint8Array(arrayBuffer);
-          let binary = "";
-          const len = uint8.byteLength;
-          for (let i = 0; i < len; i++) {
-            binary += String.fromCharCode(uint8[i]);
-          }
-          const fileBase64 = btoa(binary);
-
           // Call backend endpoint to analyze and extract details
           const result = await apiAnalyzeCharacterFile({
-            fileBase64: fileBase64,
+            fileText: fileText,
             fileName: file.name,
             settings
           });
@@ -267,7 +263,7 @@ export default function CharacterCreatorApp({
         }
       };
 
-      reader.readAsArrayBuffer(file);
+      reader.readAsText(file);
     } catch (err: any) {
       console.error(err);
       setErrorMsg(`读取文件失败: ${err.message}`);

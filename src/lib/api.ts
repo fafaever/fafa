@@ -1,4 +1,4 @@
-import * as mammoth from 'mammoth';
+
 
 export function normalizeUrl(url: string): string {
   if (!url) return "";
@@ -282,19 +282,21 @@ function extractJson(text: string) {
 
 
 export async function apiAnalyzeCharacterFile(params: any) {
-  const { fileBase64, fileName, settings } = params;
-  if (!fileBase64 || !fileName) {
+  const { fileText, fileBase64, fileName, settings } = params;
+  let text = fileText || "";
+  if (!text && fileBase64) {
+    try {
+      text = atob(fileBase64);
+    } catch (e) {
+      text = fileBase64;
+    }
+  }
+  if (!text || !fileName) {
     throw new Error("缺少必要的文件内容。 (Missing file content)");
   }
   try {
-    let text = "";
-    if (fileName.toLowerCase().endsWith(".txt")) {
-      text = Buffer.from(fileBase64, "base64").toString("utf-8");
-    } else if (fileName.toLowerCase().endsWith(".docx")) {
-      const buffer = Buffer.from(fileBase64, "base64");
-      const result = await mammoth.extractRawText({ buffer });
-      text = result.value;
-    } else {
+    const lowerName = fileName.toLowerCase();
+    if (!lowerName.endsWith(".txt") && !lowerName.endsWith(".docx")) {
       throw new Error("仅支持 .txt 或 .docx 格式的文本文件。 (Only .txt or .docx are supported)" );
     }
 
