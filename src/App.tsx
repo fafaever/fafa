@@ -12,8 +12,34 @@ import UniverseApp from "./components/UniverseApp";
 import DiaryApp from "./components/DiaryApp";
 import NotesApp from "./components/NotesApp";
 import PhoneCheckApp from "./components/PhoneCheckApp";
-import { Character, LoreEntry, AppSettings, ChatSession, Message } from "./types";
+import { Character, LoreEntry, AppSettings, ChatSession, Message, FontOption, ThemeOption } from "./types";
 import { Sparkles, HelpCircle } from "lucide-react";
+
+const getThemeClass = (theme?: ThemeOption) => {
+  switch (theme) {
+    case 'minimal_white':
+      return 'bg-white text-[#1A1A1A]';
+    case 'dark_night':
+      return 'bg-[#0F0F0F] text-[#FAFAFA]';
+    case 'warm_paper':
+    default:
+      return 'bg-[#F5F3F0] text-[#1A1A1A]';
+  }
+};
+
+const getFontClass = (font?: FontOption) => {
+  switch (font) {
+    case 'playfair_inter':
+      return 'font-serif';
+    case 'kaiti':
+      return "font-['Kaiti','STKaiti','KaiTi',serif]";
+    case 'sans':
+      return 'font-sans';
+    case 'system':
+    default:
+      return 'font-sans';
+  }
+};
 
 // Pre-made premium characters
 const PRESET_CHARACTERS: Character[] = [
@@ -410,7 +436,7 @@ export default function App() {
           />
         );
       case "universe":
-        return <UniverseApp onClose={() => setCurrentScreen("home")} />;
+        return <UniverseApp characters={characters} settings={settings} onClose={() => setCurrentScreen("home")} />;
       case "diary":
         return <DiaryApp onClose={() => setCurrentScreen("home")} />;
       case "notes":
@@ -427,6 +453,7 @@ export default function App() {
             isApiConfigured={!!(settings.apiUrl && settings.apiKey)}
             characters={characters}
             sessions={sessions}
+            settings={settings}
           />
         );
     }
@@ -481,7 +508,7 @@ export default function App() {
       {/* CENTER: Simulated Smartphone Screen Container */}
       <div 
         id="phone_screen"
-        className="w-full max-w-[390px] min-h-[100dvh] bg-white md:rounded-[40px] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border border-neutral-200/80 flex flex-col relative"
+        className={`w-full max-w-[430px] aspect-[9/19.5] md:rounded-[40px] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border border-neutral-200/80 flex flex-col relative overflow-hidden ${getThemeClass(settings.globalTheme)} ${getFontClass(settings.globalFont)}`}
       >
         {/* Status Bar */}
         <StatusBar />

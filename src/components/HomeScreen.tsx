@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { MessageSquare, BookOpen, Settings, Info, UserPlus, Gamepad2, Search, Book, PenTool, Sparkles, Calendar, Image as ImageIcon, Music, Map, Cloud, Camera, Plus } from "lucide-react";
-import { Character, ChatSession } from "../types";
+import { Character, ChatSession, AppSettings } from "../types";
 
 interface GalleryImage {
   id: string;
@@ -59,9 +59,10 @@ interface HomeScreenProps {
   isApiConfigured: boolean;
   characters: Character[];
   sessions: ChatSession[];
+  settings?: AppSettings;
 }
 
-export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApiConfigured, characters, sessions }: HomeScreenProps) {
+export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApiConfigured, characters, sessions, settings }: HomeScreenProps) {
   const [time, setTime] = useState("");
   const [date, setDate] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
@@ -249,18 +250,46 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
     setDisplayIndex(totalBaseN);
   };
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const handleScroll = () => {
+    if (scrollContainerRef.current) {
+      const { scrollLeft, clientWidth } = scrollContainerRef.current;
+      if (clientWidth > 0) {
+        const page = Math.round(scrollLeft / clientWidth);
+        if (page !== currentPage) {
+          setCurrentPage(page);
+        }
+      }
+    }
+  };
+
+  const scrollToPage = (pageIndex: number) => {
+    setCurrentPage(pageIndex);
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        left: pageIndex * scrollContainerRef.current.clientWidth,
+        behavior: "smooth",
+      });
+    }
+  };
+
   return (
-    <div 
-      className="flex-1 flex flex-col min-h-[100dvh] bg-neutral-50 relative"
-      onTouchStart={handleTouchStart}
-      onTouchEnd={handleTouchEnd}
-    >
+    <div className="flex-1 flex flex-col h-full bg-neutral-50 relative overflow-hidden">
+      {settings?.homeWallpaper && (
+        <div 
+          className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none opacity-40" 
+          style={{ backgroundImage: `url(${settings.homeWallpaper})` }}
+        />
+      )}
+      {/* Scrollable Pages Container with Scroll Snap */}
       <div 
-        className="w-full flex transition-transform duration-300 ease-out flex-1"
-        style={{ transform: `translateX(-${currentPage * 100}%)` }}
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="w-full flex flex-row overflow-x-auto snap-x snap-mandatory scrollbar-none flex-1 min-h-0 scroll-smooth"
       >
         {/* Page 1: Main View */}
-        <div className="w-full min-h-[100dvh] flex-shrink-0 flex flex-col px-5 pt-4 pb-20 text-neutral-900 select-none overflow-y-auto">
+        <div className="w-full min-w-full shrink-0 snap-start flex flex-col px-5 pt-4 pb-4 text-neutral-900 select-none overflow-y-auto h-full">
           {/* Top: Clock & Date Widget - sticky */}
           <div className="flex flex-col items-center mt-6 text-center animate-fade-in shrink-0 sticky top-0 bg-neutral-50/90 z-10 py-2">
         <h1 className="text-3xl font-mono tracking-tight font-bold text-neutral-950 mb-1 flex items-center gap-2">
@@ -357,66 +386,10 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
         </div>
       </div>
 
-      {/* Bottom: Desktop App Icons Grid (4 columns) */}
-      <div className="flex flex-col gap-4 mb-4 shrink-0">
-        <div className="grid grid-cols-4 gap-3 px-1 min-h-[76px]">
-          {/* App 1: Chat */}
-          <button
-            onClick={() => onOpenApp("chat")}
-            className="flex flex-col items-center gap-2 group focus:outline-none animate-fade-in"
-          >
-            <div className="w-13 h-13 bg-black text-white rounded-xl flex items-center justify-center shadow-md active:scale-95 hover:bg-neutral-800 transition-all duration-200">
-              <MessageSquare className="w-5.5 h-5.5 stroke-[1.75]" />
-            </div>
-            <span className="text-[10px] font-bold tracking-tight text-neutral-700 font-sans">
-              信息
-            </span>
-          </button>
-
-          {/* App 2: World Book */}
-          <button
-            onClick={() => onOpenApp("worldbook")}
-            className="flex flex-col items-center gap-2 group focus:outline-none animate-fade-in"
-          >
-            <div className="w-13 h-13 bg-white text-black border border-neutral-300 rounded-xl flex items-center justify-center shadow-sm active:scale-95 hover:bg-neutral-50 transition-all duration-200">
-              <BookOpen className="w-5.5 h-5.5 stroke-[1.75]" />
-            </div>
-            <span className="text-[10px] font-bold tracking-tight text-neutral-700 font-sans">
-              世界书
-            </span>
-          </button>
-
-          {/* App 3: Character Creator */}
-          <button
-            onClick={() => onOpenApp("creator")}
-            className="flex flex-col items-center gap-2 group focus:outline-none animate-fade-in"
-          >
-            <div className="w-13 h-13 bg-neutral-900 text-white rounded-xl flex items-center justify-center shadow-md active:scale-95 hover:bg-neutral-800 transition-all duration-200">
-              <UserPlus className="w-5.5 h-5.5 stroke-[1.75]" />
-            </div>
-            <span className="text-[10px] font-bold tracking-tight text-neutral-700 font-sans">
-              档案
-            </span>
-          </button>
-
-          {/* App 4: Settings */}
-          <button
-            onClick={() => onOpenApp("settings")}
-            className="flex flex-col items-center gap-2 group focus:outline-none animate-fade-in"
-          >
-            <div className="w-13 h-13 bg-neutral-200 text-neutral-800 rounded-xl flex items-center justify-center shadow-sm active:scale-95 hover:bg-neutral-300 transition-all duration-200">
-              <Settings className="w-5.5 h-5.5 stroke-[1.75]" />
-            </div>
-            <span className="text-[10px] font-bold tracking-tight text-neutral-700 font-sans">
-              系统设置
-            </span>
-          </button>
-        </div>
-      </div>
     </div>
 
         {/* Page 2: Second Screen View */}
-        <div className="w-full min-h-[100dvh] flex-shrink-0 flex flex-col px-5 pt-8 pb-20 text-neutral-900 select-none relative">
+        <div className="w-full min-w-full shrink-0 snap-start flex flex-col px-5 pt-8 pb-4 text-neutral-900 select-none overflow-y-auto h-full">
           
           {/* Gallery Carousel (15% height) */}
           <div className="w-full h-[100px] flex flex-col items-center justify-center relative select-none overflow-hidden mt-4">
@@ -525,10 +498,75 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
       </div>
 
       {/* Pagination Indicators - Sticky Footer */}
-      <div className="sticky bottom-0 left-0 w-full flex justify-center pb-2 bg-neutral-50 z-20">
-        <div className="flex gap-1.5">
-          <button onClick={() => setCurrentPage(0)} className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 0 ? "bg-black w-3" : "bg-neutral-300 w-1.5"}`} />
-          <button onClick={() => setCurrentPage(1)} className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 1 ? "bg-black w-3" : "bg-neutral-300 w-1.5"}`} />
+      <div className="shrink-0 w-full flex justify-center py-2 bg-neutral-50 z-20">
+        <div className="flex gap-1.5 items-center">
+          <button 
+            onClick={() => scrollToPage(0)} 
+            className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 0 ? "bg-black w-3" : "bg-neutral-300 w-1.5"}`} 
+            aria-label="第1页"
+          />
+          <button 
+            onClick={() => scrollToPage(1)} 
+            className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 1 ? "bg-black w-3" : "bg-neutral-300 w-1.5"}`} 
+            aria-label="第2页"
+          />
+        </div>
+      </div>
+
+      {/* Bottom Fixed App Bar */}
+      <div className="shrink-0 w-full px-5 py-4 bg-neutral-50/90 backdrop-blur-sm border-t border-neutral-100 pb-[env(safe-area-inset-bottom)]">
+        <div className="grid grid-cols-4 gap-3">
+          {/* App 1: Chat */}
+          <button
+            onClick={() => onOpenApp("chat")}
+            className="flex flex-col items-center gap-2 group focus:outline-none animate-fade-in"
+          >
+            <div className="w-13 h-13 bg-black text-white rounded-xl flex items-center justify-center shadow-md active:scale-95 hover:bg-neutral-800 transition-all duration-200">
+              <MessageSquare className="w-5.5 h-5.5 stroke-[1.75]" />
+            </div>
+            <span className="text-[10px] font-bold tracking-tight text-neutral-700 font-sans">
+              信息
+            </span>
+          </button>
+
+          {/* App 2: World Book */}
+          <button
+            onClick={() => onOpenApp("worldbook")}
+            className="flex flex-col items-center gap-2 group focus:outline-none animate-fade-in"
+          >
+            <div className="w-13 h-13 bg-white text-black border border-neutral-300 rounded-xl flex items-center justify-center shadow-sm active:scale-95 hover:bg-neutral-50 transition-all duration-200">
+              <BookOpen className="w-5.5 h-5.5 stroke-[1.75]" />
+            </div>
+            <span className="text-[10px] font-bold tracking-tight text-neutral-700 font-sans">
+              世界书
+            </span>
+          </button>
+
+          {/* App 3: Character Creator */}
+          <button
+            onClick={() => onOpenApp("creator")}
+            className="flex flex-col items-center gap-2 group focus:outline-none animate-fade-in"
+          >
+            <div className="w-13 h-13 bg-neutral-900 text-white rounded-xl flex items-center justify-center shadow-md active:scale-95 hover:bg-neutral-800 transition-all duration-200">
+              <UserPlus className="w-5.5 h-5.5 stroke-[1.75]" />
+            </div>
+            <span className="text-[10px] font-bold tracking-tight text-neutral-700 font-sans">
+              档案
+            </span>
+          </button>
+
+          {/* App 4: Settings */}
+          <button
+            onClick={() => onOpenApp("settings")}
+            className="flex flex-col items-center gap-2 group focus:outline-none animate-fade-in"
+          >
+            <div className="w-13 h-13 bg-neutral-200 text-neutral-800 rounded-xl flex items-center justify-center shadow-sm active:scale-95 hover:bg-neutral-300 transition-all duration-200">
+              <Settings className="w-5.5 h-5.5 stroke-[1.75]" />
+            </div>
+            <span className="text-[10px] font-bold tracking-tight text-neutral-700 font-sans">
+              系统设置
+            </span>
+          </button>
         </div>
       </div>
 

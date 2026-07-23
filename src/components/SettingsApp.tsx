@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, ChevronRight, Key, Database, Download, Upload, Trash2, Eye, EyeOff, Layers, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Key, Database, Download, Upload, Trash2, Eye, EyeOff, Layers, Check, Palette } from "lucide-react";
 import { apiFetchModels } from "../lib/api";
 
-import { AppSettings, ApiPreset } from "../types";
+import { AppSettings, ApiPreset, FontOption, ThemeOption } from "../types";
 
 interface SettingsAppProps {
   settings: AppSettings;
@@ -10,7 +10,7 @@ interface SettingsAppProps {
   onClose: () => void;
 }
 
-type ScreenType = "main" | "api" | "data";
+type ScreenType = "main" | "api" | "data" | "interface";
 
 export default function SettingsApp({ settings, onSaveSettings, onClose }: SettingsAppProps) {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>("main");
@@ -30,6 +30,84 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
   const [isEditingPresetName, setIsEditingPresetName] = useState(false);
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
+
+  // Interface Settings State
+  const [homeWallpaper, setHomeWallpaper] = useState(settings.homeWallpaper || "");
+  const [chatWallpaper, setChatWallpaper] = useState(settings.chatWallpaper || "");
+  const [globalFont, setGlobalFont] = useState<FontOption>(settings.globalFont || "system");
+  const [globalTheme, setGlobalTheme] = useState<ThemeOption>(settings.globalTheme || "warm_paper");
+
+  const compressAndCropImage = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new window.Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const size = 600;
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext('2d')!;
+          const w = img.width;
+          const h = img.height;
+          let sx = 0, sy = 0, sSize = Math.min(w, h);
+          if (w > h) {
+            sx = (w - h) / 2;
+          } else {
+            sy = (h - w) / 2;
+          }
+          ctx.drawImage(img, sx, sy, sSize, sSize, 0, 0, size, size);
+          let quality = 0.85;
+          let dataUrl = canvas.toDataURL('image/jpeg', quality);
+          if (dataUrl.length > 300 * 1024) {
+            quality = 0.6;
+            dataUrl = canvas.toDataURL('image/jpeg', quality);
+          }
+          resolve(dataUrl);
+        };
+        img.src = e.target!.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleWallpaperUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'home' | 'chat') => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const base64 = await compressAndCropImage(file);
+        if (type === 'home') {
+          setHomeWallpaper(base64);
+          onSaveSettings({ ...settings, homeWallpaper: base64, chatWallpaper, globalFont, globalTheme });
+        } else {
+          setChatWallpaper(base64);
+          onSaveSettings({ ...settings, homeWallpaper, chatWallpaper: base64, globalFont, globalTheme });
+        }
+      } catch (err) {
+        alert("图片处理失败");
+      }
+    }
+  };
+
+  const handleResetWallpaper = (type: 'home' | 'chat') => {
+    if (type === 'home') {
+      setHomeWallpaper("");
+      onSaveSettings({ ...settings, homeWallpaper: "", chatWallpaper, globalFont, globalTheme });
+    } else {
+      setChatWallpaper("");
+      onSaveSettings({ ...settings, homeWallpaper, chatWallpaper: "", globalFont, globalTheme });
+    }
+  };
+
+  const handleFontChange = (font: FontOption) => {
+    setGlobalFont(font);
+    onSaveSettings({ ...settings, homeWallpaper, chatWallpaper, globalFont: font, globalTheme });
+  };
+
+  const handleThemeChange = (theme: ThemeOption) => {
+    setGlobalTheme(theme);
+    onSaveSettings({ ...settings, homeWallpaper, chatWallpaper, globalFont, globalTheme: theme });
+  };
 
   // Data Management State
   const [storageUsed, setStorageUsed] = useState("0 KB");
@@ -225,6 +303,148 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
               </div>
               <ChevronRight className="w-4 h-4 text-neutral-400" />
             </button>
+
+            <button 
+              onClick={() => setCurrentScreen("interface")}
+              className="w-full bg-white rounded-xl p-4 flex items-center justify-between shadow-sm border border-neutral-100 active:scale-[0.98] transition-all"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-neutral-100 rounded-lg flex items-center justify-center">
+                  <Palette className="w-4 h-4 text-neutral-700" />
+                </div>
+                <span className="font-bold text-sm text-neutral-800">界面设置</span>
+              </div>
+              <ChevronRight className="w-4 h-4 text-neutral-400" />
+            </button>
+          </div>
+        </>
+      )}
+
+      {currentScreen === "interface" && (
+        <>
+          <div className="h-14 flex items-center justify-between px-3 border-b border-neutral-200 bg-white shrink-0">
+            <button 
+              onClick={() => setCurrentScreen("main")}
+              className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-50 rounded-lg active:scale-95 transition-all"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <span className="font-bold text-sm text-neutral-900">界面设置</span>
+            <div className="w-8 h-8" />
+          </div>
+
+          <div className="flex-1 p-4 flex flex-col gap-6 overflow-y-auto">
+            {/* 板块一：壁纸设置 */}
+            <div className="bg-white rounded-xl p-4 border border-neutral-200 shadow-sm space-y-4">
+              <div className="text-xs font-bold text-neutral-900 border-b pb-2">板块一：壁纸设置</div>
+              
+              {/* Home Wallpaper */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs text-neutral-700 font-medium">
+                  <span>主界面一（主页）壁纸</span>
+                  {homeWallpaper && (
+                    <button 
+                      onClick={() => handleResetWallpaper('home')}
+                      className="text-red-500 hover:underline text-[11px]"
+                    >
+                      重置默认
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-xl border border-neutral-200 overflow-hidden bg-neutral-100 flex items-center justify-center shrink-0">
+                    {homeWallpaper ? (
+                      <img src={homeWallpaper} alt="Home Wallpaper" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-[10px] text-neutral-400">默认</span>
+                    )}
+                  </div>
+                  <label className="flex-1 border border-dashed border-neutral-300 hover:border-black rounded-xl p-3 text-center cursor-pointer bg-neutral-50 hover:bg-neutral-100 transition-all">
+                    <span className="text-xs text-neutral-700 font-medium">上传图片（1:1裁剪）</span>
+                    <input type="file" accept="image/*" onChange={(e) => handleWallpaperUpload(e, 'home')} className="hidden" />
+                  </label>
+                </div>
+              </div>
+
+              {/* Chat Wallpaper */}
+              <div className="space-y-2 pt-2 border-t border-neutral-100">
+                <div className="flex items-center justify-between text-xs text-neutral-700 font-medium">
+                  <span>主界面二（聊天页）壁纸</span>
+                  {chatWallpaper && (
+                    <button 
+                      onClick={() => handleResetWallpaper('chat')}
+                      className="text-red-500 hover:underline text-[11px]"
+                    >
+                      重置默认
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-xl border border-neutral-200 overflow-hidden bg-neutral-100 flex items-center justify-center shrink-0">
+                    {chatWallpaper ? (
+                      <img src={chatWallpaper} alt="Chat Wallpaper" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-[10px] text-neutral-400">默认</span>
+                    )}
+                  </div>
+                  <label className="flex-1 border border-dashed border-neutral-300 hover:border-black rounded-xl p-3 text-center cursor-pointer bg-neutral-50 hover:bg-neutral-100 transition-all">
+                    <span className="text-xs text-neutral-700 font-medium">上传图片（1:1裁剪）</span>
+                    <input type="file" accept="image/*" onChange={(e) => handleWallpaperUpload(e, 'chat')} className="hidden" />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* 板块二：全局字体设置 */}
+            <div className="bg-white rounded-xl p-4 border border-neutral-200 shadow-sm space-y-3">
+              <div className="text-xs font-bold text-neutral-900 border-b pb-2">板块二：全局字体设置</div>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'system', label: '系统默认', desc: '标准无衬线' },
+                  { id: 'playfair_inter', label: 'Playfair + Inter', desc: '优雅衬线组合' },
+                  { id: 'kaiti', label: '华文楷体', desc: '古典东方美学' },
+                  { id: 'sans', label: 'Plus Jakarta Sans', desc: '现代几何无衬线' },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    onClick={() => handleFontChange(f.id as FontOption)}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      globalFont === f.id
+                        ? 'border-black bg-black text-white'
+                        : 'border-neutral-200 bg-neutral-50 hover:border-neutral-300 text-neutral-800'
+                    }`}
+                  >
+                    <div className="text-xs font-bold mb-0.5">{f.label}</div>
+                    <div className={`text-[10px] ${globalFont === f.id ? 'text-neutral-300' : 'text-neutral-500'}`}>{f.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 板块三：主题设置 */}
+            <div className="bg-white rounded-xl p-4 border border-neutral-200 shadow-sm space-y-3">
+              <div className="text-xs font-bold text-neutral-900 border-b pb-2">板块三：主题设置</div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'minimal_white', label: '极简白', bg: 'bg-white text-black border-neutral-300' },
+                  { id: 'warm_paper', label: '暖灰纸', bg: 'bg-[#F5F3F0] text-black border-[#EFECE8]' },
+                  { id: 'dark_night', label: '深色夜', bg: 'bg-[#0F0F0F] text-white border-neutral-800' },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => handleThemeChange(t.id as ThemeOption)}
+                    className={`p-3 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2 ${t.bg} ${
+                      globalTheme === t.id ? 'ring-2 ring-black ring-offset-2' : 'opacity-80 hover:opacity-100'
+                    }`}
+                  >
+                    <div className="w-6 h-6 rounded-full border border-current flex items-center justify-center">
+                      {globalTheme === t.id && <Check className="w-3.5 h-3.5" />}
+                    </div>
+                    <span className="text-xs font-bold">{t.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </>
       )}

@@ -59,6 +59,9 @@ export interface ApiPreset {
   apiFormat?: 'openai' | 'gemini';
 }
 
+export type FontOption = 'system' | 'playfair_inter' | 'kaiti' | 'sans';
+export type ThemeOption = 'minimal_white' | 'warm_paper' | 'dark_night';
+
 export interface AppSettings {
   apiUrl: string;
   apiKey: string;
@@ -67,6 +70,10 @@ export interface AppSettings {
   apiPresets?: ApiPreset[];
   activePresetId?: string;
   worldBookGroups?: string[];
+  homeWallpaper?: string;
+  chatWallpaper?: string;
+  globalFont?: FontOption;
+  globalTheme?: ThemeOption;
 }
 
 export interface ChatSession {

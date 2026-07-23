@@ -128,6 +128,7 @@ export default function CharacterCreatorApp({
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
   
   // Custom uploaded images
   const [realImage, setRealImage] = useState<string>("");
@@ -456,10 +457,11 @@ ${finalPersonality}
                 onChange={handleFileImport}
                 disabled={isImporting}
                 className="hidden"
-                id="char-file-import"
+                ref={fileInputRef}
               />
-              <label
-                htmlFor="char-file-import"
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
                 className={`w-full py-2.5 rounded-xl border text-[11px] font-mono font-bold tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                   isImporting
                     ? "bg-neutral-100 border-neutral-200 text-neutral-400 cursor-not-allowed"
@@ -477,7 +479,7 @@ ${finalPersonality}
                     选择 docx 或 txt 文本导入
                   </>
                 )}
-              </label>
+              </button>
             </div>
           </div>
 

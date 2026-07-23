@@ -1,55 +1,143 @@
 import * as mammoth from 'mammoth';
 
+export function normalizeUrl(url: string): string {
+  if (!url) return "";
+  let trimmed = url.trim();
+  if (!/^https?:\/\//i.test(trimmed)) {
+    trimmed = "https://" + trimmed;
+  }
+  return trimmed.replace(/\/+$/, "");
+}
+
 export async function callLLM(apiUrl: string, apiKey: string, model: string, messages: any[], temperature = 0.8, apiFormat: 'openai' | 'gemini' = 'openai') {
-  if (!apiUrl || !apiKey) {
-    throw new Error("请先在设置页配置 API 地址和 API Key");
-  }
+  const hasCustomApi = !!(apiUrl && apiKey);
+  let lastErrorDetail = "";
 
-  let endpoint = "";
-  let body = {};
+  if (hasCustomApi) {
+    const cleanApiUrl = normalizeUrl(apiUrl);
+    let endpoint = "";
+    if (apiFormat === 'openai') {
+      if (cleanApiUrl.endsWith('/chat/completions')) {
+        endpoint = cleanApiUrl;
+      } else {
+        endpoint = `${cleanApiUrl}/chat/completions`;
+      }
+    } else {
+      if (cleanApiUrl.includes(':generateContent')) {
+        endpoint = cleanApiUrl;
+      } else {
+        const selectedModel = model || "gemini-2.5-flash";
+        if (cleanApiUrl.includes('/models/')) {
+          endpoint = `${cleanApiUrl}:generateContent`;
+        } else {
+          endpoint = `${cleanApiUrl}/models/${selectedModel}:generateContent`;
+        }
+      }
+      if (apiKey && !endpoint.includes('key=')) {
+        endpoint += (endpoint.includes('?') ? '&' : '?') + `key=${encodeURIComponent(apiKey)}`;
+      }
+    }
 
-  if (apiFormat === 'openai') {
-    endpoint = `${apiUrl.replace(/\/+$/, "")}/chat/completions`;
-    body = {
-      model: model || "gpt-3.5-turbo",
-      messages,
-      temperature,
-    };
-  } else {
-    // Assuming Gemini format
-    endpoint = `${apiUrl.replace(/\/+$/, "")}:generateContent`;
-    body = {
-      contents: messages.map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }]
-      })),
-      generationConfig: {
-        temperature,
-      },
-    };
-  }
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
+    const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
+    };
+    if (apiFormat === 'openai') {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    } else {
+      headers["x-goog-api-key"] = apiKey;
+      if (apiKey) {
+        headers["Authorization"] = `Bearer ${apiKey}`;
+      }
+    }
 
-  if (!response.ok) {
-    let errText = "";
-    try { errText = await response.text(); } catch (e) {}
-    throw new Error(`API 调用失败: ${response.status} ${errText}`);
+    const body = apiFormat === 'openai'
+      ? { model: model || "gpt-3.5-turbo", messages, temperature }
+      : { contents: messages.map(m => ({ role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user', parts: [{ text: m.content || "" }] })), generationConfig: { temperature } };
+
+    // 1. Direct client fetch
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = apiFormat === 'openai' ? (data.choices?.[0]?.message?.content || "") : (data.candidates?.[0]?.content?.parts?.[0]?.text || "");
+        if (text) return text;
+      } else {
+        const errJson = await response.json().catch(() => null);
+        const errMsg = errJson?.error?.message || errJson?.error || errJson?.message || response.statusText;
+        lastErrorDetail = `[HTTP ${response.status}] ${errMsg}`;
+        console.warn(`⚠️ [Direct Client Fetch Status ${response.status}]`, errMsg);
+      }
+    } catch (err: any) {
+      lastErrorDetail = `[网络连接错误] ${err.message}`;
+      console.warn("⚠️ [Direct Client Fetch Failed, attempting proxy]", err.message);
+    }
+
+    // 2. Try backend proxy fallback
+    try {
+      const response = await fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: endpoint,
+          method: "POST",
+          headers,
+          body,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = apiFormat === 'openai' ? (data.choices?.[0]?.message?.content || "") : (data.candidates?.[0]?.content?.parts?.[0]?.text || "");
+        if (text) return text;
+      } else {
+        const proxyErrJson = await response.json().catch(() => null);
+        const proxyErrMsg = proxyErrJson?.error?.message || proxyErrJson?.error || proxyErrJson?.message || response.statusText;
+        lastErrorDetail = `[代理响应 HTTP ${response.status}] ${proxyErrMsg}`;
+      }
+    } catch (proxyErr: any) {
+      console.warn("⚠️ [Proxy Fetch Failed, attempting server Gemini fallback]", proxyErr.message);
+    }
   }
 
-  const data = await response.json();
-  if (apiFormat === 'openai') {
-    return data.choices?.[0]?.message?.content || "";
-  } else {
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  // 3. Server-side Gemini API fallback (/api/gemini)
+  let serverGeminiErr = "";
+  try {
+    const geminiRes = await fetch("/api/gemini", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, temperature }),
+    });
+
+    if (geminiRes.ok) {
+      const data = await geminiRes.json();
+      if (data.text) {
+        console.log("✅ [Gemini Fallback Success]");
+        return data.text;
+      }
+    } else {
+      const errData = await geminiRes.json().catch(() => ({}));
+      serverGeminiErr = errData.error || `HTTP ${geminiRes.status}`;
+      console.warn("⚠️ [Server Gemini API Error Response]", geminiRes.status, errData);
+    }
+  } catch (geminiErr: any) {
+    serverGeminiErr = geminiErr.message;
+    console.warn("⚠️ [Server Gemini API Network Error]", geminiErr.message);
   }
+
+  if (hasCustomApi) {
+    throw new Error(`API 调用失败：${lastErrorDetail || "请检查设置中的 API 地址与 API Key 是否正确"}`);
+  }
+
+  if (serverGeminiErr && serverGeminiErr.includes("GEMINI_API_KEY is not configured")) {
+    throw new Error("尚未配置 API！请在【设置】->【API 设置】中填入您的 API 地址、API Key 和模型名称。");
+  }
+
+  throw new Error(`API 调用失败：${serverGeminiErr || lastErrorDetail || "请检查网络或在【设置】中配置 API"}`);
 }
 
 // Helper functions
@@ -271,6 +359,10 @@ export async function apiChat(params: any) {
 - Do NOT use asterisks (*), brackets ([]), or parentheses (()) to enclose actions, expressions, or feelings in the main message.
 - Write ONLY direct typed text messages, exactly as a real human typing on a phone would.
 - Keep the messages natural, concise, and realistic. Never output things like "*微笑* 没关系" or "好的！(挥手)". Output ONLY the spoken text "好的！" or "没关系".
+- 【主动线下见面邀请】：如果你在聊天中觉得气氛合适，或者想约用户在现实中见面（如喝咖啡、逛街、吃饭、面基、约会），你可以主动向用户发送线下见面邀请！
+- 发起邀请的格式必须为：[OFFLINE_INVITATION]邀请话语|pending （例如：[OFFLINE_INVITATION]今天天气很好，要不要一起出来喝杯咖啡？|pending）。卡片会在用户的聊天界面显示为邀请卡片供用户接受或拒绝。
+- 【发送/分享照片】：当你想向用户分享、展示一张照片、风景、美食、自拍或生活画面时，请使用格式 [图片：描述内容] （例如：[图片：一只橘猫趴在窗台上，阳光照在它身上] 或 看我今天去吃的甜品！[图片：精致的草莓蛋糕放在白色瓷盘里]）。描述内容要丰富有画面感，符合你的人设和当时聊天场景。
+- 严禁在线上聊天中直接写入任何动作或心理描写！所有面对面和动作描写只在线下见面独立界面中发生。
 ${userDidNotReply ? "\n- 【注意】上一条消息也是你发的，用户这一轮还没有回复你。请保持角色自然，可以根据情境继续补充说明、卖萌、催促、或者换个话题，但要体现出你察觉到用户可能暂时忙碌或没有即时回复。" : ""}${blockedInstruction}
 `
       : `
@@ -543,32 +635,31 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
     while (attempt <= maxAttempts) {
       console.log(`[Persona Check Loop] Attempt ${attempt}/${maxAttempts} for character: ${character.name}`);
       
-    let rawText = "";
-    const formattedMessages = [
-      { role: "system", content: currentSysInstruction },
-      ...messages.map((m: any) => ({
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: m.content
-      }))
-    ];
-    rawText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, formattedMessages, 0.8, settings?.apiFormat);
-    
-    let finalCleanText = "";
-    let finalOs = "";
+      let rawText = "";
+      const formattedMessages = [
+        { role: "system", content: currentSysInstruction },
+        ...messages.map((m: any) => ({
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: m.content
+        }))
+      ];
+      rawText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, formattedMessages, 0.8, settings?.apiFormat);
+      
+      const osMatch = rawText.match(/\[OS_INNER\](.*?)$/is);
+      if (osMatch) {
+        finalOs = osMatch[1].trim();
+        finalCleanText = rawText.replace(/\[OS_INNER\](.*?)$/is, "").trim();
+      } else {
+        finalCleanText = rawText.trim();
+      }
 
-    const osMatch = rawText.match(/\[OS_INNER\](.*?)$/is);
-    if (osMatch) {
-      finalOs = osMatch[1].trim();
-      finalCleanText = rawText.replace(/\[OS_INNER\](.*?)$/is, "").trim();
-    } else {
-      finalCleanText = rawText.trim();
+      const { cleanText, osText } = sanitizeBannedPhrases(finalCleanText, finalOs, character, parsedInfo);
+      finalCleanText = cleanText;
+      finalOs = osText;
+
+      // Successfully processed, break loop
+      break;
     }
-
-    const { cleanText, osText } = sanitizeBannedPhrases(finalCleanText, finalOs, character, parsedInfo);
-    finalCleanText = cleanText;
-    finalOs = osText;
-
-  }
     return { text: finalCleanText, os: finalOs };
   } catch (err: any) {
     throw new Error(err.message || "对话生成失败，请重试。");
@@ -708,9 +799,9 @@ export async function apiGenerateTurtlesoupBatch(params: any) {
 }
 
 export async function apiTestConnection(params: any) {
-  const { apiUrl, apiKey, model } = params;
+  const { apiUrl, apiKey, model, apiFormat } = params;
   try {
-    await callLLM(apiUrl, apiKey, model, [{ role: "user", content: "Hello" }], 0.8, apiFormat as any);
+    await callLLM(apiUrl, apiKey, model, [{ role: "user", content: "Hello" }], 0.8, apiFormat || 'openai');
     return { success: true, message: "连接成功" };
   } catch (e: any) {
     throw new Error(e.message || "连接失败");
@@ -719,18 +810,52 @@ export async function apiTestConnection(params: any) {
 
 export async function apiFetchModels(params: any) {
   const { apiUrl, apiKey } = params;
+  if (!apiUrl || !apiKey) {
+    throw new Error("请填写 API 地址和 API Key");
+  }
+  let cleanApiUrl = normalizeUrl(apiUrl);
+  if (cleanApiUrl.endsWith('/chat/completions')) {
+    cleanApiUrl = cleanApiUrl.replace(/\/chat\/completions$/, '');
+  }
+  const endpoint = cleanApiUrl.endsWith('/models') ? cleanApiUrl : `${cleanApiUrl}/models`;
+  let response: Response | null = null;
   try {
-    const response = await fetch(`${apiUrl.replace(/\/+$/, "")}/models`, {
+    response = await fetch(endpoint, {
       headers: { "Authorization": `Bearer ${apiKey}` },
     });
-    if (!response.ok) throw new Error("Fetch models failed");
-    const data = await response.json();
-    let models = [];
-    if (data && data.data && Array.isArray(data.data)) {
-      models = data.data.map((m: any) => m.id);
+  } catch (err: any) {
+    try {
+      response = await fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: endpoint,
+          method: "GET",
+          headers: { "Authorization": `Bearer ${apiKey}` },
+        }),
+      });
+    } catch (proxyErr: any) {
+      throw new Error(`网络连接失败，请检查 API 地址: ${err.message}`);
     }
-    return { success: true, models };
-  } catch (e: any) {
-    throw new Error(e.message || "Fetch failed");
   }
+  if (!response.ok) {
+    let errText = "";
+    try { errText = await response.text(); } catch (e) {}
+    let parsedMsg = "";
+    if (errText) {
+      try {
+        const json = JSON.parse(errText);
+        parsedMsg = json.detail || json.error?.message || json.message || errText;
+      } catch (e) {
+        parsedMsg = errText;
+      }
+    }
+    throw new Error(`获取模型列表失败 (${response.status}): ${parsedMsg || response.statusText}`);
+  }
+  const data = await response.json();
+  let models: string[] = [];
+  if (data && data.data && Array.isArray(data.data)) {
+    models = data.data.map((m: any) => m.id);
+  }
+  return { success: true, models };
 }

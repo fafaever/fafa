@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen } from "lucide-react";
 import { apiChat } from "../lib/api";
 import { Character, Message, LoreEntry, AppSettings, ChatSession } from "../types";
 import ProfileView from "./ProfileView";
+import { OfflineMeetView } from "./OfflineMeetView";
 
 interface ChatAppProps {
   characters: Character[];
@@ -160,6 +161,7 @@ export default function ChatApp({
   const [showSettings, setShowSettings] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showBottomSheet, setShowBottomSheet] = useState(false);
+  const [showOfflineMeet, setShowOfflineMeet] = useState(false);
   const [activeMessage, setActiveMessage] = useState<Message | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [quotedMsgState, setQuotedMsgState] = useState<Message | null>(null);
@@ -375,6 +377,82 @@ export default function ChatApp({
       timestamp: Date.now(),
     };
     onUpdateSessionMessages(activeCharId, [...updatedMessages, disappointedMsg]);
+  };
+
+  // Accept offline meeting invitation
+  const handleAcceptOfflineInvitation = (msgId: string) => {
+    if (!activeSession || !activeCharId) return;
+    const updatedMessages = activeSession.messages.map((m) => {
+      if (m.id === msgId) {
+        const parts = m.content.replace("[OFFLINE_INVITATION]", "").split("|");
+        const note = parts[0] || "邀请你线下见面";
+        return {
+          ...m,
+          content: `[OFFLINE_INVITATION]${note}|accepted`,
+        };
+      }
+      return m;
+    });
+    onUpdateSessionMessages(activeCharId, updatedMessages);
+    setShowOfflineMeet(true);
+  };
+
+  // Decline offline meeting invitation
+  const handleDeclineOfflineInvitation = (msgId: string) => {
+    if (!activeSession || !activeCharId) return;
+    const updatedMessages = activeSession.messages.map((m) => {
+      if (m.id === msgId) {
+        const parts = m.content.replace("[OFFLINE_INVITATION]", "").split("|");
+        const note = parts[0] || "邀请你线下见面";
+        return {
+          ...m,
+          content: `[OFFLINE_INVITATION]${note}|declined`,
+        };
+      }
+      return m;
+    });
+
+    const politeReplies = [
+      "好吧，那下次有空再约。",
+      "嗯嗯明白，那你先忙！下次见啦。",
+      "没关系，那改天有合适的时间我们再约。",
+      "好的，没问题！下次随时喊我。",
+    ];
+    const replyText = politeReplies[Math.floor(Math.random() * politeReplies.length)];
+
+    const aiMsg: Message = {
+      id: `ai-decline-reply-${Date.now()}`,
+      role: "assistant",
+      content: replyText,
+      timestamp: Date.now(),
+    };
+
+    onUpdateSessionMessages(activeCharId, [...updatedMessages, aiMsg]);
+  };
+
+  const handleSyncOfflineMemory = (summaryText: string) => {
+    if (!activeSession || !activeCharId) return;
+
+    const snippet = summaryText.replace(/\s+/g, " ").slice(0, 200);
+    const memoryContent = `【线下见面回忆】与你线下见面：${snippet}...`;
+
+    const currentMsgs = activeSession.messages;
+    const lastMsg = currentMsgs[currentMsgs.length - 1];
+
+    if (lastMsg && lastMsg.content.startsWith("【线下见面回忆】")) {
+      const updated = currentMsgs.map((m) =>
+        m.id === lastMsg.id ? { ...m, content: memoryContent, timestamp: Date.now() } : m
+      );
+      onUpdateSessionMessages(activeCharId, updated);
+    } else {
+      const memoryMsg: Message = {
+        id: `offline-mem-${Date.now()}`,
+        role: "assistant",
+        content: memoryContent,
+        timestamp: Date.now(),
+      };
+      onUpdateSessionMessages(activeCharId, [...currentMsgs, memoryMsg]);
+    }
   };
 
   const handleConfirmLocation = () => {
@@ -996,15 +1074,15 @@ export default function ChatApp({
         blockedAt: activeChar.blockedAt,
         parentChatContext: parentChatContext,
       };
-      console.log('请求参数:', requestParams);
+      console.log('🚀 [ChatApp 请求参数]:', requestParams);
       let data;
       try {
         data = await apiChat(requestParams);
+        console.log("📨 [ChatApp 收到响应数据]:", data);
       } catch (networkErr: any) {
+        console.error("❌ [ChatApp 请求出错]:", networkErr);
         throw networkErr;
       }
-
-        
 
       // 3. Build Assistant Messages (handling split messages and splitting into short sentences)
       const text = data.text || "";
@@ -1033,6 +1111,8 @@ export default function ChatApp({
         }
       }
       
+      console.log("📝 [ChatApp 拆分生成消息片段]:", parts);
+
       let finalMessages = [...targetMessages];
       if (parts.length > 0) {
         let currentMessages = [...targetMessages];
@@ -1081,6 +1161,7 @@ export default function ChatApp({
         finalMessages = [...targetMessages, fallbackMsg];
         onUpdateSessionMessages(activeCharId, finalMessages, data.os || "");
       }
+      console.log("✅ [ChatApp 最终加入消息列表]", finalMessages);
 
       // Check active transfer trigger after normal AI reply
       const userMsgs = targetMessages.filter(m => m.role === 'user');
@@ -1654,23 +1735,157 @@ export default function ChatApp({
       );
     }
 
-    const parts = content.split(/(\*[^*]+\*)/g);
-    return parts.map((part, idx) => {
-      if (part.startsWith("*") && part.endsWith("*")) {
-        // Strip asterisks and render italic
-        const rawPart = part.slice(1, -1);
-        return (
-          <span key={idx} className="italic text-neutral-400 font-sans tracking-wide">
-            {rawPart}
-          </span>
-        );
-      }
-      return <span key={idx}>{part}</span>;
-    });
+    if (content.startsWith("[OFFLINE_INVITATION]")) {
+      const parts = content.replace("[OFFLINE_INVITATION]", "").split("|");
+      const note = parts[0] || "邀请你线下见面";
+      const status = parts[1] || "pending";
+
+      const isUserSender = msg?.role === "user";
+      const titleText = isUserSender
+        ? `你邀请 ${activeChar?.name || "对方"} 线下见面`
+        : `${activeChar?.name || "对方"} 邀请你线下见面`;
+
+      return (
+        <div className="relative bg-white rounded-[16px] p-[18px] shadow-[0_4px_20px_rgba(0,0,0,0.05)] border border-purple-100/90 my-[12px] select-none transition-all duration-200 min-w-[240px] max-w-[280px]">
+          {/* 左侧紫色装饰线 */}
+          <div className="absolute left-[10px] top-[18px] bottom-[18px] w-[3px] bg-purple-600 rounded-[1.5px]" />
+
+          <div className="pl-2 space-y-2.5">
+            {/* 顶栏 */}
+            <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
+              <span className="text-xs font-sans font-bold text-purple-900 flex items-center gap-1.5 shrink-0">
+                📖 线下见面邀请
+              </span>
+              <span className={`text-[10px] font-sans font-medium px-2 py-0.5 rounded-full ${
+                status === "pending"
+                  ? "bg-amber-50 text-amber-700 border border-amber-200"
+                  : status === "accepted"
+                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                  : "bg-neutral-100 text-neutral-500"
+              }`}>
+                {status === "pending" ? "待回复" : status === "accepted" ? "已接受" : "已拒绝"}
+              </span>
+            </div>
+
+            {/* 核心描述 */}
+            <div className="text-xs font-sans font-semibold text-neutral-800">
+              {titleText}
+            </div>
+
+            {/* 附言 */}
+            {note && (
+              <p className="text-[11px] font-sans italic text-stone-600 leading-relaxed break-words bg-stone-50/80 p-2 rounded-lg border border-stone-100">
+                “{note}”
+              </p>
+            )}
+
+            {/* 操作区域 */}
+            <div className="pt-1 flex items-center justify-end gap-2">
+              {status === "pending" && !isUserSender && msg && (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeclineOfflineInvitation(msg.id);
+                    }}
+                    className="text-xs font-sans font-medium text-neutral-600 hover:text-neutral-900 px-3 py-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 transition-all active:scale-95 cursor-pointer"
+                  >
+                    拒绝
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAcceptOfflineInvitation(msg.id);
+                    }}
+                    className="bg-purple-700 hover:bg-purple-800 active:scale-95 text-white font-sans text-xs font-medium rounded-lg px-4 py-1.5 transition-all shadow-xs cursor-pointer"
+                  >
+                    接受
+                  </button>
+                </>
+              )}
+
+              {status === "pending" && isUserSender && (
+                <span className="text-[11px] text-neutral-400 font-sans italic">
+                  等待对方回答...
+                </span>
+              )}
+
+              {status === "accepted" && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowOfflineMeet(true);
+                  }}
+                  className="bg-purple-50 hover:bg-purple-100 text-purple-700 font-sans text-xs font-medium rounded-lg px-3.5 py-1.5 transition-all cursor-pointer flex items-center gap-1"
+                >
+                  <span>进入线下见面</span>
+                </button>
+              )}
+
+              {status === "declined" && (
+                <span className="text-[11px] text-neutral-400 font-sans italic">
+                  已拒绝
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Clean up any remaining action wrappers from speech text inside bubble
+    const cleanSpeech = content
+      .replace(/^[*（(【\[]+|[*）)】\]]+$/g, "")
+      .replace(/(\*[^*]+\*|（[^）]+）|\([^)]+\)|【[^】]+】|\[(?!(?:CHARACTER_TRANSFER|TRANSFER|LOCATION|REDPACKET|OFFLINE_INVITATION|图片[：:]))[^\]]+\])/g, "")
+      .trim();
+
+    const imageRegex = /(\[图片[：:][^\]]+\])/g;
+    const textToRender = cleanSpeech || content;
+    if (imageRegex.test(textToRender)) {
+      const parts = textToRender.split(imageRegex);
+      return (
+        <span className="inline-flex flex-col gap-1.5 max-w-full">
+          {parts.map((part, idx) => {
+            if (!part) return null;
+            if (/^\[图片[：:]/.test(part)) {
+              const imgDesc = part.replace(/^\[图片[：:]/, "").replace(/\]$/, "").trim();
+              return (
+                <div key={idx} className="my-1 rounded-2xl overflow-hidden border border-[#E8E3D8] bg-[#FAF8F3] p-3 shadow-xs max-w-[260px] select-none text-left">
+                  <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-[#ECE7DC]">
+                    <span className="text-[11px] font-bold text-[#8C8171] flex items-center gap-1.5">
+                      <span className="text-xs">📷</span> 照片 / 图片
+                    </span>
+                    <span className="text-[10px] text-[#A8A090] font-mono">Image</span>
+                  </div>
+                  <div className="rounded-xl bg-[#F3EDE3] p-3 border border-[#E3DDD0] text-[#3D372E] text-[12.5px] font-sans leading-relaxed flex flex-col gap-1.5">
+                    <div className="flex items-start gap-2">
+                      <span className="text-base shrink-0 select-none">🖼️</span>
+                      <span className="italic font-medium">{imgDesc}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            return <span key={idx}>{part}</span>;
+          })}
+        </span>
+      );
+    }
+
+    return <span>{cleanSpeech || content}</span>;
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-white text-neutral-900 select-none animate-slide-up min-h-0">
+    <div className="flex-1 flex flex-col bg-white text-neutral-900 select-none animate-slide-up h-full min-h-0 relative overflow-hidden">
+      {settings?.chatWallpaper && (
+        <div 
+          className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none opacity-30" 
+          style={{ backgroundImage: `url(${settings.chatWallpaper})` }}
+        />
+      )}
       {/* -------------------- VIEW 1: MAIN TAB INTERFACE -------------------- */}
       {activeCharId === null && (
         <div className="flex-1 flex flex-col min-h-0 bg-neutral-50">
@@ -2292,9 +2507,9 @@ export default function ChatApp({
 
       {/* -------------------- VIEW 2: ACTIVE CHAT ROOM -------------------- */}
       {activeTab === "chat" && activeChar && activeSession && (
-        <div className="flex-1 flex flex-col min-h-0 bg-white">
+        <div className="flex-1 flex flex-col h-full bg-white">
           {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2.5 border-b border-neutral-100 shrink-0">
+          <div className="flex items-center justify-between px-3 py-2.5 border-b border-neutral-100 shrink-0 bg-white z-20">
             <button
               onClick={() => {
                 setActiveCharId(null);
@@ -2350,48 +2565,6 @@ export default function ChatApp({
             >
               <Menu className="w-5 h-5" />
             </button>
-          </div>
-
-          {/* Chat Mode Switcher Bar */}
-          <div className="bg-neutral-50 border-b border-neutral-100 px-4 py-2 shrink-0 flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[10px] font-mono font-bold tracking-wider text-neutral-400 uppercase">
-                模式:
-              </span>
-              <span className={`text-[10px] font-sans font-bold px-1.5 py-0.5 rounded-md ${
-                chatMode === "online" 
-                  ? "bg-amber-50 text-amber-700 border border-amber-100/80" 
-                  : "bg-purple-50 text-purple-700 border border-purple-100/80"
-              }`}>
-                {chatMode === "online" ? "💬 线上聊天模式 (禁止任何动作描写)" : "🎭 线下见面模式 (允许动作描写)"}
-              </span>
-            </div>
-            <div className="flex bg-neutral-200/50 p-0.5 rounded-lg border border-neutral-200/30">
-              <button
-                type="button"
-                onClick={() => setChatMode("online")}
-                className={`px-2.5 py-1 text-[10px] font-sans font-medium rounded-md transition-all ${
-                  chatMode === "online"
-                    ? "bg-white text-neutral-900 font-bold shadow-sm"
-                    : "text-neutral-500 hover:text-neutral-800"
-                }`}
-                title="线上聊天模式：去除所有动作/表情描写，纯文字对话"
-              >
-                线上聊天
-              </button>
-              <button
-                type="button"
-                onClick={() => setChatMode("offline")}
-                className={`px-2.5 py-1 text-[10px] font-sans font-medium rounded-md transition-all ${
-                  chatMode === "offline"
-                    ? "bg-white text-neutral-900 font-bold shadow-sm"
-                    : "text-neutral-500 hover:text-neutral-800"
-                }`}
-                title="线下见面模式：允许使用*动作*、(心理)等描写"
-              >
-                线下见面
-              </button>
-            </div>
           </div>
 
           {/* Sub-account Busted Banner */}
@@ -2467,116 +2640,170 @@ export default function ChatApp({
                 const showAvatar = !isSameSender || timeDiff >= 3000;
 
                 const botAvatarNode = isBot ? (
-                  showAvatar ? (
-                    <div className="w-7 h-7 rounded-full bg-[#E5E0D8] text-neutral-800 flex items-center justify-center text-xs overflow-hidden shrink-0 shadow-sm">
-                      {activeChar?.chatAvatar ? (
-                        <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      ) : (
-                        activeChar?.avatar || activeChar?.name?.charAt(0) || "🤖"
-                      )}
-                    </div>
-                  ) : (
-                    <div className="w-7 h-7 shrink-0" />
-                  )
+                  <div className="w-[36px] h-[36px] rounded-full bg-[#E5E0D8] text-neutral-800 flex items-center justify-center text-sm overflow-hidden shrink-0 shadow-sm">
+                    {activeChar?.chatAvatar ? (
+                      <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      activeChar?.avatar || activeChar?.name?.charAt(0) || "🤖"
+                    )}
+                  </div>
                 ) : null;
 
                 const userAvatarNode = !isBot ? (
-                  showAvatar ? (
-                    <div className="w-7 h-7 rounded-full bg-[#2C2C2E] text-white flex items-center justify-center text-xs overflow-hidden shrink-0 shadow-sm">
-                      {userAvatar ? (
-                        <img src={userAvatar} alt="User" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      ) : (
-                        "👤"
-                      )}
-                    </div>
-                  ) : (
-                    <div className="w-7 h-7 shrink-0" />
-                  )
+                  <div className="w-[36px] h-[36px] rounded-full bg-[#2C2C2E] text-white flex items-center justify-center text-sm overflow-hidden shrink-0 shadow-sm">
+                    {userAvatar ? (
+                      <img src={userAvatar} alt="User" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      "👤"
+                    )}
+                  </div>
                 ) : null;
 
-                let textContent = msg.content;
-                let actionContent = "";
-                
-                if (chatMode === "offline") {
-                  // don't parse special command blocks for actions
-                  const isSpecial = msg.content.startsWith("[CHARACTER_TRANSFER]") || 
-                                    msg.content.startsWith("[TRANSFER]") || 
-                                    msg.content.startsWith("[LOCATION]") || 
-                                    msg.content.startsWith("[REDPACKET]");
-                  if (!isSpecial) {
-                    const parts = msg.content.split(/(\*[^*]+\*)/g);
-                    let newText = "";
-                    parts.forEach((p) => {
-                      if (p.startsWith("*") && p.endsWith("*")) {
-                        actionContent += p.slice(1, -1) + " ";
-                      } else {
-                        newText += p;
-                      }
-                    });
-                    textContent = newText.trim();
-                    actionContent = actionContent.trim();
-                  }
+                interface MessageSegment {
+                  type: "action" | "speech";
+                  text: string;
                 }
 
+                const parseMessageSegments = (content: string): MessageSegment[] => {
+                  if (!content) return [];
+
+                  const isSpecial =
+                    content.startsWith("[CHARACTER_TRANSFER]") ||
+                    content.startsWith("[TRANSFER]") ||
+                    content.startsWith("[LOCATION]") ||
+                    content.startsWith("[REDPACKET]") ||
+                    content.startsWith("[OFFLINE_INVITATION]") ||
+                    content.startsWith("[图片：") ||
+                    content.startsWith("[图片:");
+
+                  if (isSpecial) {
+                    return [{ type: "speech", text: content }];
+                  }
+
+                  // Action delimiters regex: *...*, （...）, (...), 【...】, [...] (excluding special commands)
+                  const actionRegex = /(\*[^*]+\*|（[^）]+）|\([^)]+\)|【[^】]+】|\[(?!(?:CHARACTER_TRANSFER|TRANSFER|LOCATION|REDPACKET|OFFLINE_INVITATION|图片[：:]))[^\]]+\])/g;
+
+                  // In ONLINE chat mode, action descriptions are forbidden. Strip action brackets and render as pure speech bubble.
+                  if (chatMode === "online") {
+                    const cleanText = content.replace(actionRegex, "").trim();
+                    return [{ type: "speech", text: cleanText || content }];
+                  }
+
+                  // In OFFLINE meet mode, parse narration/action blocks separately from speech
+                  const rawParts = content.split(actionRegex);
+                  const initialSegments: MessageSegment[] = [];
+
+                  rawParts.forEach((p) => {
+                    if (!p) return;
+                    const trimmedP = p.trim();
+                    if (!trimmedP) return;
+
+                    const isAction =
+                      (trimmedP.startsWith("*") && trimmedP.endsWith("*")) ||
+                      (trimmedP.startsWith("（") && trimmedP.endsWith("）")) ||
+                      (trimmedP.startsWith("(") && trimmedP.endsWith(")")) ||
+                      (trimmedP.startsWith("【") && trimmedP.endsWith("】")) ||
+                      (trimmedP.startsWith("[") && trimmedP.endsWith("]"));
+
+                    if (isAction) {
+                      const raw = trimmedP.slice(1, -1).trim();
+                      if (raw) {
+                        initialSegments.push({ type: "action", text: raw });
+                      }
+                    } else {
+                      let raw = trimmedP;
+                      // Strip outer quotes if wrapping speech
+                      if ((raw.startsWith("“") && raw.endsWith("”")) || (raw.startsWith('"') && raw.endsWith('"'))) {
+                        raw = raw.slice(1, -1).trim();
+                      }
+                      // Clean residual action brackets if any
+                      raw = raw.replace(/^[*（(【\[]+|[*）)】\]]+$/g, "").trim();
+
+                      if (raw) {
+                        initialSegments.push({ type: "speech", text: raw });
+                      }
+                    }
+                  });
+
+                  // Merge adjacent action segments
+                  const segments: MessageSegment[] = [];
+                  initialSegments.forEach((seg) => {
+                    if (seg.type === "action" && segments.length > 0 && segments[segments.length - 1].type === "action") {
+                      segments[segments.length - 1].text += "，" + seg.text;
+                    } else {
+                      segments.push({ ...seg });
+                    }
+                  });
+
+                  return segments;
+                };
+
+                const segments = parseMessageSegments(msg.content);
+
                 return (
-                  <div key={msg.id} className="flex flex-col w-full">
-                    {/* Offline Action Block */}
-                    {actionContent && (
-                      <div className="w-full flex flex-col py-1 my-1">
-                        <div className="w-full h-[1px] bg-[#EFECE8]" />
-                        <div className="py-[8px] italic text-[#A8A39A] text-[13px] text-center w-full break-words">
-                          {actionContent}
-                        </div>
-                        <div className="w-full h-[1px] bg-[#EFECE8]" />
-                      </div>
-                    )}
-                    
-                    {/* Message Bubble Block */}
-                    {(textContent || !actionContent) && (
-                      <div className={`flex items-end gap-2 ${isBot ? "justify-start" : "justify-end"} animate-fade-in w-full`}>
-                        {/* Avatar on Left (for both user and bot) */}
-                        {isBot ? botAvatarNode : userAvatarNode}
-  
-                        {/* Message Container */}
-                        <div className={`flex flex-col gap-1 max-w-[82%] ${isBot ? "items-start" : "items-end"}`}>
-                          {/* Message Bubble with longpress, mouse, doubleclick and context menu listeners */}
-                          <div
-                            onMouseDown={() => handleMouseDown(msg)}
-                            onMouseUp={handleMouseUp}
-                            onTouchStart={() => handleTouchStart(msg)}
-                            onTouchEnd={handleTouchEnd}
-                            onContextMenu={(e) => handleContextMenu(e, msg)}
-                            onDoubleClick={() => handleDoubleClick(msg)}
-                            className={`px-4 py-3 rounded-2xl text-xs leading-relaxed font-sans shadow-sm select-text cursor-pointer active:scale-[0.99] transition-all relative ${
-                              isBot
-                                ? "bg-white text-neutral-900 border border-neutral-200 rounded-tl-none hover:border-neutral-300"
-                                : "bg-black text-white rounded-tr-none hover:bg-neutral-900"
-                            }`}
-                            title="长按、右键或双击此消息可唤出操作菜单"
-                          >
-                            {/* Quoted item block (inside bubble) */}
-                            {msg.quotedMsg && (
-                              <div className="mb-1.5 p-2 bg-neutral-100/80 border-l-2 border-neutral-400 rounded text-[10px] text-neutral-600 font-sans truncate max-w-full">
-                                <span className="font-bold block text-[9px] uppercase tracking-wider text-neutral-400 mb-0.5">
-                                  引用:
-                                </span>
-                                {msg.quotedMsg.content}
-                              </div>
-                            )}
-  
-                            {renderMessageContent(textContent, msg)}
+                  <div key={msg.id} className="flex flex-col w-full gap-2 my-1">
+                    {segments.map((seg, segIdx) => {
+                      if (seg.type === "action") {
+                        return (
+                          <div key={segIdx} className="w-full flex flex-col py-1.5 my-1 animate-fade-in select-none">
+                            <div className="w-full h-[1px] bg-[#EFECE8]" />
+                            <div className="py-[8px] italic text-[#A8A39A] text-[13px] text-center w-full break-words font-sans leading-relaxed">
+                              {seg.text}
+                            </div>
+                            <div className="w-full h-[1px] bg-[#EFECE8]" />
                           </div>
-  
-                          {/* Meta info / matched lore tags */}
-                          <div className="flex items-center gap-1.5 px-1">
-                            {isBot && activeChar?.isBlocked && activeChar.blockedAt && msg.timestamp >= activeChar.blockedAt && <span className="text-[10px] text-black font-bold">!</span>}
-                            <span className="text-[8px] font-mono text-neutral-400">
-                              {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
+                        );
+                      }
+
+                      return (
+                        <div key={segIdx} className={`flex items-start gap-[10px] ${isBot ? "justify-start" : "justify-end"} animate-fade-in w-full`}>
+                          {/* Avatar on Left for Bot */}
+                          {isBot && botAvatarNode}
+
+                          {/* Message Container */}
+                          <div className={`flex flex-col gap-1 max-w-[82%] ${isBot ? "items-start" : "items-end"}`}>
+                            {/* Message Bubble with longpress, mouse, doubleclick and context menu listeners */}
+                            <div
+                              onMouseDown={() => handleMouseDown(msg)}
+                              onMouseUp={handleMouseUp}
+                              onTouchStart={() => handleTouchStart(msg)}
+                              onTouchEnd={handleTouchEnd}
+                              onContextMenu={(e) => handleContextMenu(e, msg)}
+                              onDoubleClick={() => handleDoubleClick(msg)}
+                              className={`px-4 py-3 rounded-2xl text-xs leading-relaxed font-sans shadow-sm select-text cursor-pointer active:scale-[0.99] transition-all relative ${
+                                isBot
+                                  ? "bg-white text-neutral-900 border border-neutral-200 rounded-tl-none hover:border-neutral-300"
+                                  : "bg-black text-white rounded-tr-none hover:bg-neutral-900"
+                              }`}
+                              title="长按、右键或双击此消息可唤出操作菜单"
+                            >
+                              {/* Quoted item block (inside bubble) */}
+                              {msg.quotedMsg && segIdx === 0 && (
+                                <div className="mb-1.5 p-2 bg-neutral-100/80 border-l-2 border-neutral-400 rounded text-[10px] text-neutral-600 font-sans truncate max-w-full">
+                                  <span className="font-bold block text-[9px] uppercase tracking-wider text-neutral-400 mb-0.5">
+                                    引用:
+                                  </span>
+                                  {msg.quotedMsg.content}
+                                </div>
+                              )}
+
+                              {renderMessageContent(seg.text, msg)}
+                            </div>
+
+                            {/* Meta info / matched lore tags */}
+                            <div className="flex items-center gap-1.5 px-1">
+                              {isBot && activeChar?.isBlocked && activeChar.blockedAt && msg.timestamp >= activeChar.blockedAt && <span className="text-[10px] text-black font-bold">!</span>}
+                              <span className="text-[8px] font-mono text-neutral-400">
+                                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
                           </div>
+
+                          {/* Avatar on Right for User */}
+                          {!isBot && userAvatarNode}
                         </div>
-                      </div>
-                    )}
+                      );
+                    })}
                   </div>
                 );
               })
@@ -2584,8 +2811,8 @@ export default function ChatApp({
 
             {/* Blinking Typing indicator */}
             {isGenerating && (
-              <div className="flex items-end gap-2 justify-start animate-fade-in">
-                <div className="w-7 h-7 rounded-full bg-[#E5E0D8] text-neutral-800 flex items-center justify-center text-xs overflow-hidden shrink-0 shadow-sm">
+              <div className="flex items-start gap-[10px] justify-start animate-fade-in">
+                <div className="w-[36px] h-[36px] rounded-full bg-[#E5E0D8] text-neutral-800 flex items-center justify-center text-xs overflow-hidden shrink-0 shadow-sm">
                   {activeChar?.chatAvatar ? (
                     <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                   ) : (
@@ -2633,187 +2860,204 @@ export default function ChatApp({
           )}
 
           {/* Message input bar or Blocked display */}
-          {isBlocked ? (
-            <div className="p-4 border-t border-neutral-100 bg-neutral-50 flex flex-col items-center justify-center space-y-2 shrink-0 select-none animate-fade-in">
-              <div className="flex items-center gap-2 w-full">
-                <input
-                  type="text"
-                  placeholder="你已拉黑该角色"
-                  disabled
-                  className="flex-1 text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-neutral-100 text-neutral-400 outline-none transition-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleTriggerAiReply()}
-                  disabled={isGenerating}
-                  className="w-10 h-10 bg-black hover:bg-neutral-800 disabled:bg-neutral-100 disabled:text-neutral-300 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
-                  title="生成AI回复"
-                >
-                  <Sparkles className="w-4 h-4 stroke-[1.75] text-amber-300 fill-amber-300 animate-pulse" />
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsBlocked(false);
-                  saveSettings({ isBlocked: false });
-                  if (activeCharacter) {
-                    onUpdateCharacter({ ...activeCharacter, isBlocked: false, blockedAt: undefined });
-                  }
-                }}
-                className="text-[10px] font-sans font-bold text-neutral-400 underline"
-              >
-                解除拉黑
-              </button>
-            </div>
-          ) : (
-            <div className="relative">
-              {/* Action Panel (Slide up from bottom ~40%) */}
-              {showActionPanel && (
-                <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-t-[20px] shadow-2xl border border-neutral-100 z-30 p-5 animate-slide-up flex flex-col max-h-[45vh]">
-                  <div className="flex items-center justify-between pb-3 border-b border-neutral-100 mb-4">
-                    <span className="font-sans font-bold text-sm text-neutral-900">功能</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowActionPanel(false)}
-                      className="p-1 text-neutral-400 hover:text-neutral-900 rounded-lg active:scale-95 transition-all"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-4 gap-4 overflow-y-auto py-2">
-                    {/* 1. 语音 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowActionPanel(false);
-                        setActiveCall("voice");
-                      }}
-                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
-                    >
-                      <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
-                        <Phone className="w-5 h-5" />
-                      </div>
-                      <span className="text-[11px] font-sans text-neutral-600">语音</span>
-                    </button>
-
-                    {/* 2. 视频 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowActionPanel(false);
-                        setActiveCall("video");
-                      }}
-                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
-                    >
-                      <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
-                        <Video className="w-5 h-5" />
-                      </div>
-                      <span className="text-[11px] font-sans text-neutral-600">视频</span>
-                    </button>
-
-                    {/* 3. 转账 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowActionPanel(false);
-                        setActiveModal("transfer");
-                      }}
-                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
-                    >
-                      <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
-                        <CreditCard className="w-5 h-5" />
-                      </div>
-                      <span className="text-[11px] font-sans text-neutral-600">转账</span>
-                    </button>
-
-                    {/* 4. 位置 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowActionPanel(false);
-                        setActiveModal("location");
-                      }}
-                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
-                    >
-                      <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
-                        <MapPin className="w-5 h-5" />
-                      </div>
-                      <span className="text-[11px] font-sans text-neutral-600">位置</span>
-                    </button>
-
-                    {/* 5. 红包 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowActionPanel(false);
-                        setActiveModal("redpacket");
-                      }}
-                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
-                    >
-                      <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
-                        <Gift className="w-5 h-5" />
-                      </div>
-                      <span className="text-[11px] font-sans text-neutral-600">红包</span>
-                    </button>
-
-                    {/* 6. 游戏 */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowActionPanel(false);
-                        setActiveModal("games");
-                      }}
-                      className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
-                    >
-                      <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
-                        <Gamepad2 className="w-5 h-5" />
-                      </div>
-                      <span className="text-[11px] font-sans text-neutral-600">游戏</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <form onSubmit={handleSendMessage} className="p-3 border-t border-neutral-100 shrink-0 bg-white">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowActionPanel(!showActionPanel)}
-                    className="w-9 h-9 bg-neutral-800 hover:bg-black text-white rounded-full flex items-center justify-center active:scale-95 transition-all shrink-0 font-bold text-lg shadow-sm"
-                    title="功能面板"
-                  >
-                    +
-                  </button>
+          <div className="shrink-0 bg-white z-20 border-t border-neutral-100">
+            {isBlocked ? (
+              <div className="p-4 bg-neutral-50 flex flex-col items-center justify-center space-y-2 shrink-0 select-none animate-fade-in">
+                <div className="flex items-center gap-2 w-full">
                   <input
                     type="text"
-                    placeholder={isGenerating ? "生成中..." : "输入消息... (支持 *动作描写*)"}
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    disabled={isGenerating}
-                    className="flex-1 text-xs border border-neutral-200 hover:border-neutral-300 focus:border-neutral-950 px-3.5 py-2.5 rounded-xl bg-neutral-50 focus:bg-white outline-none transition-all"
+                    placeholder="你已拉黑该角色"
+                    disabled
+                    className="flex-1 text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-neutral-100 text-neutral-400 outline-none transition-all"
                   />
-                  <button
-                    type="submit"
-                    disabled={!inputText.trim() || isGenerating}
-                    className="w-10 h-10 bg-neutral-100 hover:bg-neutral-200 disabled:bg-neutral-50 disabled:text-neutral-300 text-neutral-800 rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
-                    title="发送用户消息 (仅发送，不生成AI回复)"
-                  >
-                    <Send className="w-4 h-4 stroke-[1.75]" />
-                  </button>
                   <button
                     type="button"
                     onClick={() => handleTriggerAiReply()}
                     disabled={isGenerating}
                     className="w-10 h-10 bg-black hover:bg-neutral-800 disabled:bg-neutral-100 disabled:text-neutral-300 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
-                    title="生成AI回复 (点击生成一轮回复)"
+                    title="生成AI回复"
                   >
                     <Sparkles className="w-4 h-4 stroke-[1.75] text-amber-300 fill-amber-300 animate-pulse" />
                   </button>
                 </div>
-              </form>
-            </div>
-          )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsBlocked(false);
+                    saveSettings({ isBlocked: false });
+                    if (activeCharacter) {
+                      onUpdateCharacter({ ...activeCharacter, isBlocked: false, blockedAt: undefined });
+                    }
+                  }}
+                  className="text-[10px] font-sans font-bold text-neutral-400 underline"
+                >
+                  解除拉黑
+                </button>
+              </div>
+            ) : (
+              <div className="relative">
+                {/* Action Panel (Slide up from bottom ~40%) */}
+                {showActionPanel && (
+                  <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-t-[20px] shadow-2xl border border-neutral-100 z-30 p-5 animate-slide-up flex flex-col max-h-[45vh]">
+                    <div className="flex items-center justify-between pb-3 border-b border-neutral-100 mb-4">
+                      <span className="font-sans font-bold text-sm text-neutral-900">功能</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowActionPanel(false)}
+                        className="p-1 text-neutral-400 hover:text-neutral-900 rounded-lg active:scale-95 transition-all"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-4 gap-4 overflow-y-auto py-2">
+                      {/* 1. 语音 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionPanel(false);
+                          setActiveCall("voice");
+                        }}
+                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
+                          <Phone className="w-5 h-5" />
+                        </div>
+                        <span className="text-[11px] font-sans text-neutral-600">语音</span>
+                      </button>
+
+                      {/* 2. 视频 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionPanel(false);
+                          setActiveCall("video");
+                        }}
+                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
+                          <Video className="w-5 h-5" />
+                        </div>
+                        <span className="text-[11px] font-sans text-neutral-600">视频</span>
+                      </button>
+
+                      {/* 3. 线下见面 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionPanel(false);
+                          setShowOfflineMeet(true);
+                        }}
+                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-purple-100 group-hover:bg-purple-900 group-hover:text-white text-purple-800 flex items-center justify-center transition-all shadow-sm">
+                          <BookOpen className="w-5 h-5" />
+                        </div>
+                        <span className="text-[11px] font-sans font-medium text-neutral-700">线下见面</span>
+                      </button>
+
+                      {/* 4. 转账 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionPanel(false);
+                          setActiveModal("transfer");
+                        }}
+                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
+                          <CreditCard className="w-5 h-5" />
+                        </div>
+                        <span className="text-[11px] font-sans text-neutral-600">转账</span>
+                      </button>
+
+                      {/* 4. 位置 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionPanel(false);
+                          setActiveModal("location");
+                        }}
+                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
+                          <MapPin className="w-5 h-5" />
+                        </div>
+                        <span className="text-[11px] font-sans text-neutral-600">位置</span>
+                      </button>
+
+                      {/* 5. 红包 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionPanel(false);
+                          setActiveModal("redpacket");
+                        }}
+                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
+                          <Gift className="w-5 h-5" />
+                        </div>
+                        <span className="text-[11px] font-sans text-neutral-600">红包</span>
+                      </button>
+
+                      {/* 6. 游戏 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionPanel(false);
+                          setActiveModal("games");
+                        }}
+                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
+                          <Gamepad2 className="w-5 h-5" />
+                        </div>
+                        <span className="text-[11px] font-sans text-neutral-600">游戏</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={handleSendMessage} className="p-3 bg-white">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowActionPanel(!showActionPanel)}
+                      className="w-9 h-9 bg-neutral-800 hover:bg-black text-white rounded-full flex items-center justify-center active:scale-95 transition-all shrink-0 font-bold text-lg shadow-sm"
+                      title="功能面板"
+                    >
+                      +
+                    </button>
+                    <input
+                      type="text"
+                      placeholder={isGenerating ? "生成中..." : "输入消息... (支持 *动作描写*)"}
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      disabled={isGenerating}
+                      className="flex-1 text-xs border border-neutral-200 hover:border-neutral-300 focus:border-neutral-950 px-3.5 py-2.5 rounded-xl bg-neutral-50 focus:bg-white outline-none transition-all"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!inputText.trim() || isGenerating}
+                      className="w-10 h-10 bg-neutral-100 hover:bg-neutral-200 disabled:bg-neutral-50 disabled:text-neutral-300 text-neutral-800 rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
+                      title="发送用户消息 (仅发送，不生成AI回复)"
+                    >
+                      <Send className="w-4 h-4 stroke-[1.75]" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTriggerAiReply()}
+                      disabled={isGenerating}
+                      className="w-10 h-10 bg-black hover:bg-neutral-800 disabled:bg-neutral-100 disabled:text-neutral-300 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
+                      title="生成AI回复 (点击生成一轮回复)"
+                    >
+                      <Sparkles className="w-4 h-4 stroke-[1.75] text-amber-300 fill-amber-300 animate-pulse" />
+                    </button>
+                  </div>
+                </form>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -3796,6 +4040,16 @@ export default function ChatApp({
             </div>
           </div>
         </div>
+      )}
+      {/* Standalone Offline Meet Screen */}
+      {showOfflineMeet && activeChar && (
+        <OfflineMeetView
+          character={activeChar}
+          settings={settings}
+          onlineMessages={activeSession?.messages || []}
+          onSyncToOnlineChat={handleSyncOfflineMemory}
+          onClose={() => setShowOfflineMeet(false)}
+        />
       )}
     </div>
   );
