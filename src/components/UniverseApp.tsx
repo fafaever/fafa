@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   ChevronLeft,
+  ChevronRight,
   Sparkles,
   Plus,
   Trash2,
@@ -21,6 +22,7 @@ import {
   BookOpen,
   Check,
   Shield,
+  User,
   HelpCircle,
   FolderArchive,
   RefreshCw,
@@ -31,7 +33,8 @@ import {
   MessageSquare,
   ShoppingBag,
   Award,
-  Share2
+  Share2,
+  Settings
 } from "lucide-react";
 import { Character, AppSettings } from "../types";
 import { callLLM } from "../lib/api";
@@ -78,6 +81,12 @@ export interface MemoryCard {
   shared: boolean;
 }
 
+export interface CharacterCardData {
+  characterName: string;
+  action: string;
+  dialogue: string;
+}
+
 export interface RandomEvent {
   id: string;
   description: string;
@@ -113,6 +122,7 @@ export interface TransmigrationWorld {
     senderName?: string;
     content: string;
     timestamp: number;
+    charCards?: CharacterCardData[];
   }[];
   currentTurnCount: number;
   createdAt: number;
@@ -130,6 +140,8 @@ export interface TransmigrationWorld {
   // Faction & Group Chat
   factions?: Faction[];
   factionChats?: Record<string, FactionChatMessage[]>;
+  actionOptions?: string[];
+  factionProgress?: Record<string, number>;
 }
 
 // 2. Rules Horror (规则怪谈)
@@ -196,6 +208,16 @@ const STORAGE_KEY_SUSPENSE = "mobile_ai_universe_suspense_v1";
 
 export default function UniverseApp({ characters, settings, onClose }: UniverseAppProps) {
   const getCharacterById = (id: string) => characters.find(c => c.id === id);
+  const formatDate = (ts: number) => {
+    if (!ts) return "";
+    const d = new Date(ts);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const hours = String(d.getHours()).padStart(2, "0");
+    const minutes = String(d.getMinutes()).padStart(2, "0");
+    return `${year}/${month}/${day} ${hours}:${minutes}`;
+  };
   // Navigation View State
   const [activeTab, setActiveTab] = useState<
     | "main"
@@ -220,6 +242,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
   // Chat / Interactive States
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isRefreshingOptions, setIsRefreshingOptions] = useState(false);
   const [showBackgroundDrawer, setShowBackgroundDrawer] = useState(false);
   const [showSecretModal, setShowSecretModal] = useState<RoleAssignment | null>(null);
 
@@ -248,13 +271,132 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
   const [accuseTargetId, setAccuseTargetId] = useState<string | null>(null);
   const [accuseGuessTag, setAccuseGuessTag] = useState<"攻略者" | "攻略对象">("攻略者");
   const [accuseText, setAccuseText] = useState("");
-    const [activePlayTab, setActivePlayTab] = useState<"behavior" | "tasks" | "identities" | "history" | "chat">("behavior");
+  const [activePlayTab, setActivePlayTab] = useState<"behavior" | "tasks" | "identities" | "history" | "chat" | "settings">("history");
   const [viewingFactionId, setViewingFactionId] = useState<string | null>(null);
   const [factionChatInput, setFactionChatInput] = useState("");
+  const [editWorldBg, setEditWorldBg] = useState("");
+  const [editUserName, setEditUserName] = useState("");
+  const [editUserThought, setEditUserThought] = useState("");
+  const [editCharacterStates, setEditCharacterStates] = useState<Record<string, CharacterTransmigrationState>>({});
+  const [editTasks, setEditTasks] = useState<TransmigrationTask[]>([]);
+  const [selectedShareCharId, setSelectedShareCharId] = useState<string>("");
   
   // Custom Confirmation States
   const [worldToDelete, setWorldToDelete] = useState<string | null>(null);
   const [showSaveExitConfirm, setShowSaveExitConfirm] = useState(false);
+
+  // Catalog Filter & Unified Helpers
+  const [catalogCategory, setCatalogCategory] = useState<"all" | "transmigration" | "rules" | "suspense">("all");
+  const [showCreatePickerModal, setShowCreatePickerModal] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{
+    id: string;
+    type: "transmigration" | "rules" | "suspense";
+    name: string;
+  } | null>(null);
+
+  interface UnifiedUniverseCard {
+    id: string;
+    name: string;
+    category: "快穿" | "规则怪谈" | "悬疑剧场";
+    typeKey: "transmigration" | "rules" | "suspense";
+    status: "in_progress" | "completed" | "not_started";
+    characterCount: number;
+    progressText: string;
+    updatedAt: number;
+    background: string;
+  }
+
+  const getUnifiedUniverseItems = (): UnifiedUniverseCard[] => {
+    const transmigrationItems: UnifiedUniverseCard[] = worlds.map((w) => ({
+      id: w.id,
+      name: w.name,
+      category: "快穿",
+      typeKey: "transmigration",
+      status: w.status || "in_progress",
+      characterCount: w.characterIds?.length || 0,
+      progressText: `第 ${Math.min(5, Math.max(1, w.currentTurnCount || 1))} 场 / 共 5 场`,
+      updatedAt: w.updatedAt || w.createdAt || Date.now(),
+      background: w.background || "",
+    }));
+
+    const rulesItems: UnifiedUniverseCard[] = instances.map((inst) => {
+      const turnEstimate = inst.messages && inst.messages.length > 1 
+        ? Math.min(5, Math.max(1, Math.ceil(inst.messages.length / 2))) 
+        : 1;
+      return {
+        id: inst.id,
+        name: inst.name,
+        category: "规则怪谈",
+        typeKey: "rules",
+        status: inst.status || "in_progress",
+        characterCount: inst.characterIds?.length || 0,
+        progressText: inst.endingProgress && inst.endingProgress !== "探索中"
+          ? inst.endingProgress
+          : `第 ${turnEstimate} 场 / 共 5 场`,
+        updatedAt: inst.updatedAt || inst.createdAt || Date.now(),
+        background: inst.background || "",
+      };
+    });
+
+    const suspenseItems: UnifiedUniverseCard[] = scripts.map((sc) => ({
+      id: sc.id,
+      name: sc.name,
+      category: "悬疑剧场",
+      typeKey: "suspense",
+      status: sc.status || "in_progress",
+      characterCount: sc.characterIds?.length || 0,
+      progressText: `第 ${sc.currentAct || 1} 场 / 共 5 场`,
+      updatedAt: sc.updatedAt || sc.createdAt || Date.now(),
+      background: sc.background || "",
+    }));
+
+    let all = [...transmigrationItems, ...rulesItems, ...suspenseItems];
+
+    if (catalogCategory === "transmigration") {
+      all = transmigrationItems;
+    } else if (catalogCategory === "rules") {
+      all = rulesItems;
+    } else if (catalogCategory === "suspense") {
+      all = suspenseItems;
+    }
+
+    return all.sort((a, b) => b.updatedAt - a.updatedAt);
+  };
+
+  const handleOpenUniverseCard = (item: UnifiedUniverseCard) => {
+    if (item.typeKey === "transmigration") {
+      const target = worlds.find((w) => w.id === item.id);
+      if (target) {
+        setActiveWorld(target);
+        setActiveTab("transmigration_play");
+        setActivePlayTab("history");
+      }
+    } else if (item.typeKey === "rules") {
+      const target = instances.find((inst) => inst.id === item.id);
+      if (target) {
+        setActiveInstance(target);
+        setActiveTab("rules_play");
+      }
+    } else if (item.typeKey === "suspense") {
+      const target = scripts.find((sc) => sc.id === item.id);
+      if (target) {
+        setActiveScript(target);
+        setActiveTab("suspense_play");
+      }
+    }
+  };
+
+  const handleDeleteCardItem = () => {
+    if (!itemToDelete) return;
+    if (itemToDelete.type === "transmigration") {
+      persistWorlds(worlds.filter((w) => w.id !== itemToDelete.id));
+    } else if (itemToDelete.type === "rules") {
+      persistInstances(instances.filter((inst) => inst.id !== itemToDelete.id));
+    } else if (itemToDelete.type === "suspense") {
+      persistScripts(scripts.filter((sc) => sc.id !== itemToDelete.id));
+    }
+    setItemToDelete(null);
+  };
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -287,6 +429,12 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
   const persistWorlds = (data: TransmigrationWorld[]) => {
     setWorlds(data);
     localStorage.setItem(STORAGE_KEY_TRANSMIGRATION, JSON.stringify(data));
+    if (activeWorld) {
+      const found = data.find(w => w.id === activeWorld.id);
+      if (found) {
+        setActiveWorld(found);
+      }
+    }
   };
 
   const persistInstances = (data: RulesInstance[]) => {
@@ -310,12 +458,6 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       default:
         return { text: "未开始", color: "bg-amber-500/10 text-amber-400 border-amber-500/20" };
     }
-  };
-
-  // Format date helper
-  const formatDate = (ts: number) => {
-    const d = new Date(ts);
-    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
   // Preset Transmigration Worlds
@@ -382,34 +524,62 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
   };
 
   const handleCreateWorld = async () => {
-    const worldName = newWorldPresetId 
-      ? PRESET_WORLDS.find(p => p.id === newWorldPresetId)?.name || newWorldName 
-      : newWorldName;
+    try {
+      const worldName = newWorldPresetId 
+        ? PRESET_WORLDS.find(p => p.id === newWorldPresetId)?.name || newWorldName 
+        : newWorldName;
 
-    if (!worldName.trim()) {
-      alert("请输入或选择一个世界名称！");
-      return;
-    }
-    if (selectedCharIds.length === 0) {
-      alert("请至少选择一位参与角色！");
-      return;
-    }
+      if (!worldName.trim()) {
+        alert("请输入或选择一个世界名称！");
+        return;
+      }
 
-    setIsGenerating(true);
-    const selectedChars = selectedCharIds.map((id) => getCharacterById(id)).filter(Boolean) as Character[];
-    const charNames = selectedChars.map((c) => c.name).join("、");
+      let currentSelectedCharIds = [...selectedCharIds];
+      if (currentSelectedCharIds.length === 0) {
+        if (characters.length > 0) {
+          currentSelectedCharIds = characters.slice(0, 2).map((c) => c.id);
+          setSelectedCharIds(currentSelectedCharIds);
+        } else {
+          alert("请至少选择一位参与角色！");
+          return;
+        }
+      }
 
-    const fAName = factionAName.trim() || "明光";
-    const fBName = factionBName.trim() || "暗影";
+      setIsGenerating(true);
+      const selectedChars = currentSelectedCharIds.map((id) => getCharacterById(id)).filter(Boolean) as Character[];
+      const charNames = selectedChars.map((c) => c.name).join("、");
 
-    const factionAMembers = ["user", ...selectedChars.filter(c => (characterFactionMap[c.id] || 'faction_a') === 'faction_a').map(c => c.id)];
-    const factionBMembers = selectedChars.filter(c => (characterFactionMap[c.id] || 'faction_a') === 'faction_b').map(c => c.id);
+      const fAName = factionAName.trim() || "明光";
+      const fBName = factionBName.trim() || "暗影";
 
-    if (factionAMembers.length === 0 || factionBMembers.length === 0) {
-      alert("阵营A和阵营B均必须至少包含1名成员！");
-      setIsGenerating(false);
-      return;
-    }
+      let factionAMembers: string[] = [];
+      let factionBMembers: string[] = [];
+
+      // User's faction
+      if (characterFactionMap["user"] === "faction_b") {
+        factionBMembers.push("user");
+      } else {
+        factionAMembers.push("user");
+      }
+
+      // Characters' factions
+      selectedChars.forEach(c => {
+        if (characterFactionMap[c.id] === "faction_b") {
+          factionBMembers.push(c.id);
+        } else {
+          factionAMembers.push(c.id);
+        }
+      });
+
+      if (factionBMembers.length === 0 && selectedChars.length > 0) {
+        const lastChar = selectedChars[selectedChars.length - 1];
+        factionBMembers.push(lastChar.id);
+        factionAMembers = factionAMembers.filter(id => id !== lastChar.id);
+      } else if (factionAMembers.length === 0 && selectedChars.length > 0) {
+        const lastChar = selectedChars[selectedChars.length - 1];
+        factionAMembers.push(lastChar.id);
+        factionBMembers = factionBMembers.filter(id => id !== lastChar.id);
+      }
 
     let generatedBackground = "";
     let generatedTasks: string[] = [];
@@ -589,7 +759,32 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       memoryCard: null,
       endingType: null,
       factions: generatedFactions,
-      factionChats: Object.fromEntries(generatedFactions.map(f => [f.id, []]))
+      factionChats: (() => {
+        const initialChats: Record<string, FactionChatMessage[]> = {};
+        generatedFactions.forEach((f) => {
+          const teammateIds = f.memberIds.filter((id) => id !== "user");
+          const firstTeammate = teammateIds[0] ? getCharacterById(teammateIds[0]) : null;
+          const charIdentity = firstTeammate ? generatedCharIdentities[firstTeammate.id] : null;
+          const senderName = charIdentity?.identity?.name || firstTeammate?.name || "阵营情报员";
+
+          initialChats[f.id] = [
+            {
+              id: `fchat-init-${Date.now()}-${f.id}`,
+              senderId: firstTeammate ? firstTeammate.id : "system",
+              senderName: senderName,
+              content: `【${f.name}·阵营加密频道】成员已就位。我方核心使命为：《${f.goal}》。大家注意隐藏身份，互相打好配合！`,
+              timestamp: Date.now(),
+            },
+          ];
+        });
+        return initialChats;
+      })(),
+      actionOptions: [
+        "走过去与对方说话",
+        "检查四周的环境与线索",
+        "思考当前原主宿留下的记忆",
+        "静观其变，等待对方开口"
+      ]
     };
 
     const updated = [newWorld, ...worlds];
@@ -602,6 +797,11 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
     setIsGenerating(false);
     setActivePlayTab("behavior");
     setActiveTab("transmigration_play");
+    } catch (err) {
+      console.error("World creation failed:", err);
+      alert("生成失败，请重试");
+      setIsGenerating(false);
+    }
   };
 
   // Helper to generate a random event
@@ -615,6 +815,66 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       { id: "power", description: "屋子里突然停电了，陷入了一片黑暗...", options: [{ id: "1", text: "寻找手电筒" }, { id: "2", text: "静观其变" }] },
     ];
     return events[Math.floor(Math.random() * events.length)];
+  };
+
+  const parseTextToCharCards = (
+    content: string,
+    characterIds: string[],
+    getCharacterById: (id: string) => Character | undefined,
+    characterStates?: Record<string, CharacterTransmigrationState>
+  ): CharacterCardData[] => {
+    const chars = characterIds.map(id => {
+      const c = getCharacterById(id);
+      const state = characterStates?.[id];
+      return { name: c?.name || id, worldName: state?.identity?.name || c?.name || id };
+    });
+
+    const sentences = content.split(/[\n。！？；]/).map(s => s.trim()).filter(Boolean);
+    const cardsMap: Record<string, { action: string[]; dialogue: string[] }> = {};
+
+    sentences.forEach(sent => {
+      let matchedChar = chars.find(c => sent.includes(c.name) || sent.includes(c.worldName));
+      if (!matchedChar && chars.length > 0) {
+        matchedChar = chars[0];
+      }
+      if (!matchedChar) return;
+
+      const charKey = matchedChar.name;
+      if (!cardsMap[charKey]) cardsMap[charKey] = { action: [], dialogue: [] };
+
+      const quoteMatch = sent.match(/[“""]([^”""]+)[”""]/);
+      if (quoteMatch) {
+        const diag = quoteMatch[1];
+        cardsMap[charKey].dialogue.push(diag);
+        const act = sent.replace(/[“""][^”""]+[”""]/g, "").replace(matchedChar.name, "").trim();
+        if (act) cardsMap[charKey].action.push(act);
+      } else {
+        const act = sent.replace(matchedChar.name, "").trim();
+        if (act) cardsMap[charKey].action.push(act);
+      }
+    });
+
+    const result: CharacterCardData[] = [];
+    Object.keys(cardsMap).forEach(k => {
+      const data = cardsMap[k];
+      if (data.action.length > 0 || data.dialogue.length > 0) {
+        result.push({
+          characterName: k,
+          action: data.action.join("，"),
+          dialogue: data.dialogue.join(" ")
+        });
+      }
+    });
+
+    if (result.length === 0 && content.trim()) {
+      result.push({
+        characterName: chars[0]?.name || "AI主宰",
+        action: content,
+        dialogue: ""
+      });
+    }
+
+    return result;
   };
 
   const handleTransmigrationUserSend = async (customAction?: string, forceItemOrSkill?: string) => {
@@ -754,6 +1014,9 @@ ${chatHistory}
 [INNER_THOUGHT: 伙伴真实名字, 心声文本] (提供该伙伴的最新隐秘心声。说明他对当前局势的猜测、对玩家的怀疑、或对暴露自身破绽的遮掩。字数40-80字)
 [CHARACTER_FLAW_LEAKED: 伙伴真实名字, 破绽说明] (若该伙伴在此轮对话里露出了习惯破绽，输出此标签，字数20-45字)
 [GAME_ENDING: perfect 或 partial 或 failed] (如果满足结束条件：全部任务完成且暴露度低于70%触发perfect；部分任务完成或暴露度高于70%触发partial；暴露度满100%或全任务失败触发failed。没有触发结局千万别输出)
+[ACTION_OPTION: 选项具体可执行内容] (请生成 4 到 6 个玩家下一步具体可执行的操作选项，例如“走过去和她说话”、“检查书桌抽屉”、“躲在门后观察”等，涵盖不同尝试方向。每行输出一个 [ACTION_OPTION: ...] 标签)
+[CHAR_CARD: 角色名字 | 动作描述 | 对话内容] (为参与此轮对话的每个角色分别输出1条卡片标签。如 [CHAR_CARD: 苏墨 | 缓缓放下茶盏，抬眼看着你 | 你真的以为能瞒过我吗])
+${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字, 消息内容] (为阵营【${f.name}】(使命:${f.goal})生成1条群聊消息：队友对当前局势的分析、建议或对敌方的猜想策略)`).join("\n")}
 `;
 
     try {
@@ -769,6 +1032,12 @@ ${chatHistory}
       const suspicionChanges: Record<string, number> = {};
       const innerThoughts: Record<string, string> = {};
       const leakedFlaws: Record<string, string> = {};
+      const actionOptions: string[] = [];
+      const charCards: CharacterCardData[] = [];
+      const factionChatUpdates: Record<string, FactionChatMessage[]> = {
+        ...(updatedWorld.factionChats || {})
+      };
+      const turnStartTimestamp = Date.now();
 
       // Match all [TAG: ...] formats
       const tagRegex = /\[([A-Z_]+):\s*([^\]]+)\]/g;
@@ -815,7 +1084,64 @@ ${chatHistory}
           if (valStr === "perfect" || valStr === "partial" || valStr === "failed") {
             gameEnding = valStr;
           }
+        } else if (tagType === "ACTION_OPTION") {
+          if (valStr) actionOptions.push(valStr);
+        } else if (tagType === "CHAR_CARD") {
+          const parts = valStr.split("|");
+          if (parts.length >= 2) {
+            charCards.push({
+              characterName: parts[0].trim(),
+              action: parts[1].trim(),
+              dialogue: parts[2] ? parts[2].trim() : ""
+            });
+          }
+        } else if (tagType === "FACTION_CHAT") {
+          const firstComma = valStr.indexOf(",");
+          const secondComma = valStr.indexOf(",", firstComma + 1);
+          if (firstComma !== -1 && secondComma !== -1) {
+            const fId = valStr.slice(0, firstComma).trim();
+            const sender = valStr.slice(firstComma + 1, secondComma).trim();
+            const chatContent = valStr.slice(secondComma + 1).trim();
+            if (fId && sender && chatContent) {
+              if (!factionChatUpdates[fId]) factionChatUpdates[fId] = [];
+              factionChatUpdates[fId].push({
+                id: `fchat-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                senderId: sender,
+                senderName: sender,
+                content: chatContent,
+                timestamp: Date.now()
+              });
+            }
+          }
         }
+      }
+
+      // Ensure both factions receive synchronized chat messages this turn
+      if (updatedWorld.factions && updatedWorld.factions.length > 0) {
+        updatedWorld.factions.forEach((f) => {
+          const newMsgsThisTurn = (factionChatUpdates[f.id] || []).filter(m => m.timestamp >= turnStartTimestamp);
+          if (newMsgsThisTurn.length === 0) {
+            const teammateIds = f.memberIds.filter(id => id !== "user");
+            const randomCharId = teammateIds.length > 0 ? teammateIds[Math.floor(Math.random() * teammateIds.length)] : null;
+            const char = randomCharId ? getCharacterById(randomCharId) : null;
+            const charState = randomCharId ? updatedWorld.characterStates?.[randomCharId] : null;
+            const senderName = charState?.identity?.name || char?.name || "阵营智囊";
+            const isUserFaction = f.memberIds.includes("user");
+
+            const autoContent = isUserFaction
+              ? `刚才【${updatedWorld.userIdentity?.name || "玩家"}】推进了剧情，我们要紧跟步伐，围绕使命《${f.goal}》做好部署！`
+              : `注意到对面的动向有了新进展。我们不能松懈，必须加快落实我方目标《${f.goal}》！`;
+
+            if (!factionChatUpdates[f.id]) factionChatUpdates[f.id] = [];
+            factionChatUpdates[f.id].push({
+              id: `fchat-sync-${Date.now()}-${f.id}`,
+              senderId: randomCharId || "system",
+              senderName: senderName,
+              content: autoContent,
+              timestamp: Date.now()
+            });
+          }
+        });
       }
 
       // Remove the tags from the visible response text
@@ -898,6 +1224,19 @@ ${chatHistory}
         systemStatusMsg += `🔍 嫌疑变化：${suspNames.map(name => `${name} ${suspicionChanges[name] > 0 ? "+" : ""}${suspicionChanges[name]}`).join(", ")}\n`;
       }
 
+      let factionProgMap = { ...(updatedWorld.factionProgress || {}) };
+      const myF = updatedWorld.factions?.find(f => f.memberIds.includes("user")) || updatedWorld.factions?.[0];
+      const oppF = updatedWorld.factions?.find(f => !f.memberIds.includes("user")) || updatedWorld.factions?.[1];
+
+      if (myF && oppF) {
+        const completedCount = updatedTasks.filter(t => t.completed).length;
+        const totalTasks = updatedTasks.length || 1;
+        const baseMy = Math.min(100, Math.max(0, Math.round(30 + (completedCount / totalTasks) * 50 + newTurnCount * 4)));
+        const baseOpp = Math.min(100, Math.max(0, Math.round(35 + newTurnCount * 3 - (nextExposure / 10))));
+        factionProgMap[myF.id] = baseMy;
+        factionProgMap[oppF.id] = baseOpp;
+      }
+
       let finalMessages = [...updatedWorld.messages];
       
       // Push AI reply
@@ -905,7 +1244,8 @@ ${chatHistory}
         id: `msg-${Date.now() + 1}`,
         role: "assistant",
         content: cleanResponse,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        charCards: charCards.length > 0 ? charCards : undefined
       });
 
       if (systemStatusMsg) {
@@ -964,11 +1304,14 @@ ${endingDesc}
         status: finalStatus,
         messages: finalMessages,
         tasks: updatedTasks,
+        factionChats: factionChatUpdates,
         
         characterStates: updatedCharStates,
         exposureLevel: nextExposure,
         endingType: endingType,
         memoryCard: memoryCardObj,
+        actionOptions: actionOptions.length > 0 ? actionOptions : updatedWorld.actionOptions,
+        factionProgress: factionProgMap,
         updatedAt: Date.now()
       };
 
@@ -979,6 +1322,73 @@ ${endingDesc}
       alert("AI 推进剧情失败: " + (e.message || "请检查网络"));
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const handleRefreshActionOptions = async () => {
+    if (!activeWorld || isGenerating || isRefreshingOptions) return;
+    setIsRefreshingOptions(true);
+    try {
+      const activeChars = activeWorld.characterIds
+        .map((id) => getCharacterById(id))
+        .filter(Boolean) as Character[];
+
+      const chatHistory = activeWorld.messages.slice(-6).map((m) => `${m.senderName || m.role}: ${m.content}`).join("\n");
+
+      const prompt = `你现在是快穿游戏《${activeWorld.name}》的叙事主宰。
+世界背景：${activeWorld.background}
+玩家身份：${activeWorld.userIdentity?.name || "玩家"} (${activeWorld.userIdentity?.profession || "未知"})
+参与角色：${activeChars.map(c => c.name).join("、")}
+
+最新剧情历史：
+${chatHistory}
+
+请为玩家重新生成 4 到 6 个具体可执行的下一步行动选项（例如：“走过去和她说话”、“检查书桌抽屉”、“躲在门后观察”、“向同伴打听情报”等），涵盖不同动作与尝试策略。
+
+请严格按以下标签格式输出 4-6 行，不要输出其他文字或说明：
+[ACTION_OPTION: 选项1内容]
+[ACTION_OPTION: 选项2内容]
+[ACTION_OPTION: 选项3内容]
+[ACTION_OPTION: 选项4内容]
+[ACTION_OPTION: 选项5内容]
+`;
+
+      const response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
+      
+      const newOptions: string[] = [];
+      const tagRegex = /\[ACTION_OPTION:\s*([^\]]+)\]/g;
+      let match;
+      while ((match = tagRegex.exec(response)) !== null) {
+        if (match[1].trim()) {
+          newOptions.push(match[1].trim());
+        }
+      }
+
+      // Fallback line parsing
+      if (newOptions.length === 0) {
+        const lines = response.split("\n")
+          .map(l => l.replace(/^[\d\.\-\*•\s\[\]ACTION_OPTION:]+/g, "").trim())
+          .filter(Boolean);
+        if (lines.length > 0) {
+          newOptions.push(...lines.slice(0, 6));
+        }
+      }
+
+      if (newOptions.length > 0) {
+        const updatedWorld: TransmigrationWorld = {
+          ...activeWorld,
+          actionOptions: newOptions,
+          updatedAt: Date.now()
+        };
+        setActiveWorld(updatedWorld);
+        const newWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
+        persistWorlds(newWorlds);
+      }
+    } catch (e: any) {
+      console.error("Refresh options failed:", e);
+      alert("刷新选项失败: " + (e.message || "请检查网络"));
+    } finally {
+      setIsRefreshingOptions(false);
     }
   };
 
@@ -1111,16 +1521,6 @@ ${endingDesc}
         timestamp: Date.now()
       });
 
-      // Grant skill points on success
-            if (accuseResult === "success") {
-        newSkillPoints += 15;
-        finalMsgs.push({
-          id: `msg-accuse-bonus-${Date.now() + 2}`,
-          role: "system",
-          content: `🎁 获得相认特权奖赏：15 技能点！`,
-          timestamp: Date.now()
-        });
-      }
 
       // If exposure is max, trigger ending
       if (nextExposure >= 100) {
@@ -1155,7 +1555,6 @@ ${endingDesc}
 
       setActiveWorld(finalWorld);
       persistWorlds(worlds.map(w => w.id === finalWorld.id ? finalWorld : w));
-
     } catch (e: any) {
       alert("对质指控判定失败: " + (e.message || "请检查网络"));
     } finally {
@@ -1183,7 +1582,56 @@ ${endingDesc}
     }
   };
 
-  const handleSendFactionMessage = () => {
+  const handleSaveWorldSettings = () => {
+    if (!activeWorld) return;
+    const updatedWorld: TransmigrationWorld = {
+      ...activeWorld,
+      background: editWorldBg,
+      userIdentity: {
+        ...(activeWorld.userIdentity || { name: "我", avatar: "👤", thought: "", role: "攻略者" }),
+        name: editUserName,
+        thought: editUserThought,
+      },
+      characterStates: editCharacterStates,
+      tasks: editTasks,
+      updatedAt: Date.now()
+    };
+    const newWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
+    persistWorlds(newWorlds);
+    alert("✨ 快穿世界设定已成功更新！");
+    setActivePlayTab("history");
+  };
+
+  const handleGenerateMemoryCard = () => {
+    if (!activeWorld) return;
+    const participantNames = activeWorld.characterIds.map(id => getCharacterById(id)?.name || id).join("、");
+    const cardObj = {
+      title: `《${activeWorld.name}》剧情记忆卡片`,
+      content: `世界名称：${activeWorld.name}\n参与角色：${participantNames}\n背景摘要：${activeWorld.background?.substring(0, 120) || "无"}...\n关键事件数：${activeWorld.messages?.length || 0}条\n生成时间：${new Date().toLocaleString()}`,
+      status: activeWorld.status,
+      shared: false
+    };
+    const updatedWorld = { ...activeWorld, memoryCard: cardObj, updatedAt: Date.now() };
+    const newWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
+    persistWorlds(newWorlds);
+    alert("🎁 剧情记忆卡片已成功生成！");
+  };
+
+  const handleSendMemoryCardToChar = () => {
+    if (!activeWorld || !activeWorld.memoryCard) {
+      alert("请先生成记忆卡片！");
+      return;
+    }
+    const char = getCharacterById(selectedShareCharId);
+    const charName = char?.name || "角色";
+    const updatedCard = { ...activeWorld.memoryCard, shared: true };
+    const updatedWorld = { ...activeWorld, memoryCard: updatedCard, updatedAt: Date.now() };
+    const newWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
+    persistWorlds(newWorlds);
+    alert(`💌 已将《${activeWorld.name}》的记忆卡片发送给【${charName}】！对方已接收并记住了这段宿世记忆。`);
+  };
+
+  const handleSendFactionMessage = async () => {
     if (!activeWorld || !factionChatInput.trim() || !viewingFactionId) return;
     
     // User can only send to their own faction
@@ -1208,47 +1656,171 @@ ${endingDesc}
 
     const updatedWorld: TransmigrationWorld = {
       ...activeWorld,
-      factionChats: updatedChats
+      factionChats: updatedChats,
+      updatedAt: Date.now()
     };
 
     setActiveWorld(updatedWorld);
     persistWorlds(worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w));
+    const sentText = factionChatInput.trim();
     setFactionChatInput("");
 
-    // Simulate teammates reply
-    setTimeout(() => {
-        const factionMembers = myFaction.memberIds.filter(id => id !== "user");
-        if (factionMembers.length > 0) {
-            const randomMemberId = factionMembers[Math.floor(Math.random() * factionMembers.length)];
-            const memberState = activeWorld.characterStates?.[randomMemberId];
-            if (memberState) {
-                const autoReply: FactionChatMessage = {
-                    id: `fchat-reply-${Date.now()}`,
-                    senderId: randomMemberId,
-                    senderName: memberState.identity.name,
-                    content: "收到，我会配合你的行动。我们要小心，不要让敌方察觉。",
-                    timestamp: Date.now()
-                };
-                
-                const finalWorlds = worlds.map(w => {
-                    if (w.id === activeWorld.id) {
-                        const finalChats = {
-                            ...(w.factionChats || {}),
-                            [viewingFactionId]: [...(w.factionChats?.[viewingFactionId] || []), autoReply]
-                        };
-                        return { ...w, factionChats: finalChats };
-                    }
-                    return w;
-                });
-                
-                const currentWorld = finalWorlds.find(w => w.id === activeWorld.id);
-                if (currentWorld) {
-                    setActiveWorld(currentWorld);
-                    persistWorlds(finalWorlds);
-                }
-            }
+    // Trigger AI teammate response based on user message
+    try {
+      const factionMembers = myFaction.memberIds.filter(id => id !== "user");
+      if (factionMembers.length > 0) {
+        const membersInfo = factionMembers.map(id => {
+          const char = getCharacterById(id);
+          const state = activeWorld.characterStates?.[id];
+          return `- 角色ID: ${id}, 真实姓名: ${char?.name || id}, 世界扮演身份: ${state?.identity?.name || char?.name || "未知"}`;
+        }).join("\n");
+
+        const prompt = `你现在是快穿游戏《${activeWorld.name}》的群聊主宰。
+世界背景：${activeWorld.background}
+我方阵营：【${myFaction.name}】（目标：${myFaction.goal}）
+阵营成员：
+${membersInfo}
+
+玩家刚刚在群里发言说：“${sentText}”
+
+请根据玩家的发言，让阵营中的 1 到 2 位队友针对该发言给出即时回应、战术分析或配合建议。
+请严格按以下格式输出每条消息，不要输出其他文字：
+[FACTION_MSG: 角色ID | 角色名称 | 消息内容]
+`;
+
+        const res = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
+        const newReplies: FactionChatMessage[] = [];
+        const regex = /\[FACTION_MSG:\s*([^\|]+)\|\s*([^\|]+)\|\s*([^\]]+)\]/g;
+        let match;
+        let timeOffset = 100;
+        while ((match = regex.exec(res)) !== null) {
+          const sId = match[1].trim();
+          const sName = match[2].trim();
+          const content = match[3].trim();
+          if (content) {
+            newReplies.push({
+              id: `fchat-reply-${Date.now() + timeOffset++}`,
+              senderId: sId,
+              senderName: sName,
+              content: content,
+              timestamp: Date.now() + timeOffset
+            });
+          }
         }
-    }, 1500);
+
+        if (newReplies.length === 0 && factionMembers.length > 0) {
+          const randomMemberId = factionMembers[0];
+          const memberState = activeWorld.characterStates?.[randomMemberId];
+          newReplies.push({
+            id: `fchat-reply-${Date.now()}`,
+            senderId: randomMemberId,
+            senderName: memberState?.identity?.name || "队友",
+            content: "收到你的消息，我们会严格按此计划暗中配合，随时保持联络。",
+            timestamp: Date.now()
+          });
+        }
+
+        const latestWorld = worlds.find(w => w.id === activeWorld.id) || updatedWorld;
+        const finalChats = {
+          ...(latestWorld.factionChats || {}),
+          [viewingFactionId]: [...(latestWorld.factionChats?.[viewingFactionId] || []), ...newReplies]
+        };
+        const finalWorld: TransmigrationWorld = {
+          ...latestWorld,
+          factionChats: finalChats,
+          updatedAt: Date.now()
+        };
+        setActiveWorld(finalWorld);
+        persistWorlds(worlds.map(w => w.id === finalWorld.id ? finalWorld : w));
+      }
+    } catch (e) {
+      console.error("AI teammate reply failed:", e);
+    }
+  };
+
+  const handleAIGenerateFactionChat = async () => {
+    if (!activeWorld || isGenerating || !viewingFactionId) return;
+    const myFaction = activeWorld.factions?.find(f => f.memberIds.includes("user"));
+    if (viewingFactionId !== myFaction?.id) {
+      alert("偷看模式下无法主动生成讨论！");
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const chatHistory = (activeWorld.messages || []).slice(-4).map(m => `${m.senderName || m.role}: ${m.content}`).join("\n");
+      const memberIds = myFaction.memberIds.filter(id => id !== "user");
+      const membersInfo = memberIds.map(id => {
+        const char = getCharacterById(id);
+        const state = activeWorld.characterStates?.[id];
+        return `- 角色ID: ${id}, 真实姓名: ${char?.name || id}, 世界扮演身份: ${state?.identity?.name || char?.name || "未知"}`;
+      }).join("\n");
+
+      const prompt = `你现在是快穿游戏《${activeWorld.name}》的群聊主宰。
+世界背景：${activeWorld.background}
+我方阵营：【${myFaction.name}】（目标：${myFaction.goal}）
+阵营成员：
+${membersInfo}
+
+最新剧情进展：
+${chatHistory}
+
+请根据当前剧情，让阵营中的 2 到 3 位成员在群里展开一轮讨论。讨论内容包括对当前剧情的分析、给玩家（主角）的战术建议、或对接下来的行动规划。
+请严格按以下格式输出每条消息，不要输出其他文字：
+[FACTION_MSG: 角色ID | 角色名称 | 消息内容]
+`;
+
+      const res = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
+      const newMsgs: FactionChatMessage[] = [];
+      const regex = /\[FACTION_MSG:\s*([^\|]+)\|\s*([^\|]+)\|\s*([^\]]+)\]/g;
+      let match;
+      let timeOffset = 100;
+      while ((match = regex.exec(res)) !== null) {
+        const sId = match[1].trim();
+        const sName = match[2].trim();
+        const content = match[3].trim();
+        if (content) {
+          newMsgs.push({
+            id: `fchat-gen-${Date.now() + timeOffset++}`,
+            senderId: sId,
+            senderName: sName,
+            content: content,
+            timestamp: Date.now() + timeOffset
+          });
+        }
+      }
+
+      if (newMsgs.length === 0 && memberIds.length > 0) {
+        const rId = memberIds[0];
+        const char = getCharacterById(rId);
+        const state = activeWorld.characterStates?.[rId];
+        newMsgs.push({
+          id: `fchat-gen-${Date.now()}`,
+          senderId: rId,
+          senderName: state?.identity?.name || char?.name || "队友",
+          content: "根据目前形势，我们需要步步为营，随时保持暗中联动。",
+          timestamp: Date.now()
+        });
+      }
+
+      const updatedChats = {
+        ...(activeWorld.factionChats || {}),
+        [viewingFactionId]: [...(activeWorld.factionChats?.[viewingFactionId] || []), ...newMsgs]
+      };
+
+      const updatedWorld: TransmigrationWorld = {
+        ...activeWorld,
+        factionChats: updatedChats,
+        updatedAt: Date.now()
+      };
+
+      setActiveWorld(updatedWorld);
+      persistWorlds(worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w));
+    } catch (e: any) {
+      alert("AI 生成讨论失败: " + (e.message || "请检查网络"));
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const toggleTaskCompletion = (taskId: number) => {
@@ -1691,30 +2263,25 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
           {characters.map((char) => {
             const isSelected = selectedCharIds.includes(char.id);
             return (
-              <button
+              <div
                 key={char.id}
-                type="button"
                 onClick={() => {
                   if (isSelected) {
-                    setSelectedCharIds(selectedCharIds.filter((id) => id !== char.id));
+                    setSelectedCharIds(selectedCharIds.filter(id => id !== char.id));
                   } else {
                     setSelectedCharIds([...selectedCharIds, char.id]);
                   }
                 }}
-                className={`p-2 rounded-xl border flex items-center gap-2 text-left transition-all cursor-pointer ${
-                  isSelected
-                    ? "bg-purple-950/40 border-purple-500/50 text-white"
-                    : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:border-neutral-700"
-                }`}
+                className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer transition border ${isSelected ? "border-amber-500 bg-amber-500/10" : "border-neutral-800 bg-neutral-900 hover:border-neutral-700"}`}
               >
-                <div className="w-7 h-7 rounded-full bg-neutral-800 flex items-center justify-center text-sm shrink-0">
-                  {char.avatar || "👤"}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-bold truncate">{char.name}</p>
-                </div>
-                {isSelected && <Check className="w-4 h-4 text-purple-400 shrink-0" />}
-              </button>
+                {char.avatar.startsWith('data:') || char.avatar.startsWith('http') ? (
+                  <img src={char.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
+                ) : (
+                  <span className="w-6 h-6 flex items-center justify-center text-[10px] bg-neutral-800 rounded-full">{char.avatar}</span>
+                )}
+                <span className="text-[11px] font-bold text-white flex-1 truncate">{char.name}</span>
+                {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />}
+              </div>
             );
           })}
         </div>
@@ -1723,139 +2290,112 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
   );
 
   return (
-    <div className="flex-1 flex flex-col bg-[#F5F3F0] text-[#1A1A1A] font-sans h-full relative overflow-hidden">
-      {/* 1. UNIVERSE MAIN SCREEN */}
+    <div className="flex flex-col h-full bg-[#FAFAF9] text-[#1A1A1A] relative font-sans">
+      
+      {/* 1. MAIN UNIVERSE CATALOG LIST */}
       {activeTab === "main" && (
-        <div className="flex-1 flex flex-col z-10 overflow-hidden">
-          {/* Top Bar */}
-          <div className="h-14 border-b border-[#EFECE8] px-6 flex items-center justify-between shrink-0 bg-white">
+        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#FAFAF9]">
+          {/* Top Bar Header */}
+          <div className="h-14 border-b border-[#EFECE8] px-4 flex items-center justify-between shrink-0 bg-white/90 backdrop-blur-md">
             <button
               onClick={onClose}
-              className="p-2 hover:bg-[#F5F3F0] rounded-full transition text-[#1A1A1A] cursor-pointer"
+              className="p-1.5 -ml-1 text-[#1A1A1A] hover:bg-[#F5F3F0] rounded-full transition cursor-pointer flex items-center gap-1"
               title="返回首页"
             >
-              <ChevronLeft className="w-4 h-4 stroke-[1.5]" />
+              <ChevronLeft className="w-5 h-5 stroke-[1.5]" />
             </button>
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 stroke-[1.5] text-[#1A1A1A]" />
-              <h1 className="font-serif text-base tracking-wider text-[#1A1A1A]">多重宇宙</h1>
-            </div>
-            <div className="w-8" />
+            <h1 className="font-serif font-semibold text-base text-[#1A1A1A] tracking-tight">
+              宇宙目录
+            </h1>
+            <button
+              onClick={() => setShowCreatePickerModal(true)}
+              className="px-3.5 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs font-sans font-medium flex items-center gap-1 transition cursor-pointer shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
+              <span>新建</span>
+            </button>
           </div>
 
-          {/* Banner & Intro */}
-          <div className="p-6 space-y-6 flex-1 overflow-y-auto max-w-2xl mx-auto w-full">
-            <div className="bg-white border border-[#EFECE8] rounded-[16px] p-6 space-y-3 shadow-[0_2px_8px_rgba(0,0,0,0.02)]">
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#1A1A1A]" />
-                <span className="text-[11px] font-sans tracking-widest text-[#A8A39A] uppercase">
-                  MULTIVERSE MATRIX
-                </span>
-              </div>
-              <h2 className="font-serif text-xl font-normal text-[#1A1A1A]">平行宇宙与叙事空间</h2>
-              <p className="text-xs text-[#A8A39A] font-sans leading-relaxed">
-                穿越快穿大千世界、规则怪谈禁忌副本与悬疑剧场。与通讯录伙伴建立跨维度羁绊。
-              </p>
-            </div>
-
-            {/* 3 Entry Mode Cards */}
-            <div className="space-y-4 pt-2">
-              {/* Card 1: 快穿 */}
-              <div
-                onClick={() => setActiveTab("transmigration_list")}
-                className="group bg-white border border-[#EFECE8] hover:border-[#1A1A1A] rounded-[16px] p-6 transition-all duration-300 cursor-pointer shadow-[0_2px_8px_rgba(0,0,0,0.02)] space-y-4"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full border border-[#EFECE8] flex items-center justify-center text-[#1A1A1A] group-hover:bg-[#1A1A1A] group-hover:text-white transition-all">
-                      <Zap className="w-4 h-4 stroke-[1.5]" />
+          <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            {/* Universe Mode Cards Directory (Requirement 1) */}
+            <div className="space-y-3">
+              <h2 className="text-xs font-sans font-semibold text-[#78716C] uppercase tracking-wider px-1">
+                宇宙玩法模式
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Fast Pass / Transmigration Card */}
+                <div
+                  onClick={() => setActiveTab("transmigration_list")}
+                  className="bg-white border border-[#EFECE8] rounded-[16px] p-4 shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:border-[#1A1A1A] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)] transition-all cursor-pointer flex flex-col justify-between group space-y-3"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="w-9 h-9 rounded-full bg-[#F5F3F0] flex items-center justify-center text-lg group-hover:bg-[#1A1A1A] group-hover:text-white transition">
+                        🌸
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-[#F5F3F0] text-[#78716C] text-[10px] font-sans font-medium border border-[#EFECE8]">
+                        {worlds.length} 个世界
+                      </span>
                     </div>
-                    <div>
-                      <h3 className="font-serif text-base font-normal text-[#1A1A1A] flex items-center gap-2">
-                        快穿模式
-                        <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#EFECE8] text-[#A8A39A] font-sans font-normal">
-                          世界任务
-                        </span>
-                      </h3>
-                      <p className="text-xs text-[#A8A39A] font-sans mt-1">
-                        跨越不同异世界，与角色协同完成判定任务
-                      </p>
-                    </div>
+                    <h3 className="font-serif font-semibold text-base text-[#1A1A1A]">快穿世界</h3>
+                    <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed">
+                      高维身份扮演、对立阵营攻略与多结局重构
+                    </p>
                   </div>
-                  <ArrowRight className="w-4 h-4 stroke-[1.5] text-[#A8A39A] group-hover:translate-x-1 transition-transform shrink-0 mt-1" />
-                </div>
-
-                <div className="flex items-center justify-between pt-4 border-t border-[#EFECE8] text-xs text-[#A8A39A] font-sans">
-                  <span>
-                    进度: {worlds.filter((w) => w.status === "in_progress").length} 进行中 / {worlds.filter((w) => w.status === "completed").length} 已完结
-                  </span>
-                  <span className="text-[#1A1A1A] font-medium group-hover:underline">进入世界列表 &rarr;</span>
-                </div>
-              </div>
-
-              {/* Card 2: 规则怪谈 */}
-              <div
-                onClick={() => setActiveTab("rules_list")}
-                className="group bg-white border border-[#EFECE8] hover:border-[#1A1A1A] rounded-[16px] p-6 transition-all duration-300 cursor-pointer shadow-[0_2px_8px_rgba(0,0,0,0.02)] space-y-4"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full border border-[#EFECE8] flex items-center justify-center text-[#1A1A1A] group-hover:bg-[#1A1A1A] group-hover:text-white transition-all">
-                      <AlertTriangle className="w-4 h-4 stroke-[1.5]" />
-                    </div>
-                    <div>
-                      <h3 className="font-serif text-base font-normal text-[#1A1A1A] flex items-center gap-2">
-                        规则怪谈模式
-                        <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#EFECE8] text-[#A8A39A] font-sans font-normal">
-                          多重结局
-                        </span>
-                      </h3>
-                      <p className="text-xs text-[#A8A39A] font-sans mt-1">
-                        遵守或打破诡异规则，探寻怪谈副本真相
-                      </p>
-                    </div>
+                  <div className="pt-2 border-t border-[#EFECE8] flex items-center justify-between text-xs text-[#1A1A1A] font-medium group-hover:translate-x-0.5 transition-transform">
+                    <span>进入快穿列表</span>
+                    <ChevronRight className="w-4 h-4 stroke-[1.5] text-[#A8A39A]" />
                   </div>
-                  <ArrowRight className="w-4 h-4 stroke-[1.5] text-[#A8A39A] group-hover:translate-x-1 transition-transform shrink-0 mt-1" />
                 </div>
 
-                <div className="flex items-center justify-between pt-4 border-t border-[#EFECE8] text-xs text-[#A8A39A] font-sans">
-                  <span>
-                    副本: {instances.filter((i) => i.status === "in_progress").length} 探索中 / {instances.filter((i) => i.status === "completed").length} 已通关
-                  </span>
-                  <span className="text-[#1A1A1A] font-medium group-hover:underline">进入副本列表 &rarr;</span>
-                </div>
-              </div>
-
-              {/* Card 3: 悬疑剧场 */}
-              <div
-                onClick={() => setActiveTab("suspense_list")}
-                className="group bg-white border border-[#EFECE8] hover:border-[#1A1A1A] rounded-[16px] p-6 transition-all duration-300 cursor-pointer shadow-[0_2px_8px_rgba(0,0,0,0.02)] space-y-4"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full border border-[#EFECE8] flex items-center justify-center text-[#1A1A1A] group-hover:bg-[#1A1A1A] group-hover:text-white transition-all">
-                      <Film className="w-4 h-4 stroke-[1.5]" />
+                {/* Rules Horror Card */}
+                <div
+                  onClick={() => setActiveTab("rules_list")}
+                  className="bg-white border border-[#EFECE8] rounded-[16px] p-4 shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:border-[#1A1A1A] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)] transition-all cursor-pointer flex flex-col justify-between group space-y-3"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="w-9 h-9 rounded-full bg-[#F5F3F0] flex items-center justify-center text-lg group-hover:bg-[#1A1A1A] group-hover:text-white transition">
+                        👁️
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-[#F5F3F0] text-[#78716C] text-[10px] font-sans font-medium border border-[#EFECE8]">
+                        {instances.length} 个副本
+                      </span>
                     </div>
-                    <div>
-                      <h3 className="font-serif text-base font-normal text-[#1A1A1A] flex items-center gap-2">
-                        悬疑剧场模式
-                        <span className="text-[10px] px-2 py-0.5 rounded-full border border-[#EFECE8] text-[#A8A39A] font-sans font-normal">
-                          5幕推理
-                        </span>
-                      </h3>
-                      <p className="text-xs text-[#A8A39A] font-sans mt-1">
-                        沉浸式悬疑案件，每个角色都有不为人知的秘密
-                      </p>
-                    </div>
+                    <h3 className="font-serif font-semibold text-base text-[#1A1A1A]">规则怪谈</h3>
+                    <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed">
+                      禁忌法则探索、心理压迫感与生还结局
+                    </p>
                   </div>
-                  <ArrowRight className="w-4 h-4 stroke-[1.5] text-[#A8A39A] group-hover:translate-x-1 transition-transform shrink-0 mt-1" />
+                  <div className="pt-2 border-t border-[#EFECE8] flex items-center justify-between text-xs text-[#1A1A1A] font-medium group-hover:translate-x-0.5 transition-transform">
+                    <span>进入怪谈列表</span>
+                    <ChevronRight className="w-4 h-4 stroke-[1.5] text-[#A8A39A]" />
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between pt-4 border-t border-[#EFECE8] text-xs text-[#A8A39A] font-sans">
-                  <span>
-                    剧本: {scripts.filter((s) => s.status === "in_progress").length} 进行中 / {scripts.filter((s) => s.status === "completed").length} 已结案
-                  </span>
-                  <span className="text-[#1A1A1A] font-medium group-hover:underline">进入剧本列表 &rarr;</span>
+                {/* Suspense Theater Card */}
+                <div
+                  onClick={() => setActiveTab("suspense_list")}
+                  className="bg-white border border-[#EFECE8] rounded-[16px] p-4 shadow-[0_2px_8px_rgba(0,0,0,0.02)] hover:border-[#1A1A1A] hover:shadow-[0_4px_16px_rgba(0,0,0,0.06)] transition-all cursor-pointer flex flex-col justify-between group space-y-3"
+                >
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="w-9 h-9 rounded-full bg-[#F5F3F0] flex items-center justify-center text-lg group-hover:bg-[#1A1A1A] group-hover:text-white transition">
+                        🎭
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-[#F5F3F0] text-[#78716C] text-[10px] font-sans font-medium border border-[#EFECE8]">
+                        {scripts.length} 个剧本
+                      </span>
+                    </div>
+                    <h3 className="font-serif font-semibold text-base text-[#1A1A1A]">悬疑剧场</h3>
+                    <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed">
+                      5幕大剧、角色专属彩蛋与推理演绎
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-[#EFECE8] flex items-center justify-between text-xs text-[#1A1A1A] font-medium group-hover:translate-x-0.5 transition-transform">
+                    <span>进入剧场列表</span>
+                    <ChevronRight className="w-4 h-4 stroke-[1.5] text-[#A8A39A]" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1863,946 +2403,889 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
         </div>
       )}
 
-      {/* 2. TRANSMIGRATION WORLD LIST */}
+      {/* 2. TRANSMIGRATION LIST */}
       {activeTab === "transmigration_list" && (
-        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#F5F3F0]">
-          <div className="h-14 border-b border-[#EFECE8] px-6 flex items-center justify-between shrink-0 bg-white">
+        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#F9F8F6] text-[#1A1A1A]">
+          {/* Header Bar */}
+          <div className="h-14 border-b border-[#EFECE8] px-4 flex items-center justify-between shrink-0 bg-white/90 backdrop-blur-md">
             <button
               onClick={() => setActiveTab("main")}
-              className="p-2 hover:bg-[#F5F3F0] rounded-full transition text-[#1A1A1A] cursor-pointer"
+              className="p-1.5 -ml-1 text-[#1A1A1A] hover:bg-[#F5F3F0] rounded-full transition cursor-pointer flex items-center gap-1"
+              title="返回宇宙主页"
             >
-              <ChevronLeft className="w-4 h-4 stroke-[1.5]" />
+              <ChevronLeft className="w-5 h-5 stroke-[1.5]" />
             </button>
-            <h1 className="font-serif text-base text-[#1A1A1A]">快穿模式 · 世界列表</h1>
+            <h1 className="font-serif font-semibold text-base text-[#1A1A1A]">快穿 · 世界列表</h1>
             <button
               onClick={() => setShowCreateWorldModal(true)}
-              className="border border-[#E5E2DC] hover:bg-[#1A1A1A] hover:text-white text-[#1A1A1A] rounded-full px-4 py-1.5 text-xs font-sans font-medium transition cursor-pointer flex items-center gap-1.5"
+              className="px-3 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs font-sans font-medium transition flex items-center gap-1 cursor-pointer shadow-2xs border border-[#1A1A1A]"
             >
               <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
               <span>新建世界</span>
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 space-y-4 max-w-2xl mx-auto w-full">
+          {/* List Area */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {worlds.length === 0 ? (
-              <div className="py-20 text-center space-y-3 text-[#A8A39A]">
-                <Zap className="w-8 h-8 mx-auto stroke-[1.5] opacity-50" />
-                <p className="text-xs font-sans">暂无快穿世界，点击右上角“新建世界”开始穿越。</p>
+              <div className="py-16 text-center space-y-3 text-[#A8A39A]">
+                <Sparkles className="w-10 h-10 mx-auto opacity-30 text-[#1A1A1A]" />
+                <p className="text-xs text-[#78716C]">暂无世界，点击下方创建你的第一个快穿世界。</p>
               </div>
             ) : (
-              worlds.map((w) => {
-                const statusObj = {
-                    not_started: { text: "○ 未开始" },
-                    in_progress: { text: "○— 穿越中" },
-                    completed: { text: "□ 已完结" }
-                }[w.status];
+              worlds.map((world) => {
+                const statusObj = getStatusLabel(world.status);
 
                 return (
                   <div
-                    key={w.id}
-                    className="p-6 rounded-[16px] bg-white border border-[#EFECE8] hover:border-[#1A1A1A] transition-all space-y-4 shadow-[0_2px_8px_rgba(0,0,0,0.02)]"
+                    key={world.id}
+                    className="p-4 rounded-[16px] bg-white border border-[#EFECE8] hover:border-[#1A1A1A] shadow-[0_2px_8px_rgba(0,0,0,0.02)] transition space-y-3 group"
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-1.5 flex-1 min-w-0">
-                        <div className="flex items-center gap-3">
-                          <h3 className="font-serif text-base font-normal text-[#1A1A1A] truncate">{w.name}</h3>
-                          <span className="text-[11px] text-[#A8A39A] font-sans font-normal">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1 flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-serif font-semibold text-sm text-[#1A1A1A] truncate">{world.name}</h3>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full border font-sans ${statusObj.color}`}>
                             {statusObj.text}
                           </span>
                         </div>
-                        <p className="text-xs text-[#A8A39A] font-sans line-clamp-2 leading-relaxed">
-                          {w.background}
+                        <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed font-sans">
+                          {world.background || "暂无背景描述"}
                         </p>
                       </div>
 
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setWorldToDelete(w.id);
+                          if (window.confirm(`确定要删除快穿世界《${world.name}》吗？删除后不可恢复。`)) {
+                            persistWorlds(worlds.filter((item) => item.id !== world.id));
+                          }
                         }}
-                        className="p-2 text-[#A8A39A] hover:text-[#1A1A1A] rounded-full hover:bg-[#F5F3F0] transition cursor-pointer shrink-0"
+                        className="p-1.5 text-[#A8A39A] hover:text-rose-600 rounded-full hover:bg-rose-50 transition cursor-pointer shrink-0"
                         title="删除世界"
                       >
                         <Trash2 className="w-4 h-4 stroke-[1.5]" />
                       </button>
                     </div>
 
-                    <div className="flex items-center justify-between pt-3 border-t border-[#EFECE8]">
-                      <div className="flex -space-x-2">
-                        {w.characterIds.slice(0, 3).map((id) => {
-                          const char = characters.find(c => c.id === id);
-                          return (
-                            <div key={id} className="w-7 h-7 rounded-full border border-white bg-[#F5F3F0] flex items-center justify-center text-xs" title={char?.name}>
-                              {char?.avatar || "👤"}
-                            </div>
-                          );
-                        })}
-                        {w.characterIds.length > 3 && (
-                          <div className="w-7 h-7 rounded-full border border-white bg-[#F5F3F0] flex items-center justify-center text-[10px] text-[#A8A39A]">
-                            +{w.characterIds.length - 3}
-                          </div>
-                        )}
-                      </div>
-
-                      <button
-                        onClick={() => {
-                          const playingWorld = { ...w, status: w.status === "not_started" ? "in_progress" as const : w.status };
-                          setActiveWorld(playingWorld);
-                          setActiveTab("transmigration_play");
-                          const updated = worlds.map(item => item.id === w.id ? playingWorld : item);
-                          setWorlds(updated);
-                          persistWorlds(updated);
-                        }}
-                        className="border border-[#E5E2DC] hover:bg-[#1A1A1A] hover:text-white text-[#1A1A1A] px-4 py-1.5 rounded-full text-xs font-sans font-medium transition cursor-pointer flex items-center gap-1.5"
-                      >
-                        <Play className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>{w.status === "completed" ? "重温回顾" : (w.status === "in_progress" ? "继续穿越" : "开启世界")}</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 3. RULES INSTANCE LIST */}
-      {activeTab === "rules_list" && (
-        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#F5F3F0]">
-          <div className="h-14 border-b border-[#EFECE8] px-6 flex items-center justify-between shrink-0 bg-white">
-            <button
-              onClick={() => setActiveTab("main")}
-              className="p-2 hover:bg-[#F5F3F0] rounded-full transition text-[#1A1A1A] cursor-pointer"
-            >
-              <ChevronLeft className="w-4 h-4 stroke-[1.5]" />
-            </button>
-            <h1 className="font-serif text-base text-[#1A1A1A]">规则怪谈 · 副本列表</h1>
-            <button
-              onClick={() => setShowCreateInstanceModal(true)}
-              className="border border-[#E5E2DC] hover:bg-[#1A1A1A] hover:text-white text-[#1A1A1A] rounded-full px-4 py-1.5 text-xs font-sans font-medium transition cursor-pointer flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-              <span>新建副本</span>
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-6 space-y-4 max-w-2xl mx-auto w-full">
-            {instances.length === 0 ? (
-              <div className="py-20 text-center space-y-3 text-[#A8A39A]">
-                <AlertTriangle className="w-8 h-8 mx-auto stroke-[1.5] opacity-50" />
-                <p className="text-xs font-sans">暂无怪谈副本，点击右上角“新建副本”开启禁忌之旅。</p>
-              </div>
-            ) : (
-              instances.map((i) => {
-                const statusObj = {
-                    not_started: { text: "○ 未开启" },
-                    in_progress: { text: "○— 探索中" },
-                    completed: { text: "□ 已通关" }
-                }[i.status];
-
-                return (
-                  <div
-                    key={i.id}
-                    className="p-6 rounded-[16px] bg-white border border-[#EFECE8] hover:border-[#1A1A1A] transition-all space-y-4 shadow-[0_2px_8px_rgba(0,0,0,0.02)]"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-1.5 flex-1 min-w-0">
-                        <div className="flex items-center gap-3">
-                          <h3 className="font-serif text-base font-normal text-[#1A1A1A] truncate">{i.name}</h3>
-                          <span className="text-[11px] text-[#A8A39A] font-sans font-normal">
-                            {statusObj.text}
-                          </span>
+                    <div className="space-y-2 pt-2 border-t border-[#EFECE8]">
+                      <div className="flex items-center justify-between text-xs font-sans text-[#78716C]">
+                        <div className="flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-[#A8A39A]" />
+                          <span>参与角色: {world.characterIds?.length || 0} 位</span>
                         </div>
-                        <p className="text-xs text-[#A8A39A] font-sans line-clamp-2 leading-relaxed">
-                          {i.background}
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const updated = instances.filter(item => item.id !== i.id);
-                          setInstances(updated);
-                          persistInstances(updated);
-                        }}
-                        className="p-2 text-[#A8A39A] hover:text-[#1A1A1A] rounded-full hover:bg-[#F5F3F0] transition cursor-pointer shrink-0"
-                      >
-                        <Trash2 className="w-4 h-4 stroke-[1.5]" />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-3 border-t border-[#EFECE8] text-xs text-[#A8A39A] font-sans">
-                      <span>规则: {i.rules.length} 条 • 结局: {i.currentEnding || "探索中"}</span>
-
-                      <button
-                        onClick={() => {
-                          setActiveInstance(i);
-                          setActiveTab("rules_play");
-                        }}
-                        className="border border-[#E5E2DC] hover:bg-[#1A1A1A] hover:text-white text-[#1A1A1A] px-4 py-1.5 rounded-full text-xs font-sans font-medium transition cursor-pointer flex items-center gap-1.5"
-                      >
-                        <Play className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>{i.status === "completed" ? "回顾通关" : "继续探索"}</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 4. SUSPENSE SCRIPT LIST */}
-      {activeTab === "suspense_list" && (
-        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#F5F3F0]">
-          <div className="h-14 border-b border-[#EFECE8] px-6 flex items-center justify-between shrink-0 bg-white">
-            <button
-              onClick={() => setActiveTab("main")}
-              className="p-2 hover:bg-[#F5F3F0] rounded-full transition text-[#1A1A1A] cursor-pointer"
-            >
-              <ChevronLeft className="w-4 h-4 stroke-[1.5]" />
-            </button>
-            <h1 className="font-serif text-base text-[#1A1A1A]">悬疑剧场 · 剧本列表</h1>
-            <button
-              onClick={() => setShowCreateScriptModal(true)}
-              className="border border-[#E5E2DC] hover:bg-[#1A1A1A] hover:text-white text-[#1A1A1A] rounded-full px-4 py-1.5 text-xs font-sans font-medium transition cursor-pointer flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
-              <span>新建剧本</span>
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-6 space-y-4 max-w-2xl mx-auto w-full">
-            {scripts.length === 0 ? (
-              <div className="py-20 text-center space-y-3 text-[#A8A39A]">
-                <Film className="w-8 h-8 mx-auto stroke-[1.5] opacity-50" />
-                <p className="text-xs font-sans">暂无悬疑剧本，点击右上角“新建剧本”开启推理之门。</p>
-              </div>
-            ) : (
-              scripts.map((s) => {
-                const statusObj = {
-                    not_started: { text: "○ 未开始" },
-                    in_progress: { text: "○— 排演中" },
-                    completed: { text: "□ 已完结" }
-                }[s.status];
-
-                return (
-                  <div
-                    key={s.id}
-                    className="p-6 rounded-[16px] bg-white border border-[#EFECE8] hover:border-[#1A1A1A] transition-all space-y-4 shadow-[0_2px_8px_rgba(0,0,0,0.02)]"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="space-y-1.5 flex-1 min-w-0">
-                        <div className="flex items-center gap-3">
-                          <h3 className="font-serif text-base font-normal text-[#1A1A1A] truncate">{s.name}</h3>
-                          <span className="text-[11px] text-[#A8A39A] font-sans font-normal">
-                            {statusObj.text}
-                          </span>
+                        <div className="flex items-center gap-1.5 text-[11px] font-mono text-[#A8A39A]">
+                          <Clock className="w-3 h-3 text-[#A8A39A]" />
+                          <span>{formatDate(world.updatedAt || world.createdAt)}</span>
                         </div>
-                        <p className="text-xs text-[#A8A39A] font-sans line-clamp-2 leading-relaxed">
-                          {s.background}
-                        </p>
                       </div>
 
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const updated = scripts.filter(item => item.id !== s.id);
-                          setScripts(updated);
-                          persistScripts(updated);
-                        }}
-                        className="p-2 text-[#A8A39A] hover:text-[#1A1A1A] rounded-full hover:bg-[#F5F3F0] transition cursor-pointer shrink-0"
-                      >
-                        <Trash2 className="w-4 h-4 stroke-[1.5]" />
-                      </button>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-3 border-t border-[#EFECE8] text-xs text-[#A8A39A] font-sans">
-                      <span>{s.genre} • 幕次: 第 {s.currentAct} 幕 / 5</span>
-
-                      <button
-                        onClick={() => {
-                          setActiveScript(s);
-                          setActiveTab("suspense_play");
-                        }}
-                        className="border border-[#E5E2DC] hover:bg-[#1A1A1A] hover:text-white text-[#1A1A1A] px-4 py-1.5 rounded-full text-xs font-sans font-medium transition cursor-pointer flex items-center gap-1.5"
-                      >
-                        <Play className="w-3.5 h-3.5 stroke-[1.5]" />
-                        <span>{s.status === "completed" ? "回顾剧本" : "继续排演"}</span>
-                      </button>
+                      <div className="flex items-center justify-end pt-1">
+                        <button
+                          onClick={() => {
+                            setActiveWorld(world);
+                            setActiveTab("transmigration_play");
+                            setActivePlayTab("history");
+                          }}
+                          className="px-3.5 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs font-sans font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-2xs border border-[#1A1A1A]"
+                        >
+                          <Play className="w-3.5 h-3.5 stroke-[1.5]" />
+                          <span>进入世界</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
               })
             )}
           </div>
+
+          {/* Bottom Button */}
+          <div className="p-3 bg-white border-t border-[#EFECE8] shrink-0">
+            <button
+              type="button"
+              onClick={() => setShowCreateWorldModal(true)}
+              className="w-full py-2.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs font-sans font-medium transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-[0.99] border border-[#1A1A1A]"
+            >
+              <Plus className="w-4 h-4 stroke-[1.5]" />
+              <span>创建新世界</span>
+            </button>
+          </div>
         </div>
       )}
 
+      {/* 2.5 TRANSMIGRATION PLAY */}
       {activeTab === "transmigration_play" && activeWorld && (
-        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#F5F3F0]">
-          {/* Header */}
-          <div className="h-14 border-b border-[#EFECE8] px-6 flex items-center justify-between shrink-0 bg-white">
+        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#F5F3F0] text-[#1A1A1A]">
+          {/* Top Header */}
+          <div className="h-14 border-b border-[#EFECE8] px-4 flex items-center justify-between shrink-0 bg-white/90 backdrop-blur-md">
             <button
-              onClick={() => setActiveTab("transmigration_list")}
-              className="p-2 hover:bg-[#F5F3F0] rounded-full transition text-[#1A1A1A] cursor-pointer"
+              onClick={() => {
+                persistWorlds(worlds);
+                setActiveTab("transmigration_list");
+              }}
+              className="p-1.5 -ml-1 text-[#1A1A1A] hover:bg-[#F5F3F0] rounded-full transition cursor-pointer flex items-center gap-1"
+              title="返回快穿列表"
             >
-              <ChevronLeft className="w-4 h-4 stroke-[1.5]" />
+              <ChevronLeft className="w-5 h-5 stroke-[1.5]" />
             </button>
-            <div className="text-left flex-1 mx-4 min-w-0">
-              <h1 className="font-serif text-base text-[#1A1A1A] truncate flex items-center gap-2">
-                <span>{activeWorld.name}</span>
-              </h1>
-              <p className="font-serif text-[11px] text-[#A8A39A] flex items-center gap-2">
-                <span>轮次: {activeWorld.currentTurnCount} / 20</span>
-              </p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0 relative z-30">
-              <button
-                onClick={() => {
-                  if (activeWorld.status === "completed") {
-                    setActiveWorld(null);
-                    setActiveTab("transmigration_list");
-                    return;
+            <span className="font-serif font-semibold text-base text-[#1A1A1A] truncate max-w-[180px]">
+              {activeWorld.name}
+            </span>
+            <button
+              onClick={() => {
+                if (activeWorld) {
+                  setEditWorldBg(activeWorld.background || "");
+                  setEditUserName(activeWorld.userIdentity?.name || "");
+                  setEditUserThought(activeWorld.userIdentity?.thought || "");
+                  setEditCharacterStates(activeWorld.characterStates || {});
+                  setEditTasks(activeWorld.tasks || []);
+                  if (activeWorld.characterIds?.[0]) {
+                    setSelectedShareCharId(activeWorld.characterIds[0]);
                   }
-                  setShowSaveExitConfirm(true);
-                }}
-                className="border border-[#E5E2DC] hover:bg-[#1A1A1A] hover:text-white text-[#1A1A1A] rounded-full px-3.5 py-1 text-[13px] font-sans transition cursor-pointer relative z-50"
-              >
-                保存退出
-              </button>
-              
-              <button
-                onClick={() => setShowBackgroundDrawer(!showBackgroundDrawer)}
-                className="p-2 text-[#A8A39A] hover:text-[#1A1A1A] rounded-full hover:bg-[#F5F3F0] transition cursor-pointer"
-                title="世界信息"
-              >
-                <BookOpen className="w-4 h-4 stroke-[1.5]" />
-              </button>
-            </div>
+                }
+                setActivePlayTab("settings");
+              }}
+              className={`p-2 rounded-full transition cursor-pointer border ${
+                activePlayTab === "settings"
+                  ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                  : "bg-white text-[#1A1A1A] border-[#EFECE8] hover:bg-[#F5F3F0]"
+              }`}
+              title="世界设置"
+            >
+              <Settings className="w-4 h-4 stroke-[1.5]" />
+            </button>
           </div>
-
-          {/* Quick Stats & Exposure Meter */}
-          <div className="bg-white border-b border-[#EFECE8] px-6 py-3 flex flex-col gap-2">
-            {/* Identity Info line */}
-            <div className="flex items-center justify-between text-[11px] font-serif text-[#A8A39A]">
-              <span>
-                穿越身份: <span className="text-[#1A1A1A] font-sans">【{activeWorld.userTag}】{activeWorld.userIdentity?.name || "未知宿主"}</span>
-              </span>
-              <span>
-                {activeWorld.userIdentity?.age}岁 | {activeWorld.userIdentity?.occupation}
-              </span>
-            </div>
-
-            {/* Exposure progress bar */}
-            <div className="flex items-center justify-between text-[11px] font-serif text-[#A8A39A] gap-3">
-              <div className="flex items-center gap-1.5">
-                <Skull className="w-3.5 h-3.5 stroke-[1.5]" />
-                <span>灵魂排异(暴露度):</span>
-                <span className="font-sans text-[#1A1A1A]">{activeWorld.exposure || 0}%</span>
-              </div>
-              <div className="flex-1 h-1.5 bg-[#F5F3F0] rounded-full overflow-hidden max-w-xs">
-                <div
-                  className={`h-full transition-all duration-500 ${
-                    (activeWorld.exposure || 0) > 70
-                      ? "bg-[#1A1A1A]"
-                      : "bg-[#A8A39A]"
-                  }`}
-                  style={{ width: `${Math.min(100, activeWorld.exposure || 0)}%` }}
-                />
-              </div>
-              {activeWorld.exposure >= 100 && (
-                <span className="text-[11px] font-serif text-[#1A1A1A] shrink-0">
-                  ⚠️ 灵魂碎灭！
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Collapsible Background Drawer */}
-          {showBackgroundDrawer && (
-            <div className="p-6 bg-white border-b border-[#EFECE8] animate-slide-down overflow-y-auto max-h-[40vh] space-y-4">
-              <div>
-                <h4 className="font-serif text-xs text-[#1A1A1A] tracking-wider mb-2 flex items-center gap-1.5">
-                  <BookOpen className="w-3.5 h-3.5 stroke-[1.5]" />
-                  当前世界大背景
-                </h4>
-                <p className="text-[15px] font-serif text-[#1A1A1A] leading-[1.7] bg-[#F5F3F0] p-4 rounded-[12px] border border-[#EFECE8]">
-                  {activeWorld.background}
-                </p>
-              </div>
+          
+          {/* Sub Navigation Tabs */}
+          {activePlayTab !== "settings" && (
+            <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-[#EFECE8] overflow-x-auto no-scrollbar shrink-0">
+               <button
+                 onClick={() => setActivePlayTab("history")}
+                 className={`text-xs font-medium whitespace-nowrap px-4 py-1.5 rounded-full transition cursor-pointer flex items-center gap-1.5 ${
+                   activePlayTab === "history"
+                     ? "bg-[#1A1A1A] text-white border border-[#1A1A1A] shadow-xs"
+                     : "bg-[#F5F3F0] text-[#78716C] border border-[#EFECE8] hover:text-[#1A1A1A]"
+                 }`}
+               >
+                 <span>📖 剧情推进区</span>
+               </button>
+               <button
+                 onClick={() => {
+                   const userFaction = activeWorld.factions?.find(f => f.memberIds.includes("user")) || activeWorld.factions?.[0];
+                   if (userFaction && !viewingFactionId) setViewingFactionId(userFaction.id);
+                   setActivePlayTab("chat");
+                 }}
+                 className={`text-xs font-medium whitespace-nowrap px-4 py-1.5 rounded-full transition cursor-pointer flex items-center gap-1.5 ${
+                   activePlayTab === "chat"
+                     ? "bg-[#1A1A1A] text-white border border-[#1A1A1A] shadow-xs"
+                     : "bg-[#F5F3F0] text-[#78716C] border border-[#EFECE8] hover:text-[#1A1A1A]"
+                 }`}
+               >
+                 <span>💬 阵营群聊区</span>
+               </button>
             </div>
           )}
+          
+          <div className="flex-1 overflow-hidden relative flex flex-col">
 
-          {/* Tab Switcher */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar bg-[#F5F3F0]">
-            {activePlayTab === "behavior" && (
-              <div className="flex flex-col h-full">
-                <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-3xl mx-auto w-full">
-                  {activeWorld.messages.map((msg, index) => (
-                    <div key={msg.id || index} className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"} animate-fade-in`}>
-                      {msg.role !== "user" && (
-                        <span className="font-serif text-[11px] text-[#A8A39A] mb-1.5 px-1">{msg.senderName || "天道系统"}</span>
-                      )}
-                      <div className={`max-w-[85%] p-5 rounded-[16px] ${
-                        msg.role === "user" 
-                        ? "bg-[#1A1A1A] text-white rounded-tr-none shadow-[0_2px_8px_rgba(0,0,0,0.04)] font-sans text-base" 
-                        : "bg-white text-[#1A1A1A] border border-[#EFECE8] rounded-tl-none shadow-[0_2px_8px_rgba(0,0,0,0.02)] text-[15px] font-serif leading-[1.7]"
-                      }`}>
-                        {msg.content}
-                      </div>
-                    </div>
-                  ))}
-                  {isGenerating && (
-                    <div className="flex items-center gap-2 text-[#A8A39A] animate-pulse text-[11px] font-serif p-3 bg-white rounded-[12px] border border-[#EFECE8] w-fit shadow-[0_2px_8px_rgba(0,0,0,0.02)]">
-                      <Sparkles className="w-3.5 h-3.5 stroke-[1.5]" />
-                      <span>天道主宰正在推演大千世界剧情中...</span>
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} />
+            {/* ==================== 0. SETTINGS & MEMORY CARD PAGE ==================== */}
+            {activePlayTab === "settings" && (
+              <div className="flex-1 overflow-y-auto p-4 space-y-6 bg-[#F9F8F6]">
+                <div className="flex items-center justify-between border-b border-[#EFECE8] pb-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setActivePlayTab("history")}
+                      className="p-1 text-[#1A1A1A] hover:bg-[#EFECE8] rounded-full transition cursor-pointer"
+                      title="返回"
+                    >
+                      <ChevronLeft className="w-5 h-5" />
+                    </button>
+                    <h2 className="font-serif font-bold text-sm text-[#1A1A1A]">快穿世界设置与记忆卡片</h2>
+                  </div>
+                  <button
+                    onClick={handleSaveWorldSettings}
+                    className="px-4 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs font-medium rounded-full transition cursor-pointer shadow-xs"
+                  >
+                    保存设定
+                  </button>
                 </div>
-              </div>
-            )}
 
-            {activePlayTab === "tasks" && (
-              <div className="p-6 space-y-6 max-w-3xl mx-auto w-full">
-                {/* 1. Core Tasks list */}
-                <div className="p-5 rounded-[16px] bg-white border border-[#EFECE8] space-y-4 shadow-[0_2px_8px_rgba(0,0,0,0.02)]">
-                  <h3 className="font-serif text-sm text-[#1A1A1A] flex items-center gap-1.5 border-b border-[#EFECE8] pb-2">
-                    <Trophy className="w-4 h-4 text-[#1A1A1A] stroke-[1.5]" />
-                    <span>核心任务指标</span>
-                  </h3>
+                {/* Section 1: World Background & User Identity */}
+                <div className="bg-white rounded-2xl p-4 border border-[#EFECE8] space-y-4 shadow-2xs">
+                  <h3 className="text-xs font-semibold text-[#1A1A1A] uppercase tracking-wider">世界设定与玩家身份</h3>
                   <div className="space-y-3">
-                    {activeWorld.tasks.map((t) => (
-                      <div key={t.id} className="flex items-start gap-3">
-                        <button
-                          onClick={() => toggleTaskCompletion(t.id)}
-                          className="cursor-pointer mt-1"
-                          title="手动触发判定"
-                        >
-                          {t.completed ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 stroke-[1.5]" />
-                          ) : (
-                            <Circle className="w-4 h-4 text-[#A8A39A] shrink-0 stroke-[1.5]" />
-                          )}
-                        </button>
-                        <div className="flex-1">
-                          <p className={`text-[15px] font-serif leading-[1.7] ${t.completed ? "line-through text-[#A8A39A]" : "text-[#1A1A1A]"}`}>
-                            {t.description}
-                          </p>
-                          <span className={`text-[11px] font-serif px-2 py-0.5 rounded mt-1.5 inline-block ${t.completed ? "bg-emerald-50 text-emerald-700" : "bg-[#F5F3F0] text-[#A8A39A]"}`}>
-                            {t.completed ? "已完成" : "进行中 • 判定由行动推动或在此手动判定"}
-                          </span>
-                        </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-[#78716C] mb-1">世界背景描述</label>
+                      <textarea
+                        value={editWorldBg}
+                        onChange={(e) => setEditWorldBg(e.target.value)}
+                        rows={3}
+                        className="w-full p-2.5 text-xs rounded-xl bg-[#F5F3F0] border border-[#EFECE8] text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-medium text-[#78716C] mb-1">玩家扮演身份名称</label>
+                        <input
+                          type="text"
+                          value={editUserName}
+                          onChange={(e) => setEditUserName(e.target.value)}
+                          className="w-full p-2.5 text-xs rounded-xl bg-[#F5F3F0] border border-[#EFECE8] text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition"
+                        />
                       </div>
-                    ))}
+                      <div>
+                        <label className="block text-[11px] font-medium text-[#78716C] mb-1">身份背景 / 内心独白</label>
+                        <input
+                          type="text"
+                          value={editUserThought}
+                          onChange={(e) => setEditUserThought(e.target.value)}
+                          className="w-full p-2.5 text-xs rounded-xl bg-[#F5F3F0] border border-[#EFECE8] text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                {/* 2. User Props Deck */}
-                <div className="p-5 rounded-[16px] bg-white border border-[#EFECE8] space-y-4 shadow-[0_2px_8px_rgba(0,0,0,0.02)]">
-                  <div className="flex items-center justify-between border-b border-[#EFECE8] pb-2">
-                    <h3 className="font-serif text-sm text-[#1A1A1A] flex items-center gap-1.5">
-                      <Gift className="w-4 h-4 text-[#1A1A1A] stroke-[1.5]" />
-                      <span>我的行囊法宝 ({activeWorld.props?.filter(p => p.count > 0).length || 0})</span>
-                    </h3>
-                    
-                  </div>
+                {/* Section 2: Character Identities */}
+                <div className="bg-white rounded-2xl p-4 border border-[#EFECE8] space-y-4 shadow-2xs">
+                  <h3 className="text-xs font-semibold text-[#1A1A1A] uppercase tracking-wider">参与角色扮演身份</h3>
                   <div className="space-y-3">
-                    {activeWorld.props?.map((p) => {
-                      if (p.count === 0) return null;
+                    {activeWorld.characterIds?.map((cId) => {
+                      const char = getCharacterById(cId);
+                      const state = editCharacterStates[cId];
+                      if (!char || !state) return null;
                       return (
-                        <div key={p.id} className="p-4 rounded-[12px] bg-[#F5F3F0] border border-[#EFECE8] flex items-center justify-between gap-3 transition-all hover:border-[#1A1A1A]">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-[14px] font-serif text-[#1A1A1A]">{p.name}</span>
-                              <span className="text-[11px] font-serif px-2 py-0.5 rounded bg-white text-[#1A1A1A] border border-[#EFECE8]">
-                                存量: {p.count}
-                              </span>
-                            </div>
-                            <p className="text-[15px] font-serif text-[#1A1A1A] leading-[1.7]">{p.description}</p>
+                        <div key={cId} className="p-3 bg-[#F5F3F0] rounded-xl border border-[#EFECE8] space-y-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-xs text-[#1A1A1A]">{char.name}</span>
+                            <span className="text-[10px] px-2 py-0.5 bg-white rounded-full text-[#78716C] border border-[#EFECE8]">原世界角色</span>
                           </div>
-                          <button
-                            onClick={() => useTransmigrationPropOrSkill("item", p.id)}
-                            disabled={isGenerating || p.count <= 0}
-                            className="px-4 py-2 bg-[#1A1A1A] hover:bg-neutral-800 disabled:opacity-40 text-white text-[13px] font-sans rounded-full cursor-pointer shrink-0 transition"
-                          >
-                            使用
-                          </button>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] text-[#78716C] mb-0.5">世界身份名称</label>
+                              <input
+                                type="text"
+                                value={state.identity?.name || ""}
+                                onChange={(e) => {
+                                  const updated = {
+                                    ...editCharacterStates,
+                                    [cId]: {
+                                      ...state,
+                                      identity: { ...state.identity, name: e.target.value }
+                                    }
+                                  };
+                                  setEditCharacterStates(updated);
+                                }}
+                                className="w-full p-2 text-xs rounded-lg bg-white border border-[#EFECE8] text-[#1A1A1A] outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] text-[#78716C] mb-0.5">身份特征 / 职业</label>
+                              <input
+                                type="text"
+                                value={state.identity?.profession || ""}
+                                onChange={(e) => {
+                                  const updated = {
+                                    ...editCharacterStates,
+                                    [cId]: {
+                                      ...state,
+                                      identity: { ...state.identity, profession: e.target.value }
+                                    }
+                                  };
+                                  setEditCharacterStates(updated);
+                                }}
+                                className="w-full p-2 text-xs rounded-lg bg-white border border-[#EFECE8] text-[#1A1A1A] outline-none"
+                              />
+                            </div>
+                          </div>
                         </div>
                       );
                     })}
-                    {(!activeWorld.props || activeWorld.props.filter(p => p.count > 0).length === 0) && (
-                      <p className="text-[11px] font-serif text-[#A8A39A] text-center py-3">
-                        背囊空空如也，可在商店购买灵丹妙药...
-                      </p>
-                    )}
                   </div>
                 </div>
 
-                {/* 3. User Skills Deck */}
-                <div className="p-5 rounded-[16px] bg-white border border-[#EFECE8] space-y-4 shadow-[0_2px_8px_rgba(0,0,0,0.02)]">
-                  <h3 className="font-serif text-sm text-[#1A1A1A] flex items-center gap-1.5 border-b border-[#EFECE8] pb-2">
-                    <Zap className="w-4 h-4 text-[#1A1A1A] stroke-[1.5]" />
-                    <span>天道神技</span>
-                  </h3>
-                  <div className="space-y-3">
-                    {activeWorld.skills?.map((s) => (
-                      <div key={s.id} className="p-4 rounded-[12px] bg-[#F5F3F0] border border-[#EFECE8] flex items-center justify-between gap-3 transition-all hover:border-[#1A1A1A]">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[14px] font-serif text-[#1A1A1A]">{s.name}</span>
-                            <span className="text-[11px] font-serif px-2 py-0.5 rounded bg-white text-[#1A1A1A] border border-[#EFECE8]">
-                              LV.{s.level}
-                            </span>
-                          </div>
-                          <p className="text-[15px] font-serif text-[#1A1A1A] leading-[1.7]">{s.description}</p>
-                        </div>
-                        <button
-                          onClick={() => useTransmigrationPropOrSkill("skill", s.id)}
-                          disabled={isGenerating || s.level <= 0}
-                          className="px-4 py-2 bg-[#1A1A1A] hover:bg-neutral-800 disabled:opacity-40 text-white text-[13px] font-sans rounded-full cursor-pointer shrink-0 transition"
-                        >
-                          发动
-                        </button>
-                      </div>
-                    ))}
+                {/* Section 3: Generate Story Memory Card */}
+                <div className="bg-white rounded-2xl p-4 border border-[#EFECE8] space-y-4 shadow-2xs">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-semibold text-[#1A1A1A] uppercase tracking-wider">剧情记忆卡片生成与分享</h3>
+                    <button
+                      onClick={handleGenerateMemoryCard}
+                      className="px-3 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs font-medium rounded-full transition cursor-pointer shadow-2xs"
+                    >
+                      ✨ 生成剧情卡片
+                    </button>
                   </div>
-                </div>
 
-                {/* 4. Memory Card Achievements */}
-                {activeWorld.memoryCard && (
-                  <div className="p-4 rounded-2xl bg-neutral-900 border border-purple-500/30 bg-gradient-to-br from-neutral-900 to-purple-950/20 space-y-3 shadow-lg relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-1 bg-purple-600 text-[9px] text-white font-bold rounded-bl-xl shadow-md uppercase tracking-wider font-mono">
-                      【终焉刻印】
-                    </div>
-                    <h3 className="text-xs font-bold text-white flex items-center gap-1.5 border-b border-neutral-800 pb-2">
-                      <Award className="w-4 h-4 text-purple-400" />
-                      <span>解封记忆碎片卡 (Memory Card)</span>
-                    </h3>
-                    <div className="p-3 bg-neutral-950 border border-neutral-800 rounded-xl space-y-2.5 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-purple-300">{activeWorld.memoryCard.title}</span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                          activeWorld.memoryCard.status === "perfect"
-                            ? "bg-emerald-950 text-emerald-400 border border-emerald-500/30"
-                            : activeWorld.memoryCard.status === "partial"
-                            ? "bg-amber-950 text-amber-400 border border-amber-500/30"
-                            : "bg-rose-950 text-rose-400 border border-rose-500/30"
-                        }`}>
-                          {activeWorld.memoryCard.status === "perfect" ? "★ 完美谢幕" : activeWorld.memoryCard.status === "partial" ? "☆ 破碎结局" : "☠ 灵魂湮灭"}
+                  {activeWorld.memoryCard ? (
+                    <div className="p-4 bg-[#F9F8F6] rounded-xl border border-[#EFECE8] space-y-3">
+                      <div className="flex items-center justify-between border-b border-[#EFECE8] pb-2">
+                        <h4 className="font-serif font-bold text-xs text-[#1A1A1A]">{activeWorld.memoryCard.title}</h4>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full ${activeWorld.memoryCard.shared ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                          {activeWorld.memoryCard.shared ? "已分享给角色" : "本地存档中"}
                         </span>
                       </div>
-                      <p className="text-neutral-300 leading-relaxed text-[11px] italic bg-neutral-900 p-2 rounded border border-neutral-800">
-                        &quot;{activeWorld.memoryCard.content}&quot;
-                      </p>
-                      
+                      <p className="text-xs text-[#78716C] whitespace-pre-wrap leading-relaxed">{activeWorld.memoryCard.content}</p>
+
+                      <div className="pt-2 border-t border-[#EFECE8] flex flex-col sm:flex-row items-center gap-2">
+                        <select
+                          value={selectedShareCharId}
+                          onChange={(e) => setSelectedShareCharId(e.target.value)}
+                          className="flex-1 p-2 text-xs bg-white border border-[#EFECE8] rounded-xl text-[#1A1A1A] outline-none"
+                        >
+                          {activeWorld.characterIds?.map(cId => {
+                            const c = getCharacterById(cId);
+                            return <option key={cId} value={cId}>{c?.name || cId}</option>;
+                          })}
+                        </select>
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                          <button
+                            onClick={handleSendMemoryCardToChar}
+                            className="flex-1 sm:flex-none px-3 py-2 bg-[#1A1A1A] text-white text-xs font-medium rounded-xl hover:bg-neutral-800 transition cursor-pointer"
+                          >
+                            发送给角色并让其记住
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                    <button
-                      onClick={() => handleShareMemoryCard(activeWorld.id)}
-                      className="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md"
-                    >
-                      <Share2 className="w-3.5 h-3.5" />
-                      <span>分享终焉记忆卡片</span>
-                    </button>
+                  ) : (
+                    <p className="text-xs text-[#A8A39A] italic">尚未生成记忆卡片，点击上方按钮开始生成。</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ==================== 1. 剧情推进区 (STORY PROGRESSION AREA) ==================== */}
+            {activePlayTab === "history" && (
+              <div className="flex-1 flex flex-col h-full overflow-hidden">
+                {/* Faction Task Progress Bar */}
+                {activeWorld.factions && activeWorld.factions.length >= 2 && (() => {
+                  const myF = activeWorld.factions.find(f => f.memberIds.includes("user")) || activeWorld.factions[0];
+                  const oppF = activeWorld.factions.find(f => !f.memberIds.includes("user")) || activeWorld.factions[1];
+                  const myProg = activeWorld.factionProgress?.[myF.id] ?? Math.min(100, Math.max(0, 30 + (activeWorld.tasks.filter(t => t.completed).length / (activeWorld.tasks.length || 1)) * 50 + (activeWorld.currentTurnCount || 0) * 4));
+                  const oppProg = activeWorld.factionProgress?.[oppF.id] ?? Math.min(100, Math.max(0, 35 + (activeWorld.currentTurnCount || 0) * 3));
+
+                  return (
+                    <div className="bg-white border-b border-[#EFECE8] px-4 py-2.5 shrink-0 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5 font-bold text-[#1A1A1A]">
+                        <span className="text-[11px] text-[#78716C]">{myF.name}</span>
+                        <span className="font-mono text-xs px-2 py-0.5 bg-[#F5F3F0] rounded text-[#1A1A1A] border border-[#EFECE8]">{myProg}%</span>
+                      </div>
+
+                      <div className="flex-1 mx-4 relative h-2.5 bg-[#E5E2DC] rounded-full overflow-hidden flex items-center shadow-inner">
+                        <div 
+                          className="absolute left-0 top-0 bottom-0 bg-[#1A1A1A] rounded-l-full transition-all duration-500" 
+                          style={{ width: `${myProg}%` }}
+                        />
+                        <div className="absolute left-1/2 top-0 bottom-0 w-[1.5px] bg-white z-10 opacity-80" />
+                      </div>
+
+                      <div className="flex items-center gap-1.5 font-bold text-[#1A1A1A] justify-end">
+                        <span className="font-mono text-xs px-2 py-0.5 bg-[#F5F3F0] rounded text-[#1A1A1A] border border-[#EFECE8]">{oppProg}%</span>
+                        <span className="text-[11px] text-[#78716C]">{oppF.name}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 剧情消息历史滚动区 */}
+                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  {/* Story messages stream */}
+                  <div className="space-y-3">
+                    {activeWorld.messages && activeWorld.messages.length > 0 ? (
+                      activeWorld.messages.map((msg, idx) => {
+                        const isUser = msg.role === "user";
+                        const isSystem = msg.role === "system";
+
+                        if (isUser) {
+                          return (
+                            <div
+                              key={msg.id || idx}
+                              className="flex flex-col items-end mb-3"
+                            >
+                              <div className="flex items-center gap-1.5 mb-1 px-1 text-[11px] text-[#A8A39A]">
+                                <span>{msg.senderName || "我"}</span>
+                                <span className="text-[10px] opacity-70">
+                                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <div className="max-w-[88%] sm:max-w-[80%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed bg-[#1A1A1A] text-white rounded-tr-none shadow-xs">
+                                {msg.content}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        if (isSystem) {
+                          return (
+                            <div
+                              key={msg.id || idx}
+                              className="p-3.5 my-2 bg-[#F5F3F0] border border-[#EFECE8] rounded-2xl text-xs text-[#78716C] whitespace-pre-wrap leading-relaxed shadow-2xs"
+                            >
+                              {msg.content}
+                            </div>
+                          );
+                        }
+
+                        // Assistant role: Render character cards
+                        const cards = msg.charCards && msg.charCards.length > 0
+                          ? msg.charCards
+                          : parseTextToCharCards(msg.content, activeWorld.characterIds, getCharacterById, activeWorld.characterStates);
+
+                        const timeStr = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                        return (
+                          <div key={msg.id || idx} className="space-y-3 mb-3">
+                            {cards.map((card, cIdx) => (
+                              <div
+                                key={cIdx}
+                                className="bg-white rounded-[12px] p-[12px_16px] shadow-2xs border border-[#EFECE8] space-y-1.5"
+                              >
+                                {/* Top-left: Character name (10px, warm gray #A8A39A, bold) + time (9px, #BFBAB2, regular) on the same line */}
+                                <div className="flex items-center gap-1.5 text-[10px] leading-none">
+                                  <span className="font-bold text-[#A8A39A]">{card.characterName}</span>
+                                  <span className="text-[#BFBAB2] font-normal">{timeStr}</span>
+                                </div>
+
+                                {/* Content area */}
+                                <div className="space-y-1 pt-0.5">
+                                  {card.action && (
+                                    <p className="text-[15px] text-[#1A1A1A] font-sans text-left leading-relaxed">
+                                      {card.action}
+                                    </p>
+                                  )}
+                                  {card.dialogue && (
+                                    <p className="text-[15px] text-[#1A1A1A] font-sans text-left leading-relaxed">
+                                      {card.dialogue.replace(/^[“""]|[”""]$/g, "")}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="py-8 text-center text-xs text-[#A8A39A]">
+                        点击下方“AI推进”或选择行动选项开启故事...
+                      </div>
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  {/* Modern Warnings block */}
+                  {activeWorld.modernWarnings && activeWorld.modernWarnings.length > 0 && (
+                    <div className="p-4 rounded-2xl bg-white border border-[#EFECE8] space-y-3 shadow-xs">
+                      <h3 className="text-xs font-semibold text-[#1A1A1A] flex items-center gap-1.5 border-b border-[#EFECE8] pb-2">
+                        <AlertTriangle className="w-4 h-4 text-[#78716C]" />
+                        <span>现代言行穿帮警报</span>
+                      </h3>
+                      <div className="space-y-2">
+                        {activeWorld.modernWarnings.map((w, index) => (
+                          <div key={index} className="p-3 bg-[#FAFAF9] border border-[#EFECE8] rounded-xl space-y-1.5 text-xs text-[#1A1A1A]">
+                            <div className="flex items-center justify-between text-[10px] text-[#78716C] border-b border-[#EFECE8] pb-1">
+                              <span className="font-medium">穿帮事件 #{index + 1}</span>
+                              <span>罚分: +{w.penalty}% 暴露</span>
+                            </div>
+                            <p className="italic text-[11px]">&quot;{w.text}&quot;</p>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {w.keywords.map((kw, kwIdx) => (
+                                <span key={kwIdx} className="bg-[#F5F3F0] border border-[#EFECE8] px-1.5 py-0.5 rounded text-[10px] font-mono text-[#78716C]">
+                                  违禁词: {kw}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Role play tips */}
+                  <div className="p-4 rounded-2xl bg-white border border-[#EFECE8] space-y-2 text-xs text-[#1A1A1A] shadow-xs">
+                    <h4 className="font-semibold text-[#1A1A1A] flex items-center gap-1.5">
+                      <Shield className="w-3.5 h-3.5 text-[#78716C]" />
+                      <span>快穿世界扮演守则</span>
+                    </h4>
+                    <ul className="list-disc pl-4 space-y-1 text-[#78716C] text-[11px] leading-relaxed">
+                      <li>请沉浸式扮演您在当前世界的原宿主身份，符合时代背景。</li>
+                      <li>严禁使用现代词汇（如：“手机”、“微信”、“AI”、“网络”、“穿越”）。</li>
+                      <li>系统采用高敏检测，一旦发言触发违禁将提示暴露度惩罚。</li>
+                      <li>当好感羁绊提升且任务达成时，将生成完美谢幕记忆碎片。</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* 剧情推进区控制底部：Action Options & Custom Input */}
+                {activeWorld.status !== "completed" && (
+                  <div className="bg-white border-t border-[#EFECE8] flex flex-col shrink-0 shadow-lg">
+                    {/* 分支选项 */}
+                    <div className="p-3 sm:p-4 space-y-2.5 border-b border-[#EFECE8]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-[#1A1A1A] flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-[#1A1A1A]" />
+                          <span>剧情分支行动</span>
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={handleRefreshActionOptions}
+                            disabled={isGenerating || isRefreshingOptions}
+                            className="text-xs font-sans text-[#78716C] hover:text-[#1A1A1A] hover:bg-[#F5F3F0] flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-[#E5E2DC] transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs active:scale-95"
+                            title="刷新行动选项"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${isRefreshingOptions ? "animate-spin text-[#1A1A1A]" : "text-[#78716C]"}`} />
+                            <span>{isRefreshingOptions ? "刷新中..." : "刷新选项"}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleTransmigrationUserSend("【AI推进】：请继续推进当前世界的剧情发展的关键节点！")}
+                            disabled={isGenerating || activeWorld.status === "completed"}
+                            className="px-3 py-1 rounded-full bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F5F3F0] disabled:text-[#A8A39A] text-white text-xs font-sans font-medium transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50 shadow-xs active:scale-95 border border-[#1A1A1A]"
+                            title="AI自动推进剧情"
+                          >
+                            {isGenerating ? (
+                              <>
+                                <RefreshCw className="w-3 h-3 animate-spin stroke-[1.5]" />
+                                <span>推进中...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3 h-3 stroke-[1.5]" />
+                                <span>AI推进剧情</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {(activeWorld.actionOptions && activeWorld.actionOptions.length > 0
+                          ? activeWorld.actionOptions
+                          : [
+                              "走过去与对方说话",
+                              "检查四周的环境与物品",
+                              "思考当前原主宿留下的记忆",
+                              "静观其变，等待对方开口"
+                            ]
+                        ).map((optText, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => handleTransmigrationUserSend(optText)}
+                            disabled={isGenerating || isRefreshingOptions}
+                            className="text-left px-3.5 py-2 bg-white border border-[#E5E2DC] hover:border-[#1A1A1A] hover:bg-[#F5F3F0] rounded-xl text-xs font-sans text-[#1A1A1A] transition flex items-center gap-2.5 cursor-pointer disabled:opacity-50 active:scale-[0.99] group shadow-xs"
+                          >
+                            <span className="w-4 h-4 rounded-full bg-[#F5F3F0] group-hover:bg-[#1A1A1A] group-hover:text-white flex items-center justify-center text-[10px] font-mono text-[#78716C] shrink-0 transition font-medium border border-[#EFECE8]">
+                              {idx + 1}
+                            </span>
+                            <span className="truncate flex-1">{optText}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 剧情推进自定义输入框 */}
+                    <div className="p-3 bg-white flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder={activeWorld.status !== "completed" ? "输入自定义行动、对话或回应..." : "世界已结束，无法继续操作"}
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleTransmigrationUserSend()}
+                        disabled={isGenerating || activeWorld.status === "completed"}
+                        className="flex-1 bg-white border border-[#E5E2DC] rounded-full px-4 py-2 text-xs sm:text-sm font-sans text-[#1A1A1A] outline-none focus:border-[#1A1A1A] placeholder-[#A8A39A] disabled:opacity-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleTransmigrationUserSend()}
+                        disabled={isGenerating || !inputText.trim() || activeWorld.status === "completed"}
+                        className="p-2.5 bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F5F3F0] disabled:text-[#A8A39A] text-white rounded-full transition cursor-pointer flex items-center justify-center shrink-0 border border-[#1A1A1A]"
+                        title="发送自定义行动"
+                      >
+                        <Send className="w-4 h-4 stroke-[1.5]" />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             )}
 
-            {activePlayTab === "identities" && (
-              <div className="p-4 space-y-3">
-                {activeWorld.characterIds.map((charId) => {
-                  const charState = activeWorld.characterStates?.[charId];
-                  if (!charState) return null;
-                  
-                  const myFaction = activeWorld.factions?.find(f => f.memberIds.includes("user"));
-                  const isSameFaction = myFaction?.memberIds.includes(charId);
-                  const isUnlocked = !!charState.revealed || isSameFaction;
-                  
-                  return (
-                    <div
-                      key={charId}
-                      className={`p-3 bg-neutral-900 border rounded-2xl flex flex-col gap-3 transition-all hover:border-neutral-700 ${
-                        isSameFaction ? "border-emerald-500/20" : "border-neutral-800"
-                      }`}
-                    >
-                      {/* Character identity row */}
-                      <div className="flex items-start gap-3">
-                        <div
-                          className="w-10 h-10 rounded-full bg-neutral-800 flex items-center justify-center text-lg shadow-md border border-neutral-700 shrink-0 cursor-pointer hover:scale-105 transition"
-                          onClick={() => setInspectingCharId(charId)}
-                        >
-                          {charState.identity?.appearance?.includes("袍") ? "🧙" : "👤"}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-sm text-white">
-                              {isUnlocked ? charState.identity?.name : "【未知原住民】"}
-                            </span>
-                            {isSameFaction && (
-                              <span className="text-[9px] px-1.5 py-0.2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded font-bold uppercase tracking-wider">
-                                盟友
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-neutral-500 font-mono mt-0.5">
-                            扮演身份: {charState.identity?.name || "???"} ({charState.identity?.age}岁)
-                          </p>
-                        </div>
+            {/* ==================== 2. 阵营群聊区 (FACTION GROUP CHAT AREA) ==================== */}
+            {activePlayTab === "chat" && (() => {
+              const myFaction = activeWorld.factions?.find(f => f.memberIds.includes("user")) || activeWorld.factions?.[0];
+              const opponentFaction = activeWorld.factions?.find(f => !f.memberIds.includes("user")) || activeWorld.factions?.[1];
+              
+              const currentFactionId = viewingFactionId && activeWorld.factions?.some(f => f.id === viewingFactionId)
+                ? viewingFactionId
+                : (myFaction?.id || "");
+
+              const isMyFactionViewing = Boolean(myFaction && currentFactionId === myFaction.id);
+
+              return (
+                <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] animate-fade-in overflow-hidden">
+                  {/* 群聊区顶栏：阵营切换标签 (我方阵营 vs 对方阵营) */}
+                  <div className="p-3 border-b border-[#EFECE8] bg-white sticky top-0 z-10 space-y-2 shrink-0 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-[#1A1A1A] flex items-center gap-1.5">
+                        <Shield className="w-3.5 h-3.5 text-[#1A1A1A]" />
+                        <span>双阵营加密群聊矩阵</span>
+                      </span>
+                      <span className={`text-[10px] font-sans px-2.5 py-0.5 rounded-full border ${
+                        isMyFactionViewing 
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                          : "bg-amber-50 text-amber-700 border-amber-200"
+                      }`}>
+                        {isMyFactionViewing ? "🟢 我方可发言" : "👁️ 对方只能偷看"}
+                      </span>
+                    </div>
+
+                    {/* 切换标签按钮组 */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* 我方阵营 Tab */}
+                      {myFaction && (
                         <button
-                          onClick={() => {
-                            setAccuseTargetId(charId);
-                            setAccuseText("");
-                            setShowAccuseModal(true);
-                          }}
-                          className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold rounded-lg transition shrink-0 cursor-pointer"
+                          type="button"
+                          onClick={() => setViewingFactionId(myFaction.id)}
+                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex items-center justify-between ${
+                            currentFactionId === myFaction.id
+                              ? "bg-[#1A1A1A] border-[#1A1A1A] text-white shadow-xs"
+                              : "bg-[#F9F8F6] border-[#EFECE8] text-[#1A1A1A] hover:border-[#1A1A1A]"
+                          }`}
                         >
-                          {isSameFaction ? "秘密传讯" : "试探身份"}
+                          <div className="min-w-0 flex-1 pr-1">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <span className="text-xs font-bold truncate">我方阵营 · {myFaction.name}</span>
+                            </div>
+                            <p className={`text-[10px] truncate ${currentFactionId === myFaction.id ? "text-neutral-300" : "text-[#78716C]"}`}>
+                              {myFaction.goal}
+                            </p>
+                          </div>
+                          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0 ${
+                            currentFactionId === myFaction.id ? "bg-white/20 text-white" : "bg-[#EFECE8] text-[#78716C]"
+                          }`}>
+                            {(activeWorld.factionChats?.[myFaction.id] || []).length}条
+                          </span>
                         </button>
-                      </div>
+                      )}
 
-                      {/* Faction & Status */}
-                      <div className="flex items-center justify-between bg-neutral-950 p-2.5 rounded-xl border border-neutral-850 text-[10px]">
-                        <div className="flex items-center gap-2">
-                          <span className="text-neutral-500">阵营归属:</span>
-                          <span className={isSameFaction ? "text-emerald-400 font-bold" : "text-neutral-600 italic"}>
-                            {isSameFaction ? myFaction?.name : "尚未识别"}
+                      {/* 对方阵营 Tab */}
+                      {opponentFaction && (
+                        <button
+                          type="button"
+                          onClick={() => setViewingFactionId(opponentFaction.id)}
+                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex items-center justify-between ${
+                            currentFactionId === opponentFaction.id
+                              ? "bg-[#1A1A1A] border-[#1A1A1A] text-white shadow-xs"
+                              : "bg-[#F9F8F6] border-[#EFECE8] text-[#1A1A1A] hover:border-[#1A1A1A]"
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 pr-1">
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <span className="text-xs font-bold truncate">对方阵营 · {opponentFaction.name}</span>
+                            </div>
+                            <p className={`text-[10px] truncate ${currentFactionId === opponentFaction.id ? "text-neutral-300" : "text-[#78716C]"}`}>
+                              {opponentFaction.goal}
+                            </p>
+                          </div>
+                          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0 ${
+                            currentFactionId === opponentFaction.id ? "bg-white/20 text-white" : "bg-[#EFECE8] text-[#78716C]"
+                          }`}>
+                            {(activeWorld.factionChats?.[opponentFaction.id] || []).length}条
                           </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-neutral-500">真实身份:</span>
-                          <span className={isUnlocked ? "text-purple-400 font-bold" : "text-neutral-600 italic"}>
-                            {isUnlocked ? "攻略者" : "待查证"}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Gauges of interaction */}
-                      <div className="grid grid-cols-2 gap-3 bg-neutral-950/50 p-2 rounded-xl border border-neutral-900">
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between text-[10px]">
-                            <span className="text-neutral-400 flex items-center gap-1">
-                              <Heart className="w-3 h-3 text-rose-400" />
-                              <span>好感度:</span>
-                            </span>
-                            <span className="text-rose-400 font-mono font-bold">{charState.favorability || 0}%</span>
-                          </div>
-                          <div className="h-1 bg-neutral-900 rounded-full overflow-hidden">
-                            <div className="h-full bg-rose-500" style={{ width: `${charState.favorability || 0}%` }} />
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between text-[10px]">
-                            <span className="text-neutral-400 flex items-center gap-1">
-                              <Eye className="w-3 h-3 text-amber-400" />
-                              <span>怀疑度:</span>
-                            </span>
-                            <span className="text-amber-400 font-mono font-bold">{charState.suspicion || 0}%</span>
-                          </div>
-                          <div className="h-1 bg-neutral-900 rounded-full overflow-hidden">
-                            <div className="h-full bg-amber-500" style={{ width: `${charState.suspicion || 0}%` }} />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Mind reading */}
-                      <div className="p-2.5 rounded-xl bg-neutral-950 border border-neutral-850 text-[11px] leading-relaxed relative">
-                        <div className="flex items-center justify-between text-[10px] text-purple-400 mb-1 border-b border-neutral-900 pb-1">
-                          <span className="flex items-center gap-1 font-bold">
-                            <Shield className="w-3.5 h-3.5" />
-                            <span>【真实心声】</span>
-                          </span>
-                        </div>
-                        {isUnlocked ? (
-                          <p className="text-purple-200 italic font-medium">
-                            &quot;{charState.innerThought}&quot;
-                          </p>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center py-2 text-neutral-500 gap-1.5">
-                            <p className="text-[10px] italic">心声处于迷雾封锁中...</p>
-                            <button
-                              onClick={() => useTransmigrationPropOrSkill("item", "read_mind_pill")}
-                              className="px-2 py-0.5 bg-purple-950/60 border border-purple-500/30 text-purple-400 hover:text-white rounded text-[9px] font-bold cursor-pointer transition"
-                            >
-                              消耗【读心灵丹】窥探内心
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {activePlayTab === "history" && (
-              <div className="p-4 space-y-4">
-                {/* Modern Warnings block */}
-                <div className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-3">
-                  <h3 className="text-xs font-bold text-white flex items-center gap-1.5 border-b border-neutral-800 pb-2">
-                    <AlertTriangle className="w-4 h-4 text-rose-400" />
-                    <span>现代言行穿帮警报</span>
-                  </h3>
-                  <div className="space-y-2">
-                    {activeWorld.modernWarnings && activeWorld.modernWarnings.length > 0 ? (
-                      activeWorld.modernWarnings.map((w, index) => (
-                        <div key={index} className="p-3 bg-rose-950/20 border border-rose-500/20 rounded-xl space-y-1.5 text-xs text-rose-200">
-                          <div className="flex items-center justify-between text-[10px] text-rose-400 border-b border-rose-950 pb-1">
-                            <span className="font-bold">穿帮事件 #{index + 1}</span>
-                            <span>罚分: +{w.penalty}% 暴露</span>
-                          </div>
-                          <p className="italic text-[11px]">&quot;{w.text}&quot;</p>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {w.keywords.map((kw, kwIdx) => (
-                              <span key={kwIdx} className="bg-rose-500/20 border border-rose-500/30 px-1.5 py-0.2 rounded text-[9px] font-bold text-rose-400 font-mono">
-                                现代违禁词: {kw}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="py-8 text-center space-y-2 text-neutral-500">
-                        <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto opacity-40 animate-bounce" />
-                        <p className="text-[11px]">言行举止毫无现代破绽！天衣无缝！</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Role play tips */}
-                <div className="p-4 rounded-2xl bg-neutral-900 border border-neutral-800 space-y-2 text-xs text-neutral-300">
-                  <h4 className="font-bold text-white flex items-center gap-1">
-                    <span>💡</span>
-                    <span>快穿世界扮演守则</span>
-                  </h4>
-                  <ul className="list-disc pl-4 space-y-1 text-neutral-400 text-[11px]">
-                    <li>请沉浸式扮演您在当前世界的原宿主身份，符合时代背景。</li>
-                    <li>严禁使用现代词汇（如：&quot;手机&quot;、&quot;微信&quot;、&quot;AI&quot;、&quot;网络&quot;、&quot;穿越&quot;）。</li>
-                    <li>系统将采用高敏检测，一旦发言触发违禁，将直接惩罚暴涨暴露指数。</li>
-                    <li>当好感羁绊到100%且任务达成时，AI天道将为您刻印完美谢幕记忆碎片卡！</li>
-                  </ul>
-                </div>
-              </div>
-            )}
-            
-            {activePlayTab === "chat" && viewingFactionId && (
-              <div className="flex flex-col h-full bg-neutral-950 animate-fade-in">
-                {/* Chat Header */}
-                <div className="p-3 border-b border-neutral-900 flex items-center justify-between bg-neutral-900/50 backdrop-blur-md sticky top-0 z-10">
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[9px] text-purple-400 font-bold uppercase tracking-widest flex items-center gap-1">
-                      {activeWorld.factions?.find(f => f.id === viewingFactionId)?.memberIds.includes("user") 
-                       ? <>🛡️ 我的阵营群聊 <span className="bg-emerald-500/10 text-emerald-400 px-1 rounded">己方</span></> 
-                       : <>👁️ 敌方阵营频道 <span className="bg-rose-500/10 text-rose-400 px-1 rounded">偷看中</span></>}
-                    </span>
-                    <h4 className="text-sm font-bold text-white truncate">
-                      {activeWorld.factions?.find(f => f.id === viewingFactionId)?.name}
-                    </h4>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const otherFaction = activeWorld.factions?.find(f => f.id !== viewingFactionId);
-                      if (otherFaction) setViewingFactionId(otherFaction.id);
-                    }}
-                    className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] font-bold rounded-xl transition flex items-center gap-1.5 cursor-pointer border border-neutral-700 shadow-lg active:scale-95 shrink-0"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    切换频道
-                  </button>
-                </div>
-
-                {/* Faction Goal Banner */}
-                <div className="px-4 py-3 bg-neutral-900/20 border-b border-neutral-900/40">
-                  <div className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 bg-purple-500/10 border border-purple-500/20 rounded flex items-center justify-center shrink-0 mt-0.5">
-                      <Trophy className="w-3 h-3 text-purple-400" />
-                    </div>
-                    <div className="space-y-0.5">
-                      <p className="text-[10px] text-neutral-300 font-bold">阵营共鸣目标</p>
-                      <p className="text-[10px] text-neutral-500 leading-relaxed italic">
-                        {activeWorld.factions?.find(f => f.id === viewingFactionId)?.goal}
-                      </p>
+                        </button>
+                      )}
                     </div>
                   </div>
-                </div>
 
-                {/* Chat Messages */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-5">
-                  {activeWorld.factionChats?.[viewingFactionId]?.map((msg, idx) => {
-                    const isMe = msg.senderId === "user";
-                    return (
-                      <div key={msg.id || idx} className={`flex flex-col ${isMe ? "items-end" : "items-start"} animate-scale-in`}>
-                        <div className="flex items-center gap-2 mb-1.5 px-1.5">
-                          {!isMe && (
-                            <span className="text-[10px] text-neutral-400 font-bold bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-800">
-                              {msg.senderName}
+                  {/* 群聊消息展示区 (按时间倒序排列：最新消息在最上方) */}
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3 font-sans">
+                    {(() => {
+                      const rawMsgs = activeWorld.factionChats?.[currentFactionId] || [];
+                      // 按时间倒序排列 (最新消息置顶)
+                      const sortedMsgs = [...rawMsgs].sort((a, b) => b.timestamp - a.timestamp);
+
+                      if (sortedMsgs.length === 0) {
+                        return (
+                          <div className="h-full flex flex-col items-center justify-center text-[#A8A39A] gap-2 py-16">
+                            <MessageSquare className="w-8 h-8 opacity-40 stroke-[1.2]" />
+                            <p className="text-xs font-medium">该阵营频道内暂无加密沟通</p>
+                          </div>
+                        );
+                      }
+
+                      return sortedMsgs.map((msg, idx) => {
+                        const isMe = msg.senderId === "user" || msg.senderName === "玩家" || msg.senderName === "我";
+
+                        // Format sender identity name:
+                        // 我方阵营消息显示角色真实身份（攻略者身份），对方阵营消息显示角色的伪装身份
+                        let displayName = msg.senderName;
+                        const char = characters.find(c => c.id === msg.senderId || c.name === msg.senderName);
+                        const charState = activeWorld.characterStates?.[char?.id || ""] ||
+                                          activeWorld.charactersState?.find(cs => cs.characterId === char?.id || cs.name === msg.senderName);
+
+                        if (isMe) {
+                          displayName = isMyFactionViewing ? "玩家（你自己）" : (activeWorld.userIdentity?.name || "未知异世者");
+                        } else if (isMyFactionViewing) {
+                          // 我方阵营：显示角色真实身份（攻略者身份）
+                          const realName = char?.name || charState?.name || msg.senderName;
+                          displayName = `${realName}（攻略者）`;
+                        } else {
+                          // 对方阵营：显示角色的伪装身份（原宿主/位面身份）
+                          const disguiseName = charState?.identity?.name || msg.senderName || char?.name || "敌方角力者";
+                          displayName = `${disguiseName}（伪装身份）`;
+                        }
+
+                        const avatar = isMe
+                          ? (activeWorld.userIdentity?.avatar || "👤")
+                          : (charState?.avatar || char?.avatar || "👤");
+
+                        const avatarEl = (
+                          avatar.startsWith('data:') || avatar.startsWith('http') ? (
+                            <img src={avatar} alt="" className="w-7 h-7 rounded-full object-cover shrink-0 shadow-2xs" />
+                          ) : (
+                            <span className="w-7 h-7 flex items-center justify-center text-xs bg-[#F5F3F0] rounded-full shrink-0 border border-[#EFECE8] shadow-2xs">
+                              {avatar}
                             </span>
-                          )}
-                          <span className="text-[8px] text-neutral-600 font-mono tracking-tighter">
-                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                        <div className={`max-w-[85%] p-3.5 rounded-2xl text-[11px] leading-relaxed shadow-xl border ${
-                          isMe 
-                          ? "bg-neutral-100 text-black border-white rounded-tr-none" 
-                          : "bg-neutral-900 border-neutral-800 text-neutral-100 rounded-tl-none"
-                        }`}>
-                          {msg.content}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {(!activeWorld.factionChats?.[viewingFactionId] || activeWorld.factionChats[viewingFactionId].length === 0) && (
-                    <div className="h-full flex flex-col items-center justify-center opacity-30 gap-3 py-20">
-                      <div className="w-16 h-16 bg-neutral-900 rounded-full flex items-center justify-center border border-neutral-800">
-                        <MessageSquare className="w-8 h-8 text-neutral-500" />
-                      </div>
-                      <p className="text-xs font-bold tracking-widest uppercase">频道内尚无神识交流</p>
-                    </div>
-                  )}
-                  <div ref={messagesEndRef} />
-                </div>
+                          )
+                        );
 
-                {/* Chat Input */}
-                <div className="p-4 bg-neutral-900/30 border-t border-neutral-900/60 backdrop-blur-sm">
-                  {activeWorld.factions?.find(f => f.id === viewingFactionId)?.memberIds.includes("user") ? (
-                    <div className="flex items-center gap-2">
-                      <div className="relative flex-1">
+                        return (
+                          <div
+                            key={msg.id || idx}
+                            className={`flex items-start gap-2.5 ${isMe ? "justify-end" : "justify-start"}`}
+                          >
+                            {!isMe && avatarEl}
+
+                            <div className={`flex flex-col max-w-[78%] ${isMe ? "items-end" : "items-start"}`}>
+                              <div className="flex items-center gap-1.5 mb-1 px-1 text-[10px] text-[#78716C] font-sans">
+                                <span>{displayName}</span>
+                                <span className="opacity-70 font-mono text-[9px]">
+                                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <div
+                                className={`p-3 rounded-2xl text-xs leading-relaxed font-sans ${
+                                  isMe
+                                    ? "bg-[#1A1A1A] text-white rounded-tr-none shadow-xs"
+                                    : "bg-white text-[#1A1A1A] border border-[#EFECE8] rounded-tl-none shadow-xs"
+                                }`}
+                              >
+                                <p className="whitespace-pre-wrap">{msg.content}</p>
+                              </div>
+                            </div>
+
+                            {isMe && avatarEl}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+
+                  {/* 群聊区输入框 (我方可发言，对方只能查看) */}
+                  <div className={`p-3 border-t border-[#EFECE8] flex items-center gap-2 transition ${
+                    isMyFactionViewing ? "bg-white" : "bg-[#F5F3F0]"
+                  }`}>
+                    {isMyFactionViewing ? (
+                      <>
                         <input
                           type="text"
                           value={factionChatInput}
                           onChange={(e) => setFactionChatInput(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && handleSendFactionMessage()}
-                          placeholder="与阵营伙伴密谋策略..."
-                          className="w-full bg-neutral-950 border border-neutral-850 rounded-2xl px-4 py-3 text-xs text-white placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50 transition-all shadow-inner"
+                          placeholder={`在【${myFaction?.name || "我方"}】群聊发言，向队友打话/分配任务...`}
+                          className="flex-1 rounded-full px-4 py-2.5 text-xs font-sans bg-white border border-[#E5E2DC] text-[#1A1A1A] focus:border-[#1A1A1A] outline-none transition placeholder-[#A8A39A]"
                         />
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                           <span className="text-[9px] text-neutral-700 font-mono hidden sm:block">ENTER 发送</span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={handleSendFactionMessage}
+                            disabled={!factionChatInput.trim()}
+                            className={`px-3.5 py-2.5 rounded-full text-xs font-medium transition cursor-pointer flex items-center justify-center border ${
+                              factionChatInput.trim()
+                                ? "bg-[#1A1A1A] hover:bg-neutral-800 text-white border-[#1A1A1A] shadow-xs"
+                                : "bg-[#EFECE8] text-[#A8A39A] border-transparent cursor-not-allowed"
+                            }`}
+                            title="发送消息"
+                          >
+                            <Send className="w-3.5 h-3.5 stroke-[1.5]" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleAIGenerateFactionChat}
+                            disabled={isGenerating}
+                            className="px-3 py-2.5 rounded-full text-xs font-medium bg-[#F5F3F0] hover:bg-[#EFECE8] text-[#1A1A1A] border border-[#EFECE8] transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                            title="AI生成讨论回复"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
+                            <span className="text-[11px]">AI讨论</span>
+                          </button>
                         </div>
+                      </>
+                    ) : (
+                      <div className="w-full py-2.5 text-center text-xs text-[#78716C] bg-[#EFECE8]/60 rounded-full font-sans border border-[#EFECE8]">
+                        🔒 只能查看，无法发送
                       </div>
-                      <button
-                        onClick={handleSendFactionMessage}
-                        disabled={!factionChatInput.trim()}
-                        className="w-11 h-11 bg-white hover:bg-neutral-200 disabled:bg-neutral-900 disabled:text-neutral-700 text-black rounded-2xl flex items-center justify-center transition-all cursor-pointer shadow-lg active:scale-95 shrink-0"
-                      >
-                        <Send className="w-5 h-5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="py-3 px-4 bg-neutral-950 border border-neutral-900 rounded-2xl text-center shadow-inner">
-                      <span className="text-[10px] text-neutral-500 font-bold flex items-center justify-center gap-2">
-                        <Shield className="w-3.5 h-3.5 opacity-50" />
-                        🔒 偷看模式下无法直接干预敌方通讯
-                      </span>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* Input Footer */}
-          {activeWorld.activeEvent && (
-            <div className="bg-purple-900/20 border-t border-purple-500/30 p-4 space-y-3">
-              <p className="text-xs text-purple-200">{activeWorld.activeEvent.description}</p>
-              <div className="flex gap-2">
-                {activeWorld.activeEvent.options.map(opt => (
-                  <button key={opt.id} onClick={() => handleTransmigrationUserSend(opt.text)} className="text-xs bg-purple-600 hover:bg-purple-700 text-white rounded-xl px-3 py-2 cursor-pointer transition">
-                    {opt.text}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          <div className="p-4 bg-white border-t border-[#EFECE8] flex items-center gap-3">
-            <input
-              type="text"
-              placeholder={activeWorld.status !== "completed" ? "输入在这个世界的互动扮演、叙述或者对白..." : "世界已结束，无法继续操作"}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleTransmigrationUserSend()}
-              disabled={isGenerating || activeWorld.status === "completed"}
-              className="flex-1 bg-white border border-[#EFECE8] rounded-full px-5 py-3 text-[15px] font-sans text-[#1A1A1A] outline-none focus:border-[#1A1A1A] placeholder-[#A8A39A] disabled:opacity-50"
-            />
-            <button
-              type="button"
-              onClick={() => handleTransmigrationUserSend()}
-              disabled={isGenerating || !inputText.trim() || activeWorld.status === "completed"}
-              className="p-3 bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F5F3F0] disabled:text-[#A8A39A] text-white rounded-full transition cursor-pointer flex items-center justify-center"
-            >
-              <Send className="w-4 h-4 stroke-[1.5]" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleTransmigrationUserSend("【AI推进】：请继续推进当前世界的剧情发展的关键节点！")}
-              disabled={isGenerating || activeWorld.status === "completed"}
-              className="px-4 py-3 border border-[#E5E2DC] hover:bg-[#1A1A1A] hover:text-white text-[#1A1A1A] rounded-full text-[13px] font-sans transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50"
-              title="AI自动推进剧情"
-            >
-              <Sparkles className="w-3.5 h-3.5 stroke-[1.5]" />
-              <span>推进</span>
-            </button>
+              );
+            })()}
           </div>
 
           {/* ==================== SUB-MODALS ==================== */}
 
-          {/* 1. Skill/Props Shop Modal */}
-          {/* 2. Character Inspect Drawer Modal */}
+          {/* Character Inspect Drawer Modal */}
           {inspectingCharId && (() => {
             const charState = activeWorld.charactersState.find(c => c.characterId === inspectingCharId);
             if (!charState) return null;
             return (
-              <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-                <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-5 w-full max-w-sm space-y-4 animate-fade-in text-neutral-100">
-                  <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-                    <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
-                      <span>👤</span>
+              <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4">
+                <div className="bg-white border border-[#EFECE8] rounded-3xl p-5 w-full max-w-sm space-y-4 animate-fade-in text-[#1A1A1A] shadow-xl">
+                  <div className="flex items-center justify-between border-b border-[#EFECE8] pb-3">
+                    <h3 className="font-semibold text-sm text-[#1A1A1A] flex items-center gap-1.5">
+                      <User className="w-4 h-4 text-[#78716C]" />
                       <span>伙伴属性档案</span>
                     </h3>
-                    <button onClick={() => setInspectingCharId(null)} className="text-neutral-500 hover:text-white cursor-pointer">
+                    <button onClick={() => setInspectingCharId(null)} className="text-[#A8A39A] hover:text-[#1A1A1A] cursor-pointer">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-3 bg-neutral-950 p-3 rounded-2xl border border-neutral-850">
-                    <div className="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center text-2xl border border-neutral-750">
+                  <div className="flex items-center gap-3 bg-[#F5F3F0] p-3 rounded-2xl border border-[#EFECE8]">
+                    <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center text-2xl border border-[#EFECE8]">
                       {charState.avatar || "👤"}
                     </div>
                     <div>
-                      <h4 className="font-bold text-white text-sm">{charState.name}</h4>
-                      <p className="text-[10px] text-purple-400 font-bold mt-0.5">
-                        原世界真实身份: 【{charState.revealed ? charState.thought?.includes("攻略者") ? "攻略者" : "攻略对象" : "封锁未破译"}】
+                      <h4 className="font-semibold text-[#1A1A1A] text-sm">{charState.name}</h4>
+                      <p className="text-[10px] text-[#78716C] font-medium mt-0.5">
+                        原世界真实身份: 【{charState.revealed ? (charState.thought?.includes("攻略者") ? "攻略者" : "攻略对象") : "未破译"}】
                       </p>
                     </div>
                   </div>
 
                   <div className="space-y-3 text-xs leading-relaxed">
-                    <div className="p-3 bg-neutral-950 rounded-xl space-y-1 border border-neutral-850">
-                      <span className="text-neutral-400 font-bold block text-[10px] uppercase">当前世界原住民躯壳：</span>
-                      <p className="font-bold text-white text-[11px]">{charState.identity?.name || "???"} ({charState.identity?.age}岁)</p>
-                      <p className="text-neutral-300 mt-1">职业: {charState.identity?.occupation}</p>
-                      <p className="text-neutral-400 text-[11px] mt-1">性格: {charState.identity?.personality}</p>
-                      <p className="text-neutral-400 text-[11px] leading-normal mt-1">背景故事: {charState.identity?.background}</p>
+                    <div className="p-3 bg-[#FAFAF9] rounded-xl space-y-1 border border-[#EFECE8]">
+                      <span className="text-[#78716C] font-medium block text-[10px] uppercase">当前原住民躯壳：</span>
+                      <p className="font-semibold text-[#1A1A1A] text-[11px]">{charState.identity?.name || "???"} ({charState.identity?.age}岁)</p>
+                      <p className="text-[#78716C] mt-1">职业: {charState.identity?.occupation}</p>
+                      <p className="text-[#78716C] text-[11px] mt-1">性格: {charState.identity?.personality}</p>
+                      <p className="text-[#78716C] text-[11px] leading-normal mt-1">背景故事: {charState.identity?.background}</p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-neutral-950 p-2.5 rounded-xl border border-neutral-850">
-                        <span className="text-neutral-400 text-[10px] block">好好感羁绊：</span>
-                        <span className="text-rose-400 font-bold font-mono text-base">{charState.favorability || 0}%</span>
+                      <div className="bg-[#FAFAF9] p-2.5 rounded-xl border border-[#EFECE8]">
+                        <span className="text-[#78716C] text-[10px] block">好感羁绊：</span>
+                        <span className="text-[#1A1A1A] font-semibold font-mono text-base">{charState.favorability || 0}%</span>
                       </div>
-                      <div className="bg-neutral-950 p-2.5 rounded-xl border border-neutral-850">
-                        <span className="text-neutral-400 text-[10px] block">对你怀疑度：</span>
-                        <span className="text-amber-400 font-bold font-mono text-base">{charState.suspicion || 0}%</span>
+                      <div className="bg-[#FAFAF9] p-2.5 rounded-xl border border-[#EFECE8]">
+                        <span className="text-[#78716C] text-[10px] block">怀疑度：</span>
+                        <span className="text-[#1A1A1A] font-semibold font-mono text-base">{charState.suspicion || 0}%</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-neutral-800 flex justify-end gap-2">
+                  <div className="pt-2 border-t border-[#EFECE8] flex justify-end gap-2">
                     <button
                       onClick={() => {
                         setInspectingCharId(null);
@@ -2810,13 +3293,13 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         setAccuseText("");
                         setShowAccuseModal(true);
                       }}
-                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl cursor-pointer"
+                      className="px-4 py-2 bg-[#1A1A1A] text-white text-xs font-medium rounded-full hover:bg-neutral-800 transition cursor-pointer"
                     >
                       当面相认
                     </button>
                     <button
                       onClick={() => setInspectingCharId(null)}
-                      className="px-4 py-2 bg-neutral-800 text-neutral-400 text-xs rounded-xl hover:text-white"
+                      className="px-4 py-2 bg-white border border-[#E5E2DC] text-[#78716C] hover:text-[#1A1A1A] text-xs rounded-full transition cursor-pointer"
                     >
                       关闭
                     </button>
@@ -2826,72 +3309,72 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             );
           })()}
 
-          {/* 3. Accuse Modal */}
+          {/* Accuse Modal */}
           {showAccuseModal && accuseTargetId && (() => {
             const targetChar = activeWorld.charactersState.find(c => c.characterId === accuseTargetId);
             if (!targetChar) return null;
             return (
-              <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-                <div className="bg-neutral-900 border border-neutral-800 rounded-3xl p-5 w-full max-w-sm space-y-4 animate-fade-in text-neutral-100">
-                  <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
-                    <h3 className="font-bold text-sm text-white flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 text-amber-500 animate-pulse" />
-                      <span>灵魂当面相认指控</span>
+              <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4">
+                <div className="bg-white border border-[#EFECE8] rounded-3xl p-5 w-full max-w-sm space-y-4 animate-fade-in text-[#1A1A1A] shadow-xl">
+                  <div className="flex items-center justify-between border-b border-[#EFECE8] pb-3">
+                    <h3 className="font-semibold text-sm text-[#1A1A1A] flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-[#78716C]" />
+                      <span>相认指控</span>
                     </h3>
-                    <button onClick={() => setShowAccuseModal(false)} className="text-neutral-500 hover:text-white cursor-pointer">
+                    <button onClick={() => setShowAccuseModal(false)} className="text-[#A8A39A] hover:text-[#1A1A1A] cursor-pointer">
                       <X className="w-4 h-4" />
                     </button>
                   </div>
 
-                  <p className="text-xs text-neutral-400 leading-normal bg-neutral-950 p-2.5 rounded-xl border border-neutral-850">
-                    您怀疑伙伴 <span className="text-white font-bold">{targetChar.name}</span> 的躯壳下隐藏着另一个穿越者灵魂。在这里发出您的试探与当面质控，如果猜错会大幅暴涨其怀疑度！
+                  <p className="text-xs text-[#78716C] leading-normal bg-[#FAFAF9] p-2.5 rounded-xl border border-[#EFECE8]">
+                    您怀疑伙伴 <span className="text-[#1A1A1A] font-semibold">{targetChar.name}</span> 躯壳下隐藏着另一个灵魂。发出的试探如果猜错会提升其怀疑度。
                   </p>
 
                   <div className="space-y-3">
                     <div>
-                      <label className="text-xs font-bold text-neutral-300 block mb-1.5">您猜想它的秘密身份标签是：</label>
+                      <label className="text-xs font-medium text-[#1A1A1A] block mb-1.5">您猜想它的秘密身份是：</label>
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
                           onClick={() => setAccuseGuessTag("攻略者")}
-                          className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                          className={`p-2 rounded-xl border text-center transition cursor-pointer text-xs ${
                             accuseGuessTag === "攻略者"
-                              ? "bg-purple-950/40 border-purple-500/80 text-white font-bold"
-                              : "bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700"
+                              ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                              : "bg-white border-[#E5E2DC] text-[#78716C] hover:border-[#1A1A1A]"
                           }`}
                         >
-                          🎯 攻略者
+                          攻略者
                         </button>
                         <button
                           type="button"
                           onClick={() => setAccuseGuessTag("攻略对象")}
-                          className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                          className={`p-2 rounded-xl border text-center transition cursor-pointer text-xs ${
                             accuseGuessTag === "攻略对象"
-                              ? "bg-purple-950/40 border-purple-500/80 text-white font-bold"
-                              : "bg-neutral-950 border-neutral-800 text-neutral-400 hover:border-neutral-700"
+                              ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                              : "bg-white border-[#E5E2DC] text-[#78716C] hover:border-[#1A1A1A]"
                           }`}
                         >
-                          💖 攻略对象
+                          攻略对象
                         </button>
                       </div>
                     </div>
 
                     <div>
-                      <label className="text-xs font-bold text-neutral-300 block mb-1">说出您的摊牌、试探或戳穿神台词：</label>
+                      <label className="text-xs font-medium text-[#1A1A1A] block mb-1">说出您的试探或台词：</label>
                       <textarea
-                        placeholder="例如：别装了，那天你下意识地拍了下身上的灰尘，那是你上辈子的习惯动作，其实，你也是个攻略者对吧？"
+                        placeholder="例如：那天你下意识动作，其实你也是个攻略者对吧？"
                         rows={3}
                         value={accuseText}
                         onChange={(e) => setAccuseText(e.target.value)}
-                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-purple-500 resize-none"
+                        className="w-full bg-white border border-[#E5E2DC] rounded-xl px-3 py-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A] placeholder-[#A8A39A] resize-none"
                       />
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-neutral-800 flex justify-end gap-2">
+                  <div className="pt-2 border-t border-[#EFECE8] flex justify-end gap-2">
                     <button
                       onClick={() => setShowAccuseModal(false)}
-                      className="px-4 py-2 bg-neutral-800 text-neutral-400 text-xs rounded-xl hover:text-white"
+                      className="px-4 py-2 bg-white border border-[#E5E2DC] text-[#78716C] hover:text-[#1A1A1A] text-xs rounded-full transition cursor-pointer"
                     >
                       取消
                     </button>
@@ -2905,10 +3388,10 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         await handleAccuseCharacter(accuseTargetId, accuseGuessTag, accuseText);
                       }}
                       disabled={isGenerating || !accuseText.trim()}
-                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 cursor-pointer"
+                      className="px-4 py-2 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs font-medium rounded-full transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
                     >
                       {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                      <span>摊牌指控</span>
+                      <span>确认指控</span>
                     </button>
                   </div>
                 </div>
@@ -3024,10 +3507,14 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
         <div className="flex-1 flex flex-col z-10 overflow-hidden">
           <div className="h-14 border-b border-neutral-900 px-4 flex items-center justify-between shrink-0 bg-neutral-950/80 backdrop-blur-md">
             <button
-              onClick={() => setActiveTab("rules_list")}
-              className="p-1.5 hover:bg-neutral-900 rounded-xl transition text-neutral-400 hover:text-white cursor-pointer"
+              onClick={() => {
+                persistInstances(instances);
+                setActiveTab("main");
+              }}
+              className="p-1.5 hover:bg-neutral-900 rounded-xl transition text-neutral-400 hover:text-white cursor-pointer flex items-center gap-1"
+              title="返回宇宙目录"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-5 h-5 stroke-[1.5]" />
             </button>
             <div className="text-center">
               <h1 className="font-bold text-sm text-white">{activeInstance.name}</h1>
@@ -3238,10 +3725,14 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
         <div className="flex-1 flex flex-col z-10 overflow-hidden">
           <div className="h-14 border-b border-neutral-900 px-4 flex items-center justify-between shrink-0 bg-neutral-950/80 backdrop-blur-md">
             <button
-              onClick={() => setActiveTab("suspense_list")}
-              className="p-1.5 hover:bg-neutral-900 rounded-xl transition text-neutral-400 hover:text-white cursor-pointer"
+              onClick={() => {
+                persistScripts(scripts);
+                setActiveTab("main");
+              }}
+              className="p-1.5 hover:bg-neutral-900 rounded-xl transition text-neutral-400 hover:text-white cursor-pointer flex items-center gap-1"
+              title="返回宇宙目录"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft className="w-5 h-5 stroke-[1.5]" />
             </button>
             <div className="text-center">
               <h1 className="font-bold text-sm text-white">{activeScript.name}</h1>
@@ -3491,6 +3982,132 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
               </div>
 
               {renderCharacterSelector()}
+
+              {/* Faction Assignment Section (Requirement 1) */}
+              <div className="space-y-3 pt-3 border-t border-[#EFECE8]">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-sans text-[#1A1A1A] font-medium flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5 text-[#1A1A1A]" />
+                    <span>阵营分配与名称自定义</span>
+                  </label>
+                  <span className="text-[10px] text-[#78716C]">划分阵营并自动生成对立目标</span>
+                </div>
+
+                {/* Custom Faction Names */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-sans text-[#78716C] block mb-1">阵营 A 自定义名称</label>
+                    <input
+                      type="text"
+                      placeholder="如：明光 / 正道"
+                      value={factionAName}
+                      onChange={(e) => setFactionAName(e.target.value)}
+                      className="w-full bg-white border border-[#EFECE8] rounded-[10px] px-3 py-1.5 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-sans text-[#78716C] block mb-1">阵营 B 自定义名称</label>
+                    <input
+                      type="text"
+                      placeholder="如：暗影 / 魔道"
+                      value={factionBName}
+                      onChange={(e) => setFactionBName(e.target.value)}
+                      className="w-full bg-white border border-[#EFECE8] rounded-[10px] px-3 py-1.5 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A]"
+                    />
+                  </div>
+                </div>
+
+                {/* Member Faction Allocation */}
+                <div className="space-y-2">
+                  <label className="text-[11px] font-sans text-[#78716C] block font-medium">成员阵营划归</label>
+                  
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {/* 1. User (Self) */}
+                    <div className="flex items-center justify-between p-2 rounded-[12px] bg-[#F9F8F6] border border-[#EFECE8]">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white flex items-center justify-center text-[10px] font-bold">
+                          我
+                        </div>
+                        <span className="text-xs font-medium text-[#1A1A1A]">玩家（你自己）</span>
+                      </div>
+                      <div className="flex items-center gap-1 bg-white p-1 rounded-full border border-[#EFECE8]">
+                        <button
+                          type="button"
+                          onClick={() => setCharacterFactionMap(prev => ({ ...prev, user: 'faction_a' }))}
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition cursor-pointer ${
+                            (characterFactionMap['user'] || 'faction_a') === 'faction_a'
+                              ? "bg-[#1A1A1A] text-white shadow-xs"
+                              : "text-[#78716C] hover:text-[#1A1A1A]"
+                          }`}
+                        >
+                          {factionAName.trim() || "明光"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCharacterFactionMap(prev => ({ ...prev, user: 'faction_b' }))}
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition cursor-pointer ${
+                            characterFactionMap['user'] === 'faction_b'
+                              ? "bg-[#1A1A1A] text-white shadow-xs"
+                              : "text-[#78716C] hover:text-[#1A1A1A]"
+                          }`}
+                        >
+                          {factionBName.trim() || "暗影"}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 2. Selected Characters */}
+                    {selectedCharIds.length === 0 ? (
+                      <p className="text-[11px] text-[#A8A39A] italic px-1">请先在上方选择参与调遣的角色</p>
+                    ) : (
+                      selectedCharIds.map((cId) => {
+                        const char = getCharacterById(cId);
+                        if (!char) return null;
+                        const currentFaction = characterFactionMap[cId] || 'faction_a';
+                        return (
+                          <div key={cId} className="flex items-center justify-between p-2 rounded-[12px] bg-white border border-[#EFECE8]">
+                            <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
+                              {char.avatar.startsWith('data:') || char.avatar.startsWith('http') ? (
+                                <img src={char.avatar} alt="" className="w-5 h-5 rounded-full object-cover shrink-0" />
+                              ) : (
+                                <span className="w-5 h-5 flex items-center justify-center text-[10px] bg-[#F5F3F0] rounded-full shrink-0">
+                                  {char.avatar}
+                                </span>
+                              )}
+                              <span className="text-xs font-medium text-[#1A1A1A] truncate">{char.name}</span>
+                            </div>
+
+                            <div className="flex items-center gap-1 bg-[#F9F8F6] p-1 rounded-full border border-[#EFECE8] shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setCharacterFactionMap(prev => ({ ...prev, [cId]: 'faction_a' }))}
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition cursor-pointer ${
+                                  currentFaction === 'faction_a'
+                                    ? "bg-[#1A1A1A] text-white shadow-xs"
+                                    : "text-[#78716C] hover:text-[#1A1A1A]"
+                                }`}
+                              >
+                                {factionAName.trim() || "明光"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setCharacterFactionMap(prev => ({ ...prev, [cId]: 'faction_b' }))}
+                                className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition cursor-pointer ${
+                                  currentFaction === 'faction_b'
+                                    ? "bg-[#1A1A1A] text-white shadow-xs"
+                                    : "text-[#78716C] hover:text-[#1A1A1A]"
+                                }`}
+                              >
+                                {factionBName.trim() || "暗影"}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#EFECE8]">
@@ -3502,11 +4119,20 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
               </button>
               <button
                 onClick={handleCreateWorld}
-                disabled={isGenerating || !newWorldName.trim() || selectedCharIds.length === 0}
-                className="px-5 py-2.5 bg-[#1A1A1A] hover:bg-neutral-800 disabled:opacity-50 text-white text-[13px] font-sans font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                disabled={isGenerating}
+                className="px-5 py-2.5 bg-[#1A1A1A] hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[13px] font-sans font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-sm"
               >
-                {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" /> : <Sparkles className="w-3.5 h-3.5 stroke-[1.5]" />}
-                <span>AI 自动生成世界</span>
+                {isGenerating ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin stroke-[1.5]" />
+                    <span>生成中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 stroke-[1.5]" />
+                    <span>AI 自动生成世界</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -3554,8 +4180,17 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 disabled={isGenerating || !newInstanceName.trim() || selectedCharIds.length === 0}
                 className="px-4 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 cursor-pointer"
               >
-                {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                <span>AI 生成怪谈规则</span>
+                {isGenerating ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>生成中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>AI 生成怪谈规则</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -3623,8 +4258,17 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 disabled={isGenerating || !newScriptName.trim() || selectedCharIds.length < 2 || selectedCharIds.length > 5}
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition flex items-center gap-1 cursor-pointer"
               >
-                {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                <span>AI 生成完整剧本</span>
+                {isGenerating ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>生成中...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>AI 生成完整剧本</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -3721,12 +4365,112 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                   const updatedWorlds = worlds.map(item => item.id === activeWorld.id ? updatedWorld : item);
                   persistWorlds(updatedWorlds);
                   setActiveWorld(null);
-                  setActiveTab("transmigration_list");
+                  setActiveTab("main");
                   setShowSaveExitConfirm(false);
                 }}
                 className="flex-1 py-2.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl transition cursor-pointer"
               >
                 确定保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Creation Type Picker Modal */}
+      {showCreatePickerModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-[#EFECE8] rounded-[16px] p-6 w-full max-w-sm space-y-4 animate-fade-in text-[#1A1A1A] shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
+            <div className="flex items-center justify-between border-b border-[#EFECE8] pb-3">
+              <h3 className="font-serif font-semibold text-base text-[#1A1A1A]">
+                选择要创建的宇宙类型
+              </h3>
+              <button
+                onClick={() => setShowCreatePickerModal(false)}
+                className="text-[#A8A39A] hover:text-[#1A1A1A] p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4 stroke-[1.5]" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <button
+                onClick={() => {
+                  setShowCreatePickerModal(false);
+                  setShowCreateWorldModal(true);
+                }}
+                className="w-full p-3.5 rounded-[12px] border border-[#EFECE8] bg-white hover:border-[#1A1A1A] transition text-left flex items-center gap-3.5 group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-full bg-[#F5F3F0] flex items-center justify-center text-base group-hover:bg-[#1A1A1A] group-hover:text-white transition shrink-0">
+                  🌸
+                </div>
+                <div>
+                  <h4 className="font-serif font-semibold text-sm text-[#1A1A1A]">快穿世界</h4>
+                  <p className="text-[11px] text-[#78716C] mt-0.5">高维身份扮演、对立阵营攻略与多结局重构</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowCreatePickerModal(false);
+                  setShowCreateInstanceModal(true);
+                }}
+                className="w-full p-3.5 rounded-[12px] border border-[#EFECE8] bg-white hover:border-[#1A1A1A] transition text-left flex items-center gap-3.5 group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-full bg-[#F5F3F0] flex items-center justify-center text-base group-hover:bg-[#1A1A1A] group-hover:text-white transition shrink-0">
+                  👁️
+                </div>
+                <div>
+                  <h4 className="font-serif font-semibold text-sm text-[#1A1A1A]">规则怪谈</h4>
+                  <p className="text-[11px] text-[#78716C] mt-0.5">禁忌法则探索、心理压迫感与生还结局</p>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowCreatePickerModal(false);
+                  setShowCreateScriptModal(true);
+                }}
+                className="w-full p-3.5 rounded-[12px] border border-[#EFECE8] bg-white hover:border-[#1A1A1A] transition text-left flex items-center gap-3.5 group cursor-pointer"
+              >
+                <div className="w-9 h-9 rounded-full bg-[#F5F3F0] flex items-center justify-center text-base group-hover:bg-[#1A1A1A] group-hover:text-white transition shrink-0">
+                  🎭
+                </div>
+                <div>
+                  <h4 className="font-serif font-semibold text-sm text-[#1A1A1A]">悬疑剧场</h4>
+                  <p className="text-[11px] text-[#78716C] mt-0.5">5幕大剧、角色专属彩蛋与推理真相</p>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Item Confirmation Modal */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-[#EFECE8] rounded-[16px] p-6 w-full max-w-xs space-y-4 animate-scale-in text-[#1A1A1A] shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
+            <div className="text-center space-y-2">
+              <div className="w-12 h-12 bg-rose-50 border border-rose-100 rounded-full flex items-center justify-center mx-auto mb-2 text-rose-500">
+                <Trash2 className="w-6 h-6 stroke-[1.5]" />
+              </div>
+              <h3 className="font-serif font-semibold text-base text-[#1A1A1A]">删除宇宙？</h3>
+              <p className="text-xs text-[#78716C]">
+                确定要删除《{itemToDelete.name}》及其所有记录吗？此操作无法撤销。
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setItemToDelete(null)}
+                className="flex-1 py-2.5 border border-[#EFECE8] text-[#1A1A1A] text-xs font-sans rounded-full hover:bg-[#F5F3F0] transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleDeleteCardItem}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-sans font-medium rounded-full transition cursor-pointer"
+              >
+                确定删除
               </button>
             </div>
           </div>
