@@ -35,6 +35,63 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
   const [selectedCharIds, setSelectedCharIds] = useState<string[]>([]); // empty means "all characters"
   const [priority, setPriority] = useState<"pre" | "mid" | "post">("mid");
   const [mountType, setMountType] = useState<"always" | "trigger">("trigger");
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const handleSaveLoreDirectly = (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      if (!title.trim()) {
+        setErrorMsg("请填写条目名称 (Title is required)");
+        setToastMsg("保存失败，请重试");
+        setTimeout(() => setToastMsg(null), 3000);
+        return;
+      }
+      if (!content.trim()) {
+        setErrorMsg("请填写条目内容 (Content is required)");
+        setToastMsg("保存失败，请重试");
+        setTimeout(() => setToastMsg(null), 3000);
+        return;
+      }
+
+      const triggerKeys = keysInput
+        .split(/[,，\s]+/)
+        .map((k) => k.trim())
+        .filter((k) => k.length > 0);
+
+      if (editingId) {
+        onUpdateLore(editingId, {
+          title: title.trim(),
+          keys: triggerKeys,
+          content: content.trim(),
+          category: category,
+          characterIds: selectedCharIds,
+          priority: priority,
+          mountType: mountType,
+        });
+      } else {
+        onAddLore({
+          title: title.trim(),
+          keys: triggerKeys,
+          content: content.trim(),
+          category: category,
+          enabled: true,
+          characterIds: selectedCharIds,
+          priority: priority,
+          mountType: mountType,
+        });
+      }
+
+      setToastMsg("保存成功");
+      setTimeout(() => {
+        setToastMsg(null);
+        handleCancel();
+      }, 1000);
+    } catch (err) {
+      console.error(err);
+      setToastMsg("保存失败，请重试");
+      setTimeout(() => setToastMsg(null), 3000);
+    }
+  };
 
   const handleStartAdd = () => {
     setEditingId(null);
@@ -229,6 +286,14 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
             {errorMsg && (
               <div className="p-3 bg-red-50 border border-red-100 text-[11px] text-red-700 rounded-lg">
                 {errorMsg}
+              </div>
+            )}
+
+            {toastMsg && (
+              <div className={`p-3 text-xs rounded-lg text-center font-medium ${
+                toastMsg.includes("成功") ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-100"
+              }`}>
+                {toastMsg}
               </div>
             )}
 
@@ -506,6 +571,13 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                 className="flex-1 text-xs font-mono font-bold tracking-widest text-white bg-black hover:bg-neutral-800 py-3 rounded-xl transition-colors"
               >
                 {editingId ? "保存修改 (SAVE)" : "创建条目 (CREATE)"}
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveLoreDirectly}
+                className="px-5 text-xs font-mono font-bold tracking-widest text-black bg-white border border-neutral-300 hover:bg-neutral-50 rounded-xl transition-colors cursor-pointer"
+              >
+                保存
               </button>
               <button
                 type="button"

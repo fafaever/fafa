@@ -1545,9 +1545,24 @@ export default function ChatApp({
     await handleTriggerAiReply(updatedMessages);
   };
 
+  // Helper to check if parenthetical text is a kaomoji rather than roleplay action
+  const isKaomojiOrNotAction = (str: string): boolean => {
+    if (!str) return false;
+    const kaomojiPattern = /[｡•ᴗ•◡◕‿°□╯︵┻━＞﹏＜๑^vﾟДー；~¯\\\/│┃┏┓┗┛┣┫┳┻╋┼═║╓╩┯┸┺]/;
+    if (kaomojiPattern.test(str)) return true;
+    if (!/[\u4e00-\u9fa5]/.test(str) && (str.length <= 8 || /[^a-zA-Z0-9\s]/.test(str))) {
+      return true;
+    }
+    return false;
+  };
+
   // Beautiful Markdown/Asterisk parser for roleplay:
   // e.g., *looks around nervously* Hello -> looks around nervously (italicized, lighter text) + Hello (normal)
   const renderMessageContent = (content: string, msg?: Message) => {
+    if (msg?.role === "user" && !msg?.type && !content.startsWith("[CHARACTER_TRANSFER]") && !content.startsWith("[OFFLINE_INVITATION]") && !content.startsWith("[TRANSFER]") && !content.startsWith("[LOCATION]") && !content.startsWith("[REDPACKET]") && !content.startsWith("[图片")) {
+      return <span>{content}</span>;
+    }
+
     if (msg?.type === "transfer" || content.startsWith("[CHARACTER_TRANSFER]")) {
       let amount = "0.00";
       let note = "转账";
@@ -1839,7 +1854,13 @@ export default function ChatApp({
     // Clean up any remaining action wrappers from speech text inside bubble
     const cleanSpeech = content
       .replace(/^[*（(【\[]+|[*）)】\]]+$/g, "")
-      .replace(/(\*[^*]+\*|（[^）]+）|\([^)]+\)|【[^】]+】|\[(?!(?:CHARACTER_TRANSFER|TRANSFER|LOCATION|REDPACKET|OFFLINE_INVITATION|图片[：:]))[^\]]+\])/g, "")
+      .replace(/(\*[^*]+\*|（[^）]+）|\([^)]+\)|【[^】]+】|\[(?!(?:CHARACTER_TRANSFER|TRANSFER|LOCATION|REDPACKET|OFFLINE_INVITATION|图片[：:]))[^\]]+\])/g, (match) => {
+        if (match.startsWith("(") && match.endsWith(")")) {
+          const inner = match.slice(1, -1);
+          if (isKaomojiOrNotAction(inner)) return match;
+        }
+        return "";
+      })
       .trim();
 
     const imageRegex = /(\[图片[：:][^\]]+\])/g;
@@ -2666,6 +2687,9 @@ export default function ChatApp({
 
                 const parseMessageSegments = (content: string): MessageSegment[] => {
                   if (!content) return [];
+                  if (msg.role === "user") {
+                    return [{ type: "speech", text: content }];
+                  }
 
                   const isSpecial =
                     content.startsWith("[CHARACTER_TRANSFER]") ||
@@ -2680,12 +2704,18 @@ export default function ChatApp({
                     return [{ type: "speech", text: content }];
                   }
 
-                  // Action delimiters regex: *...*, （...）, (...), 【...】, [...] (excluding special commands)
+                  // Action delimiters regex: *...*, （...）, (...), [...], [...] (excluding special commands)
                   const actionRegex = /(\*[^*]+\*|（[^）]+）|\([^)]+\)|【[^】]+】|\[(?!(?:CHARACTER_TRANSFER|TRANSFER|LOCATION|REDPACKET|OFFLINE_INVITATION|图片[：:]))[^\]]+\])/g;
 
                   // In ONLINE chat mode, action descriptions are forbidden. Strip action brackets and render as pure speech bubble.
                   if (chatMode === "online") {
-                    const cleanText = content.replace(actionRegex, "").trim();
+                    const cleanText = content.replace(actionRegex, (match) => {
+                      if (match.startsWith("(") && match.endsWith(")")) {
+                        const inner = match.slice(1, -1);
+                        if (isKaomojiOrNotAction(inner)) return match;
+                      }
+                      return "";
+                    }).trim();
                     return [{ type: "speech", text: cleanText || content }];
                   }
 
@@ -2698,12 +2728,19 @@ export default function ChatApp({
                     const trimmedP = p.trim();
                     if (!trimmedP) return;
 
-                    const isAction =
+                    let isAction =
                       (trimmedP.startsWith("*") && trimmedP.endsWith("*")) ||
                       (trimmedP.startsWith("（") && trimmedP.endsWith("）")) ||
                       (trimmedP.startsWith("(") && trimmedP.endsWith(")")) ||
                       (trimmedP.startsWith("【") && trimmedP.endsWith("】")) ||
                       (trimmedP.startsWith("[") && trimmedP.endsWith("]"));
+
+                    if (isAction && trimmedP.startsWith("(") && trimmedP.endsWith(")")) {
+                      const inner = trimmedP.slice(1, -1);
+                      if (isKaomojiOrNotAction(inner)) {
+                        isAction = false;
+                      }
+                    }
 
                     if (isAction) {
                       const raw = trimmedP.slice(1, -1).trim();
