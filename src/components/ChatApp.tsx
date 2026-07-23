@@ -16,6 +16,9 @@ interface ChatAppProps {
   onUpdateSessionMessages: (characterId: string, messages: Message[], currentOS?: string) => void;
   onClose: () => void;
   onOpenApp?: (appId: string) => void;
+  onActiveCharChange?: (charId: string | null) => void;
+  isGeneratingMap?: Record<string, boolean>;
+  onTriggerAiReply?: (characterId: string, customMessages?: Message[]) => Promise<void>;
 }
 
 const getAgeFromInstruction = (inst: string) => {
@@ -99,6 +102,9 @@ export default function ChatApp({
   onUpdateSessionMessages,
   onClose,
   onOpenApp,
+  onActiveCharChange,
+  isGeneratingMap,
+  onTriggerAiReply,
 }: ChatAppProps) {
   const [activeTab, setActiveTab] = useState<"chat" | "library">("library");
   const [activeCharId, setActiveCharId] = useState<string | null>(null);
@@ -183,6 +189,21 @@ export default function ChatApp({
 
   // Mood State (randomized per visit)
   const [mood, setMood] = useState<"开心" | "平静" | "疲惫" | "烦躁">("平静");
+
+  // Synchronize active character with parent
+  useEffect(() => {
+    if (onActiveCharChange) {
+      onActiveCharChange(activeCharId);
+    }
+  }, [activeCharId, onActiveCharChange]);
+
+  // Synchronize isGenerating with parent background generation status
+  const propGenerating = isGeneratingMap?.[activeCharId || ""] || false;
+  useEffect(() => {
+    if (propGenerating !== isGenerating) {
+      setIsGenerating(propGenerating);
+    }
+  }, [propGenerating, isGenerating]);
 
   // Sub-account creation state
   const [subAccountParentId, setSubAccountParentId] = useState<string | null>(null);
@@ -999,243 +1020,12 @@ export default function ChatApp({
     setApiError(null);
     setIsGenerating(true);
 
-    const targetMessages = customMessages || activeSession.messages;
-
     try {
-      // 1. Perform Lore Matching on the last user message (if any)
-      const lastUserMsg = [...targetMessages].reverse().find((m) => m.role === "user");
-      const { matched, keys } = lastUserMsg ? matchLore(lastUserMsg.content) : { matched: [], keys: [] };
-
-      // Determine questioning status if it is a sub-account
-      let isQuestioning = false;
-      let newBustQuestionsCount = activeChar.bustQuestionsCount || 0;
-      let shouldSetBusted = activeChar.isBusted || false;
-
-      if (activeChar.isSubAccount && !activeChar.isBusted && lastUserMsg) {
-        const userText = lastUserMsg.content;
-        const questioningKeywords = ["小号", "大号", "本人", "假装", "是谁", "真实身份", "真相", "别装", "穿帮", "破绽", "暴露", "承认", "老实交代", "化名", "伪装", "扮演", "替身", "分身", "马甲"];
-        if (activeChar.parentCharacterName) {
-          questioningKeywords.push(activeChar.parentCharacterName);
-        }
-        const lowerUserText = userText.toLowerCase();
-        isQuestioning = questioningKeywords.some(k => lowerUserText.includes(k.toLowerCase()));
-
-        if (isQuestioning) {
-          newBustQuestionsCount += 1;
-          if (newBustQuestionsCount >= 2) {
-            shouldSetBusted = true;
-          }
-          
-          // Instantly update on client side
-          onUpdateCharacter({
-            ...activeChar,
-            bustQuestionsCount: newBustQuestionsCount,
-            isBusted: shouldSetBusted
-          });
-        }
-      }
-
-      // Determine randomized reply count between minReplies and maxReplies
-      const count = Math.max(1, Math.floor(Math.random() * (maxReplies - minReplies + 1)) + minReplies);
-
-      // Extract parent chat context if sub-account
-      let parentChatContext = "";
-      if (activeChar.isSubAccount && activeChar.parentCharacterId) {
-        const parentSess = sessions.find(s => s.characterId === activeChar.parentCharacterId);
-        if (parentSess && parentSess.messages && parentSess.messages.length > 0) {
-          parentChatContext = parentSess.messages
-            .slice(-10)
-            .map(m => `[${m.role === 'user' ? '用户' : (activeChar.parentCharacterName || '大号')}]: ${m.content}`)
-            .join("\n");
-        }
-      }
-
-      // 2. Request API response
-      const cleanCharacter = {
-        name: activeChar.name,
-        description: activeChar.description,
-        systemInstruction: activeChar.systemInstruction,
-        isSubAccount: activeChar.isSubAccount,
-        parentCharacterId: activeChar.parentCharacterId,
-        parentCharacterName: activeChar.parentCharacterName,
-        purpose: activeChar.purpose,
-        isBusted: shouldSetBusted,
-        bustQuestionsCount: newBustQuestionsCount,
-      };
+      // Save current mood to localStorage so the parent background engine can read it
+      localStorage.setItem(`char_mood_${activeCharId}`, mood);
       
-      const lastMessage = targetMessages[targetMessages.length - 1];
-      const userDidNotReply = lastMessage?.role === 'assistant';
-
-      const requestParams = {
-        messages: targetMessages,
-        character: cleanCharacter,
-        settings: settings,
-        matchedLore: matched,
-        chatMode: chatMode,
-        replyLength: replyLength,
-        replyCount: count,
-        mood: mood,
-        memories: memories,
-        userDidNotReply: userDidNotReply,
-        isBlocked: activeChar.isBlocked,
-        blockedAt: activeChar.blockedAt,
-        parentChatContext: parentChatContext,
-      };
-      console.log('🚀 [ChatApp 请求参数]:', requestParams);
-      let data;
-      try {
-        data = await apiChat(requestParams);
-        console.log("📨 [ChatApp 收到响应数据]:", data);
-      } catch (networkErr: any) {
-        console.error("❌ [ChatApp 请求出错]:", networkErr);
-        throw networkErr;
-      }
-
-      // 3. Build Assistant Messages (handling split messages and splitting into short sentences)
-      const text = data.text || "";
-      
-      // Split by [SPLIT] first, then by punctuation (。！？!?), newlines, etc.
-      const splitByPreset = text.split("[SPLIT]").map((p: string) => p.trim()).filter(Boolean);
-      const parts: string[] = [];
-      for (const p of splitByPreset) {
-        if (p.startsWith("[CHARACTER_TRANSFER]") || p.startsWith("[TRANSFER]")) {
-          parts.push(p);
-        } else {
-          const matches = p.match(/[^。！？!?\n\r]+[。！？!?\n\r]*/g);
-          if (matches) {
-            for (const m of matches) {
-              const trimmed = m.trim();
-              if (trimmed) {
-                parts.push(trimmed);
-              }
-            }
-          } else {
-            const trimmed = p.trim();
-            if (trimmed) {
-              parts.push(trimmed);
-            }
-          }
-        }
-      }
-      
-      console.log("📝 [ChatApp 拆分生成消息片段]:", parts);
-
-      let finalMessages = [...targetMessages];
-      if (parts.length > 0) {
-        let currentMessages = [...targetMessages];
-        for (let i = 0; i < parts.length; i++) {
-          const part = parts[i];
-          const isTransfer = part.startsWith("[CHARACTER_TRANSFER]") || part.startsWith("[TRANSFER]");
-          let transferData: any = undefined;
-          if (part.startsWith("[CHARACTER_TRANSFER]")) {
-            const p = part.replace("[CHARACTER_TRANSFER]", "").split("|");
-            transferData = {
-              amount: p[0] || "0.00",
-              note: p[1] || "转账",
-              status: (p[2] || "pending") as "pending" | "collected" | "returned",
-              transferId: p[3] || `ct-${Date.now()}`
-            };
-          }
-          const newBotMsg: Message = {
-            id: `msg-${Date.now() + i}-assistant`,
-            role: "assistant",
-            content: part,
-            type: isTransfer ? "transfer" : undefined,
-            transferData,
-            timestamp: Date.now(),
-            matchedLoreKeys: keys.length > 0 ? keys : undefined,
-          };
-          currentMessages = [...currentMessages, newBotMsg];
-          const osToSave = i === parts.length - 1 ? (data.os || "") : undefined;
-          onUpdateSessionMessages(activeCharId, currentMessages, osToSave);
-          
-          // If there are subsequent messages, simulate a natural typing interval of 1-3 seconds
-          if (i < parts.length - 1) {
-            setIsGenerating(true); // Keep typing indicator visible
-            const delayMs = Math.floor(Math.random() * 2000) + 1000; // 1000ms - 3000ms
-            await new Promise((resolve) => setTimeout(resolve, delayMs));
-          }
-        }
-        finalMessages = currentMessages;
-      } else {
-        const fallbackMsg: Message = {
-          id: `msg-${Date.now()}-assistant`,
-          role: "assistant",
-          content: text || "...",
-          timestamp: Date.now(),
-          matchedLoreKeys: keys.length > 0 ? keys : undefined,
-        };
-        finalMessages = [...targetMessages, fallbackMsg];
-        onUpdateSessionMessages(activeCharId, finalMessages, data.os || "");
-      }
-      console.log("✅ [ChatApp 最终加入消息列表]", finalMessages);
-
-      // Check active transfer trigger after normal AI reply
-      const userMsgs = targetMessages.filter(m => m.role === 'user');
-      const lastUser = userMsgs[userMsgs.length - 1];
-      if (lastUser && activeCharId) {
-        const keywords = ["钱", "转账", "红包", "工资", "发工资", "穷", "没钱", "转我", "给我转", "转给", "给点", "零花钱", "打钱", "借钱", "生活费", "资助", "买", "包", "充值", "资金", "借我", "救急", "搞点", "报销"];
-        const userHasKeyword = keywords.some(kw => lastUser.content.includes(kw));
-        
-        const aiTextHasKeyword = text && (
-          text.includes("转你") || 
-          text.includes("给你转") || 
-          text.includes("我转") || 
-          text.includes("转账") || 
-          text.includes("发你") || 
-          text.includes("给点钱") || 
-          text.includes("给你钱") || 
-          text.includes("收下") || 
-          text.includes("拿去花") || 
-          text.includes("给你发了") || 
-          text.includes("给你打") || 
-          text.includes("[CHARACTER_TRANSFER]")
-        );
-
-        const lastTransferTimeStr = localStorage.getItem(`mobile_ai_last_active_transfer_${activeCharId}`);
-        const now = Date.now();
-        const cooldownMs = 0; // 0 ms cooldown for instant testing
-        const canTransfer = !lastTransferTimeStr || (now - Number(lastTransferTimeStr) > cooldownMs);
-
-        if ((userHasKeyword || aiTextHasKeyword) && canTransfer) {
-          localStorage.setItem(`mobile_ai_last_active_transfer_${activeCharId}`, now.toString());
-          
-          let parsedAmount: number | null = null;
-          const searchCombined = `${text} ${lastUser.content}`;
-          const matchAmount = searchCombined.match(/(\d+(?:\.\d+)?)\s*(?:元|块|rmb|块钱)/i);
-          if (matchAmount) {
-            parsedAmount = Number(matchAmount[1]);
-          }
-          const transferAmount = parsedAmount !== null ? parsedAmount.toFixed(2) : (Math.random() * 150 + 10).toFixed(2);
-          const remarks = ["拿去吃顿好的。", "别问，收着。", "辛苦啦，给你零花钱。", "拿去花吧，不够再跟我要。"];
-          const randomNote = remarks[Math.floor(Math.random() * remarks.length)];
-          const transferId = `ct-${Date.now()}`;
-
-          await new Promise(r => setTimeout(r, 600));
-          const textMsg: Message = {
-            id: `msg-${Date.now()}-text`,
-            role: "assistant",
-            content: `转你 ${transferAmount} 元，${randomNote}`,
-            timestamp: Date.now(),
-          };
-          const transferMsg: Message = {
-            id: `msg-${Date.now()}-transfer`,
-            role: "assistant",
-            content: `[CHARACTER_TRANSFER]${transferAmount}|${randomNote}|pending|${transferId}`,
-            type: "transfer",
-            transferData: {
-              amount: transferAmount,
-              note: randomNote,
-              status: "pending",
-              transferId: transferId
-            },
-            timestamp: Date.now() + 1,
-          };
-          console.log("Current Character Info (当前角色信息):", activeChar);
-          console.log("Transfer message data structure (转账消息对象):", transferMsg);
-          const latestMessages = [...finalMessages, textMsg, transferMsg];
-          onUpdateSessionMessages(activeCharId, latestMessages);
-        }
+      if (onTriggerAiReply) {
+        await onTriggerAiReply(activeCharId, customMessages);
       }
     } catch (err: any) {
       console.error(err);

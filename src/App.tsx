@@ -14,6 +14,7 @@ import NotesApp from "./components/NotesApp";
 import PhoneCheckApp from "./components/PhoneCheckApp";
 import { Character, LoreEntry, AppSettings, ChatSession, Message, FontOption, ThemeOption } from "./types";
 import { Sparkles, HelpCircle } from "lucide-react";
+import { apiChat } from "./lib/api";
 
 const getThemeClass = (theme?: ThemeOption) => {
   switch (theme) {
@@ -162,6 +163,18 @@ export default function App() {
   const [loreList, setLoreList] = useState<LoreEntry[]>([]);
   const [settings, setSettings] = useState<AppSettings>({ apiUrl: "", apiKey: "", model: "", apiPresets: [], activePresetId: "" });
   const [sessions, setSessions] = useState<ChatSession[]>([]);
+
+  // Background generation & notification states
+  const [isGeneratingMap, setIsGeneratingMap] = useState<Record<string, boolean>>({});
+  const [activeChatCharId, setActiveChatCharId] = useState<string | null>(null);
+  const [notifications, setNotifications] = useState<Array<{
+    id: string;
+    characterId: string;
+    name: string;
+    avatar: string;
+    textPreview: string;
+    timestamp: number;
+  }>>([]);
 
   // Hydrate from localStorage on mount
   useEffect(() => {
@@ -399,6 +412,371 @@ export default function App() {
     }
   };
 
+  // --- ACTIONS: Background AI Response Generation & Notifications ---
+  const addNotification = (charId: string, charName: string, charAvatar: string, textPreview: string) => {
+    const id = `notif-${Date.now()}-${Math.random()}`;
+    const newNotif = {
+      id,
+      characterId: charId,
+      name: charName,
+      avatar: charAvatar,
+      textPreview: textPreview.length > 20 ? textPreview.substring(0, 18) + "..." : textPreview,
+      timestamp: Date.now(),
+    };
+    
+    setNotifications(prev => {
+      const filtered = prev.filter(n => n.characterId !== charId); // Avoid duplicate notifications for the same character
+      const next = [newNotif, ...filtered];
+      return next.slice(0, 3); // Max 3 notifications
+    });
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    }, 5000);
+  };
+
+  const handleNotificationClick = (charId: string) => {
+    localStorage.setItem("mobile_ai_preselected_char", charId);
+    setCurrentScreen("chat");
+    setNotifications(prev => prev.filter(n => n.characterId !== charId));
+  };
+
+  const dismissNotification = (id: string) => {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const triggerAiReply = async (characterId: string, customMessages?: Message[]) => {
+    const activeChar = characters.find(c => c.id === characterId);
+    if (!activeChar) return;
+
+    // Check if generating already
+    if (isGeneratingMap[characterId]) return;
+
+    // Load character specific settings from localStorage
+    const savedSettings = localStorage.getItem(`char_settings_v1_${characterId}`);
+    let replyLength = "short";
+    let minReplies = 1;
+    let maxReplies = 1;
+    let memories: string[] = ["初始记忆：对用户很友好。"];
+    let isBlocked = activeChar.isBlocked || false;
+
+    if (savedSettings) {
+      try {
+        const parsed = JSON.parse(savedSettings);
+        replyLength = parsed.replyLength || "short";
+        minReplies = parsed.minReplies !== undefined ? parsed.minReplies : 1;
+        maxReplies = parsed.maxReplies !== undefined ? parsed.maxReplies : 1;
+        memories = parsed.memories || [];
+        isBlocked = parsed.isBlocked !== undefined ? parsed.isBlocked : isBlocked;
+      } catch (e) {
+        console.error("Error reading saved settings", e);
+      }
+    }
+
+    if (isBlocked) return;
+
+    // Find session messages
+    const session = sessions.find((s) => s.characterId === characterId);
+    let targetMessages = customMessages || session?.messages || [];
+
+    // Mark as generating
+    setIsGeneratingMap(prev => ({ ...prev, [characterId]: true }));
+    localStorage.setItem(`mobile_ai_bg_generating_${characterId}`, "generating");
+
+    try {
+      // 1. Match Lore
+      const matchLore = (text: string) => {
+        const activeLore = loreList.filter((l) => l.enabled !== false);
+        const matched: LoreEntry[] = [];
+        const matchedKeys: string[] = [];
+
+        activeLore.forEach((lore) => {
+          if (lore.characterIds && lore.characterIds.length > 0) {
+            if (!lore.characterIds.includes(characterId)) return;
+          }
+          const isAlwaysActive = lore.mountType === "always";
+          let isMatched = false;
+          if (isAlwaysActive) {
+            isMatched = true;
+          } else {
+            isMatched = lore.keys.some((key) => text.toLowerCase().includes(key.toLowerCase()));
+          }
+          if (isMatched) {
+            matched.push(lore);
+            matchedKeys.push(isAlwaysActive ? `${lore.title} (常规挂载)` : lore.title);
+          }
+        });
+
+        const priorityWeight = { pre: 1, mid: 2, post: 3 };
+        matched.sort((a, b) => priorityWeight[a.priority || "mid"] - priorityWeight[b.priority || "mid"]);
+        return { matched, keys: matchedKeys };
+      };
+
+      const lastUserMsg = [...targetMessages].reverse().find((m) => m.role === "user");
+      const { matched, keys } = lastUserMsg ? matchLore(lastUserMsg.content) : { matched: [], keys: [] };
+
+      // Bust status for sub-accounts
+      let shouldSetBusted = activeChar.isBusted || false;
+      let newBustQuestionsCount = activeChar.bustQuestionsCount || 0;
+      if (activeChar.isSubAccount && !activeChar.isBusted) {
+        if (lastUserMsg && (
+          lastUserMsg.content.includes("你是谁") || 
+          lastUserMsg.content.includes("你到底是谁") || 
+          lastUserMsg.content.includes("身份") || 
+          lastUserMsg.content.includes("马脚") || 
+          lastUserMsg.content.includes("露馅") || 
+          lastUserMsg.content.includes("戳穿") || 
+          lastUserMsg.content.includes("穿帮") || 
+          lastUserMsg.content.includes("发现") || 
+          lastUserMsg.content.includes("骗我") || 
+          lastUserMsg.content.includes("说实话")
+        )) {
+          newBustQuestionsCount += 1;
+          const threshold = 3;
+          if (newBustQuestionsCount >= threshold) {
+            shouldSetBusted = true;
+          }
+          handleUpdateCharacter(characterId, {
+            ...activeChar,
+            bustQuestionsCount: newBustQuestionsCount,
+            isBusted: shouldSetBusted
+          });
+        }
+      }
+
+      // Determine reply count
+      const count = Math.max(1, Math.floor(Math.random() * (maxReplies - minReplies + 1)) + minReplies);
+
+      // Extract parent context if sub-account
+      let parentChatContext = "";
+      if (activeChar.isSubAccount && activeChar.parentCharacterId) {
+        const parentSess = sessions.find(s => s.characterId === activeChar.parentCharacterId);
+        if (parentSess && parentSess.messages && parentSess.messages.length > 0) {
+          parentChatContext = parentSess.messages
+            .slice(-10)
+            .map(m => `[${m.role === 'user' ? '用户' : (activeChar.parentCharacterName || '大号')}]: ${m.content}`)
+            .join("\n");
+        }
+      }
+
+      const cleanCharacter = {
+        name: activeChar.name,
+        description: activeChar.description,
+        systemInstruction: activeChar.systemInstruction,
+        isSubAccount: activeChar.isSubAccount,
+        parentCharacterId: activeChar.parentCharacterId,
+        parentCharacterName: activeChar.parentCharacterName,
+        purpose: activeChar.purpose,
+        isBusted: shouldSetBusted,
+        bustQuestionsCount: newBustQuestionsCount,
+      };
+
+      const lastMessage = targetMessages[targetMessages.length - 1];
+      const userDidNotReply = lastMessage?.role === 'assistant';
+      const mood = localStorage.getItem(`char_mood_${characterId}`) || "平静";
+
+      const requestParams = {
+        messages: targetMessages,
+        character: cleanCharacter,
+        settings: settings,
+        matchedLore: matched,
+        chatMode: "online",
+        replyLength: replyLength,
+        replyCount: count,
+        mood: mood,
+        memories: memories,
+        userDidNotReply: userDidNotReply,
+        isBlocked: activeChar.isBlocked,
+        blockedAt: activeChar.blockedAt,
+        parentChatContext: parentChatContext,
+      };
+
+      console.log('🚀 [App Background RequestParams]:', requestParams);
+      const data = await apiChat(requestParams);
+      console.log("📨 [App Background Response]:", data);
+
+      const text = data.text || "";
+      const splitByPreset = text.split("[SPLIT]").map((p: string) => p.trim()).filter(Boolean);
+      const parts: string[] = [];
+      for (const p of splitByPreset) {
+        if (p.startsWith("[CHARACTER_TRANSFER]") || p.startsWith("[TRANSFER]")) {
+          parts.push(p);
+        } else {
+          const matches = p.match(/[^。！？!?\n\r]+[。！？!?\n\r]*/g);
+          if (matches) {
+            for (const m of matches) {
+              const trimmed = m.trim();
+              if (trimmed) parts.push(trimmed);
+            }
+          } else {
+            const trimmed = p.trim();
+            if (trimmed) parts.push(trimmed);
+          }
+        }
+      }
+
+      let finalMessages = [...targetMessages];
+      if (parts.length > 0) {
+        let currentMessages = [...targetMessages];
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const isTransfer = part.startsWith("[CHARACTER_TRANSFER]") || part.startsWith("[TRANSFER]");
+          let transferData: any = undefined;
+          if (part.startsWith("[CHARACTER_TRANSFER]")) {
+            const p = part.replace("[CHARACTER_TRANSFER]", "").split("|");
+            transferData = {
+              amount: p[0] || "0.00",
+              note: p[1] || "转账",
+              status: (p[2] || "pending") as "pending" | "collected" | "returned",
+              transferId: p[3] || `ct-${Date.now()}`
+            };
+          }
+          const newBotMsg: Message = {
+            id: `msg-${Date.now() + i}-assistant`,
+            role: "assistant",
+            content: part,
+            type: isTransfer ? "transfer" : undefined,
+            transferData,
+            timestamp: Date.now(),
+            matchedLoreKeys: keys.length > 0 ? keys : undefined,
+          };
+          currentMessages = [...currentMessages, newBotMsg];
+          const osToSave = i === parts.length - 1 ? (data.os || "") : undefined;
+          
+          handleUpdateSessionMessages(characterId, currentMessages, osToSave);
+
+          if (i < parts.length - 1) {
+            const delayMs = Math.floor(Math.random() * 1500) + 1000; // 1s - 2.5s
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        }
+        finalMessages = currentMessages;
+      } else {
+        const fallbackMsg: Message = {
+          id: `msg-${Date.now()}-assistant`,
+          role: "assistant",
+          content: text || "...",
+          timestamp: Date.now(),
+          matchedLoreKeys: keys.length > 0 ? keys : undefined,
+        };
+        finalMessages = [...targetMessages, fallbackMsg];
+        handleUpdateSessionMessages(characterId, finalMessages, data.os || "");
+      }
+
+      // Check active transfer trigger
+      const userMsgs = targetMessages.filter(m => m.role === 'user');
+      const lastUser = userMsgs[userMsgs.length - 1];
+      if (lastUser) {
+        const keywords = ["钱", "转账", "红包", "工资", "发工资", "穷", "没钱", "转我", "给我转", "转给", "给点", "零花钱", "打钱", "借钱", "生活费", "资助", "买", "包", "充值", "资金", "借我", "救急", "搞点", "报销"];
+        const userHasKeyword = keywords.some(kw => lastUser.content.includes(kw));
+        const aiTextHasKeyword = text && (
+          text.includes("转你") || 
+          text.includes("给你转") || 
+          text.includes("我转") || 
+          text.includes("转账") || 
+          text.includes("发你") || 
+          text.includes("给点钱") || 
+          text.includes("给你钱") || 
+          text.includes("收下") || 
+          text.includes("拿去花") || 
+          text.includes("给你发了") || 
+          text.includes("给你打") || 
+          text.includes("[CHARACTER_TRANSFER]")
+        );
+
+        const lastTransferTimeStr = localStorage.getItem(`mobile_ai_last_active_transfer_${characterId}`);
+        const now = Date.now();
+        const canTransfer = !lastTransferTimeStr || (now - Number(lastTransferTimeStr) > 0);
+
+        if ((userHasKeyword || aiTextHasKeyword) && canTransfer) {
+          localStorage.setItem(`mobile_ai_last_active_transfer_${characterId}`, now.toString());
+          
+          let parsedAmount: number | null = null;
+          const searchCombined = `${text} ${lastUser.content}`;
+          const matchAmount = searchCombined.match(/(\d+(?:\.\d+)?)\s*(?:元|块|rmb|块钱)/i);
+          if (matchAmount) {
+            parsedAmount = Number(matchAmount[1]);
+          }
+          const transferAmount = parsedAmount !== null ? parsedAmount.toFixed(2) : (Math.random() * 150 + 10).toFixed(2);
+          const remarks = ["拿去吃顿好的。", "别问，收着。", "辛苦啦，给你零花钱。", "拿去花吧，不够再跟我要。"];
+          const randomNote = remarks[Math.floor(Math.random() * remarks.length)];
+          const transferId = `ct-${Date.now()}`;
+
+          await new Promise(r => setTimeout(r, 600));
+          const textMsg: Message = {
+            id: `msg-${Date.now()}-text`,
+            role: "assistant",
+            content: `转你 ${transferAmount} 元，${randomNote}`,
+            timestamp: Date.now(),
+          };
+          const transferMsg: Message = {
+            id: `msg-${Date.now()}-transfer`,
+            role: "assistant",
+            content: `[CHARACTER_TRANSFER]${transferAmount}|${randomNote}|pending|${transferId}`,
+            type: "transfer",
+            transferData: {
+              amount: transferAmount,
+              note: randomNote,
+              status: "pending",
+              transferId: transferId
+            },
+            timestamp: Date.now() + 1,
+          };
+          
+          const latestMessages = [...finalMessages, textMsg, transferMsg];
+          handleUpdateSessionMessages(characterId, latestMessages);
+          finalMessages = latestMessages;
+        }
+      }
+
+      // Mark as completed
+      localStorage.setItem(`mobile_ai_bg_generating_${characterId}`, "completed");
+
+      // WeChat Notification logic
+      const isCurrentlyViewingChat = currentScreen === "chat" && activeChatCharId === characterId;
+      if (!isCurrentlyViewingChat) {
+        // Trigger notification
+        const lastBotMessage = [...finalMessages].reverse().find(m => m.role === 'assistant');
+        const previewContent = lastBotMessage ? lastBotMessage.content : "给你发送了一条消息";
+        
+        let cleanPreview = previewContent;
+        if (cleanPreview.startsWith("[CHARACTER_TRANSFER]")) {
+          cleanPreview = "[💳 转账] 向你发起了一笔转账";
+        } else if (cleanPreview.startsWith("[TRANSFER]")) {
+          cleanPreview = "[💳 转账] 向你发起了一笔转账";
+        } else if (cleanPreview.startsWith("[LOCATION]")) {
+          cleanPreview = "[📍 位置] 分享了一个地点";
+        } else if (cleanPreview.startsWith("[REDPACKET]")) {
+          cleanPreview = "[🧧 红包] 给你发了一个红包";
+        } else if (cleanPreview.startsWith("[OFFLINE_INVITATION]")) {
+          cleanPreview = "[💌 线下见面] 发起线下见面邀请";
+        }
+        
+        addNotification(characterId, activeChar.name, activeChar.avatar, cleanPreview);
+      }
+
+    } catch (err) {
+      console.error("Background AI generation error", err);
+    } finally {
+      setIsGeneratingMap(prev => ({ ...prev, [characterId]: false }));
+      localStorage.removeItem(`mobile_ai_bg_generating_${characterId}`);
+    }
+  };
+
+  // Resume unfinished generations upon character list loaded
+  useEffect(() => {
+    if (characters.length > 0) {
+      characters.forEach(char => {
+        const status = localStorage.getItem(`mobile_ai_bg_generating_${char.id}`);
+        if (status === "generating") {
+          console.log(`[Background Generation] Resuming generation for character: ${char.name}`);
+          triggerAiReply(char.id);
+        }
+      });
+    }
+  }, [characters]);
+
   // --- Auto-generate notes polling ---
   useEffect(() => {
     const intervalId = setInterval(async () => {
@@ -451,6 +829,9 @@ export default function App() {
             onUpdateSessionMessages={handleUpdateSessionMessages}
             onClose={() => setCurrentScreen("home")}
             onOpenApp={(appId) => setCurrentScreen(appId)}
+            onActiveCharChange={setActiveChatCharId}
+            isGeneratingMap={isGeneratingMap}
+            onTriggerAiReply={triggerAiReply}
           />
         );
       case "creator":
@@ -558,6 +939,43 @@ export default function App() {
       >
         {/* Status Bar */}
         <StatusBar />
+
+        {/* WeChat-style Notification Popups Stack */}
+        {notifications.length > 0 && (
+          <div className="absolute top-12 left-0 right-0 z-[9999] pointer-events-none px-4 flex flex-col gap-2">
+            {notifications.map((notif) => (
+              <div
+                key={notif.id}
+                onClick={() => handleNotificationClick(notif.characterId)}
+                className="pointer-events-auto bg-white/95 backdrop-blur-md text-neutral-900 shadow-[0_12px_30px_rgba(0,0,0,0.12)] border border-neutral-200/50 rounded-[12px] py-2.5 px-3.5 flex items-center justify-between gap-3 cursor-pointer hover:bg-neutral-50 transition-all w-full max-w-sm mx-auto animate-fade-in"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-9 h-9 rounded-full bg-neutral-100 flex items-center justify-center text-xl shrink-0 shadow-xs border border-neutral-200/30">
+                    {notif.avatar}
+                  </div>
+                  <div className="min-w-0">
+                    <span className="block font-serif text-xs font-bold text-neutral-950 truncate">
+                      {notif.name}
+                    </span>
+                    <span className="block font-sans text-[11px] text-neutral-500 truncate mt-0.5 leading-tight">
+                      {notif.textPreview}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dismissNotification(notif.id);
+                  }}
+                  className="text-neutral-400 hover:text-neutral-800 shrink-0 text-xs p-1.5 rounded-full hover:bg-neutral-100 transition-all"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Dynamic Display Area */}
         <div className="flex-1 flex flex-col overflow-hidden relative min-h-0">
