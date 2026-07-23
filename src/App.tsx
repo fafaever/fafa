@@ -462,7 +462,7 @@ export default function App() {
   const isApiConfigured = !!(settings.apiUrl && settings.apiKey);
 
   return (
-    <div className="w-screen min-h-screen bg-neutral-100 flex flex-col md:flex-row items-center justify-center p-4 md:p-8 font-sans gap-8 select-none">
+    <div className="w-full h-full bg-neutral-100 flex flex-col md:flex-row items-center justify-center p-0 md:p-8 font-sans gap-8 select-none overflow-hidden">
       
       {/* LEFT SIDE: Decorative Desk Dashboard (Desktop Only) */}
       <div className="hidden lg:flex flex-col max-w-sm justify-center space-y-6 text-neutral-800">
@@ -508,7 +508,7 @@ export default function App() {
       {/* CENTER: Simulated Smartphone Screen Container */}
       <div 
         id="phone_screen"
-        className={`w-full max-w-[430px] aspect-[9/19.5] md:rounded-[40px] shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border border-neutral-200/80 flex flex-col relative overflow-hidden ${getThemeClass(settings.globalTheme)} ${getFontClass(settings.globalFont)}`}
+        className={`w-full h-full md:h-auto md:max-w-[430px] md:aspect-[9/19.5] rounded-none md:rounded-[40px] shadow-none md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border-0 md:border border-neutral-200/80 flex flex-col relative overflow-hidden ${getThemeClass(settings.globalTheme)} ${getFontClass(settings.globalFont)}`}
       >
         {/* Status Bar */}
         <StatusBar />
@@ -526,7 +526,7 @@ export default function App() {
       </div>
 
       {/* MOBILE ONLY: Small info indicator below screen */}
-      <div className="block lg:hidden text-center text-[10px] font-mono text-neutral-400 uppercase tracking-widest mt-2">
+      <div className="hidden md:block lg:hidden text-center text-[10px] font-mono text-neutral-400 uppercase tracking-widest mt-2">
         <span>仿制手机 AI 终端 · 2026</span>
       </div>
     </div>

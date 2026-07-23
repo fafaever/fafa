@@ -10,7 +10,9 @@
 
 @layer base {
   html, body, #root {
-    min-height: 100dvh;
+    height: 100dvh;
+    height: 100vh; /* 降级方案 */
+    overflow: hidden;
     margin: 0;
     padding: 0;
   }

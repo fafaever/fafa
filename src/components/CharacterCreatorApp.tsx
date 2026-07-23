@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, UserPlus, Sparkles, AlertCircle, Smile, HelpCircle, Edit3, MessageSquare, Trash2, Check, Upload, FileText, Zap } from "lucide-react";
-import { apiAnalyzeCharacterFile } from "../lib/api";
 
 import { Character, AppSettings } from "../types";
 
@@ -233,32 +232,90 @@ export default function CharacterCreatorApp({
             throw new Error("无法读取文件内容。");
           }
 
-          // Call backend endpoint to analyze and extract details
-          const result = await apiAnalyzeCharacterFile({
-            fileText: fileText,
-            fileName: file.name,
-            settings
-          });
-          if (result.success && result.data) {
-            const data = result.data;
-            setName(data.name || "");
-            setAge(data.age || "不详");
-            setPersonality(data.personality || "");
-            setChatStyle(data.chatStyle || "");
-            setDesc(data.description || "");
-            if (data.avatar) {
-              setAvatar(data.avatar);
+          // Client-side parser (Solution B)
+          let parsedName = "";
+          let parsedAge = "不详";
+          let parsedPersonality = "";
+          let parsedChatStyle = "";
+          let parsedDesc = "";
+
+          const lines = fileText.split(/\r?\n/);
+          let currentSection: 'personality' | 'chatStyle' | 'desc' | null = null;
+          let hasStructure = false;
+
+          for (let line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+
+            const nameMatch = trimmed.match(/^(?:姓名|名字|名称|角色名|Name)\s*[:：]\s*(.+)$/i);
+            if (nameMatch) {
+              parsedName = nameMatch[1].trim();
+              hasStructure = true;
+              continue;
             }
-            setSuccessMsg("🎉 成功自动识别并导入角色人设！已自动填充所有字段，您可以继续微调设定。");
-          } else {
-            throw new Error("提取数据失败");
+
+            const ageMatch = trimmed.match(/^(?:年龄|岁数|Age)\s*[:：]\s*(.+)$/i);
+            if (ageMatch) {
+              parsedAge = ageMatch[1].trim();
+              hasStructure = true;
+              continue;
+            }
+
+            const descMatch = trimmed.match(/^(?:一句话介绍|简介|介绍|描述|Description|Desc)\s*[:：]\s*(.+)$/i);
+            if (descMatch) {
+              parsedDesc = descMatch[1].trim();
+              hasStructure = true;
+              continue;
+            }
+
+            const styleMatch = trimmed.match(/^(?:聊天风格|说话方式|说话风格|口癖|Chat\s*Style|Style)\s*[:：]\s*(.+)$/i);
+            if (styleMatch) {
+              parsedChatStyle = styleMatch[1].trim();
+              hasStructure = true;
+              continue;
+            }
+
+            if (trimmed.match(/^(?:人设背景|背景设定|性格特点|人设|设定|角色设定|Personality|Background|Character\s*Setting)\s*[:：]?$/i)) {
+              currentSection = 'personality';
+              hasStructure = true;
+              continue;
+            } else if (trimmed.match(/^(?:聊天风格|说话方式|说话风格|口癖|Chat\s*Style|Style|Dialogue\s*Style)\s*[:：]?$/i)) {
+              currentSection = 'chatStyle';
+              hasStructure = true;
+              continue;
+            } else if (trimmed.match(/^(?:简介|描述|Description|Summary)\s*[:：]?$/i)) {
+              currentSection = 'desc';
+              hasStructure = true;
+              continue;
+            }
+
+            if (currentSection === 'personality') {
+              parsedPersonality += (parsedPersonality ? "\n" : "") + trimmed;
+            } else if (currentSection === 'chatStyle') {
+              parsedChatStyle += (parsedChatStyle ? "\n" : "") + trimmed;
+            } else if (currentSection === 'desc') {
+              parsedDesc += (parsedDesc ? "\n" : "") + trimmed;
+            }
           }
+
+          if (!hasStructure || (!parsedName && !parsedPersonality)) {
+            const baseName = file.name.replace(/\.[^/.]+$/, "");
+            parsedName = baseName;
+            parsedPersonality = fileText.trim();
+          }
+
+          setName(parsedName || file.name.replace(/\.[^/.]+$/, ""));
+          setAge(parsedAge);
+          setPersonality(parsedPersonality);
+          setChatStyle(parsedChatStyle);
+          setDesc(parsedDesc || parsedPersonality.slice(0, 100) + (parsedPersonality.length > 100 ? "..." : ""));
+
+          setSuccessMsg("🎉 成功本地识别并导入角色设定！已自动提取并填充，您可以继续微调设定。");
         } catch (err: any) {
           console.error(err);
           setErrorMsg(`导入人设失败: ${err.message || "未知错误"}`);
         } finally {
           setIsImporting(false);
-          // Reset file input so same file can be selected again
           e.target.value = "";
         }
       };
