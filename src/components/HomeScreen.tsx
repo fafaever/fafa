@@ -2,11 +2,32 @@ import React, { useState, useEffect, useRef } from "react";
 import { MessageSquare, BookOpen, Settings, Info, UserPlus, Gamepad2, Search, Book, PenTool, Sparkles, Calendar, Image as ImageIcon, Music, Map, Cloud, Camera, Plus } from "lucide-react";
 import { Character, ChatSession, AppSettings } from "../types";
 
-interface GalleryImage {
-  id: string;
-  dataUrl: string;
-  addedAt: number;
-}
+const LeftPlaceholder = () => (
+  <div className="w-full h-full flex flex-col items-center justify-center bg-neutral-100/40 p-3 text-neutral-400 select-none">
+    <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="w-12 h-12 opacity-60">
+      <path d="M20 80 L45 40 L65 70" />
+      <path d="M45 70 L65 45 L85 80" />
+      <circle cx="70" cy="30" r="8" />
+      <line x1="15" y1="80" x2="85" y2="80" />
+    </svg>
+    <span className="text-[9px] text-neutral-400 mt-2 tracking-wide font-medium">左图 (点击上传/长按重置)</span>
+  </div>
+);
+
+const RightPlaceholder = () => (
+  <div className="w-full h-full flex flex-col items-center justify-center bg-neutral-100/40 p-3 text-neutral-400 select-none">
+    <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" className="w-12 h-12 opacity-60">
+      <path d="M45 80 L55 80 L58 60 L42 60 Z" />
+      <path d="M50 60 Q45 45 35 40" />
+      <path d="M35 40 Q40 35 45 42" />
+      <path d="M50 60 Q50 35 55 25" />
+      <path d="M55 25 Q60 30 52 38" />
+      <path d="M50 60 Q55 50 65 48" />
+      <path d="M65 48 Q60 55 52 54" />
+    </svg>
+    <span className="text-[9px] text-neutral-400 mt-2 tracking-wide font-medium">右图 (点击上传/长按重置)</span>
+  </div>
+);
 
 const compressImage = (file: File, maxSizeKB: number = 200): Promise<string> => {
   return new Promise((resolve) => {
@@ -74,56 +95,62 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
   
   const touchStartX = useRef<number | null>(null);
 
-  // Gallery state
-  const [galleryImages, setGalleryImages] = useState<GalleryImage[]>(() => {
-    const saved = localStorage.getItem('mobile_ai_gallery');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: '1', dataUrl: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=120&q=80&grayscale', addedAt: 8 },
-      { id: '2', dataUrl: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=120&q=80&grayscale', addedAt: 7 },
-      { id: '3', dataUrl: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=120&q=80&grayscale', addedAt: 6 },
-      { id: '4', dataUrl: 'https://images.unsplash.com/photo-1507676184212-d0330a15183c?auto=format&fit=crop&w=120&q=80&grayscale', addedAt: 5 },
-      { id: '5', dataUrl: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=120&q=80&grayscale', addedAt: 4 },
-      { id: '6', dataUrl: 'https://images.unsplash.com/photo-1449844908441-8829872d2607?auto=format&fit=crop&w=120&q=80&grayscale', addedAt: 3 },
-    ];
-  });
+  // Gallery state for two independent cards
+  const [cardLeft, setCardLeft] = useState<string | null>(() => localStorage.getItem("mobile_ai_card_left"));
+  const [cardRight, setCardRight] = useState<string | null>(() => localStorage.getItem("mobile_ai_card_right"));
+  const [activeCardUpload, setActiveCardUpload] = useState<"left" | "right" | null>(null);
+  const [resetMenuCard, setResetMenuCard] = useState<"left" | "right" | null>(null);
 
-  const N = galleryImages.length;
-  const baseRepetitions = Math.max(1, Math.ceil(15 / (N || 1)));
-  const baseArr = Array.from({ length: baseRepetitions }).flatMap(() => galleryImages);
-  const totalBaseN = baseArr.length;
-
-  const [displayIndex, setDisplayIndex] = useState(totalBaseN);
-  const [isGalleryTransitioning, setIsGalleryTransitioning] = useState(true);
-  const galleryTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const carouselTouchStartX = useRef<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [longPressMenu, setLongPressMenu] = useState<{ id: string, x: number, y: number } | null>(null);
-  const longPressTimer = useRef<NodeJS.Timeout | null>(null);
+  const longPressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isLongPressTriggered = useRef(false);
 
-  const restartGalleryTimer = () => {
-    if (galleryTimerRef.current) clearInterval(galleryTimerRef.current);
-    galleryTimerRef.current = setInterval(() => {
-      setIsGalleryTransitioning(true);
-      setDisplayIndex(prev => prev + 1);
-    }, 2000);
+  const startLongPress = (card: "left" | "right") => {
+    isLongPressTriggered.current = false;
+    if (longPressTimeoutRef.current) clearTimeout(longPressTimeoutRef.current);
+    longPressTimeoutRef.current = setTimeout(() => {
+      isLongPressTriggered.current = true;
+      setResetMenuCard(card);
+    }, 600);
   };
 
-  useEffect(() => {
-    if (galleryImages.length === 0) return;
-    restartGalleryTimer();
-    return () => clearInterval(galleryTimerRef.current!);
-  }, [galleryImages.length]);
-
-  const handleGalleryTransitionEnd = () => {
-    if (displayIndex >= totalBaseN * 2) {
-      setIsGalleryTransitioning(false);
-      setDisplayIndex(displayIndex - totalBaseN);
-    } else if (displayIndex <= 0) {
-      setIsGalleryTransitioning(false);
-      setDisplayIndex(displayIndex + totalBaseN);
+  const endLongPress = (card: "left" | "right", isClick: boolean) => {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+      longPressTimeoutRef.current = null;
     }
+    if (!isLongPressTriggered.current && isClick) {
+      setActiveCardUpload(card);
+      fileInputRef.current?.click();
+    }
+  };
+
+  const cancelLongPress = () => {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+      longPressTimeoutRef.current = null;
+    }
+  };
+
+  const handlePointerDown = (card: "left" | "right", e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    startLongPress(card);
+  };
+
+  const handlePointerUp = (card: "left" | "right", e: React.PointerEvent) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const wasTriggered = isLongPressTriggered.current;
+    endLongPress(card, !wasTriggered);
+  };
+
+  const handlePointerMove = () => {
+    cancelLongPress();
+  };
+
+  const handleContextMenu = (card: "left" | "right", e: React.MouseEvent) => {
+    e.preventDefault();
+    setResetMenuCard(card);
   };
 
   const defaultCharacter = characters[0];
@@ -186,68 +213,20 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
     touchStartX.current = null;
   };
 
-  const handleGalleryTouchStart = (e: React.TouchEvent) => {
-    e.stopPropagation();
-    if (galleryTimerRef.current) clearInterval(galleryTimerRef.current);
-    carouselTouchStartX.current = e.touches[0].clientX;
-  };
-
-  const handleGalleryTouchEnd = (e: React.TouchEvent) => {
-    e.stopPropagation();
-    if (carouselTouchStartX.current === null) return;
-    const touchEndX = e.changedTouches[0].clientX;
-    const diff = carouselTouchStartX.current - touchEndX;
-
-    if (diff > 30) {
-      setIsGalleryTransitioning(true);
-      setDisplayIndex(prev => prev + 1);
-    } else if (diff < -30) {
-      setIsGalleryTransitioning(true);
-      setDisplayIndex(prev => prev - 1);
-    }
-    carouselTouchStartX.current = null;
-    restartGalleryTimer();
-  };
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
+  const handleCardUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0] && activeCardUpload) {
       const file = e.target.files[0];
       const dataUrl = await compressImage(file, 200);
-      const newImage: GalleryImage = {
-        id: Date.now().toString(),
-        dataUrl,
-        addedAt: Date.now()
-      };
-      const updated = [newImage, ...galleryImages].sort((a, b) => b.addedAt - a.addedAt).slice(0, 20);
-      setGalleryImages(updated);
-      localStorage.setItem('mobile_ai_gallery', JSON.stringify(updated));
-      setIsGalleryTransitioning(false);
-      setDisplayIndex(totalBaseN);
+      if (activeCardUpload === "left") {
+        setCardLeft(dataUrl);
+        localStorage.setItem("mobile_ai_card_left", dataUrl);
+      } else if (activeCardUpload === "right") {
+        setCardRight(dataUrl);
+        localStorage.setItem("mobile_ai_card_right", dataUrl);
+      }
+      e.target.value = "";
+      setActiveCardUpload(null);
     }
-  };
-
-  const handleImageTouchStart = (id: string, e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    longPressTimer.current = setTimeout(() => {
-      setLongPressMenu({ id, x: touch.clientX, y: touch.clientY });
-    }, 500);
-  };
-
-  const handleImageTouchEnd = () => {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-  };
-
-  const handleImageTouchMove = () => {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current);
-  };
-
-  const deleteImage = (id: string) => {
-    const updated = galleryImages.filter(img => img.id !== id);
-    setGalleryImages(updated);
-    localStorage.setItem('mobile_ai_gallery', JSON.stringify(updated));
-    setLongPressMenu(null);
-    setIsGalleryTransitioning(false);
-    setDisplayIndex(totalBaseN);
   };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -391,61 +370,112 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
         {/* Page 2: Second Screen View */}
         <div className="w-full min-w-full shrink-0 snap-start flex flex-col px-5 pt-8 pb-4 text-neutral-900 select-none overflow-y-auto h-full">
           
-          {/* Gallery Carousel (15% height) */}
-          <div className="w-full h-[100px] flex flex-col items-center justify-center relative select-none overflow-hidden mt-4">
+          {/* Two Square Gallery Cards, Side-by-Side */}
+          <div className="grid grid-cols-2 gap-4 w-full px-1 mt-4 shrink-0 select-none">
+            {/* Left Card */}
             <div 
-              className="relative w-full h-[60px]"
-              onTouchStart={handleGalleryTouchStart}
-              onTouchMove={handleImageTouchMove}
-              onTouchEnd={handleGalleryTouchEnd}
+              className="relative aspect-square w-full rounded-2xl overflow-hidden border border-neutral-200/80 bg-white cursor-pointer active:scale-98 transition-all duration-150 shadow-sm flex items-center justify-center group"
+              onPointerDown={(e) => handlePointerDown("left", e)}
+              onPointerUp={(e) => handlePointerUp("left", e)}
+              onPointerCancel={handlePointerMove}
+              onPointerLeave={handlePointerMove}
+              onPointerMove={handlePointerMove}
+              onContextMenu={(e) => handleContextMenu("left", e)}
             >
-              <div 
-                className={`flex gap-[6px] absolute top-0 left-1/2 ${isGalleryTransitioning ? 'transition-transform duration-500 ease-in-out' : ''}`}
-                style={{ transform: `translateX(calc(-30px - ${displayIndex * 66}px))` }}
-                onTransitionEnd={handleGalleryTransitionEnd}
-              >
-                {baseArr.map((img, idx) => {
-                  const isActive = (displayIndex % N) === (idx % N);
-                  
-                  return (
-                    <div 
-                      key={`${img.id}-${idx}`}
-                      className={`w-[60px] h-[60px] shrink-0 rounded-xl overflow-hidden transition-all duration-300 ${isActive ? 'ring-2 ring-neutral-400 scale-[1.02]' : 'shadow-sm opacity-90 grayscale-[10%]'}`}
-                      onTouchStart={(e) => handleImageTouchStart(img.id, e)}
-                      onTouchEnd={handleImageTouchEnd}
-                    >
-                      <img src={img.dataUrl} className="w-full h-full object-cover" alt="gallery item" />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            
-            {/* Dots */}
-            <div className="flex gap-1.5 mt-3">
-              {galleryImages.map((_, idx) => (
+              {cardLeft ? (
+                <img src={cardLeft} className="w-full h-full object-cover" alt="left gallery item" />
+              ) : (
+                <LeftPlaceholder />
+              )}
+              {/* Reset Menu Overlay */}
+              {resetMenuCard === "left" && (
                 <div 
-                  key={idx} 
-                  className={`h-[4px] rounded-full transition-all duration-300 ${idx === (displayIndex % N) ? 'w-3 bg-neutral-800' : 'w-1.5 bg-neutral-300'}`}
-                />
-              ))}
+                  className="absolute inset-0 bg-neutral-900/90 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2.5 p-3 text-center z-10 animate-fade-in" 
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <span className="text-white text-xs font-bold tracking-wide">恢复为默认线条画？</span>
+                  <div className="flex gap-2 mt-1">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCardLeft(null);
+                        localStorage.removeItem("mobile_ai_card_left");
+                        setResetMenuCard(null);
+                      }} 
+                      className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-transform"
+                    >
+                      恢复默认
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setResetMenuCard(null);
+                      }} 
+                      className="px-3 py-1.5 bg-neutral-700 text-white rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-transform"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Plus Button */}
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              className="absolute bottom-2 right-2 w-6 h-6 bg-white rounded-full shadow border border-neutral-200 flex items-center justify-center text-neutral-600 active:scale-95 z-10"
+            {/* Right Card */}
+            <div 
+              className="relative aspect-square w-full rounded-2xl overflow-hidden border border-neutral-200/80 bg-white cursor-pointer active:scale-98 transition-all duration-150 shadow-sm flex items-center justify-center group"
+              onPointerDown={(e) => handlePointerDown("right", e)}
+              onPointerUp={(e) => handlePointerUp("right", e)}
+              onPointerCancel={handlePointerMove}
+              onPointerLeave={handlePointerMove}
+              onPointerMove={handlePointerMove}
+              onContextMenu={(e) => handleContextMenu("right", e)}
             >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              accept="image/*" 
-              className="hidden" 
-              onChange={handleImageUpload} 
-            />
+              {cardRight ? (
+                <img src={cardRight} className="w-full h-full object-cover" alt="right gallery item" />
+              ) : (
+                <RightPlaceholder />
+              )}
+              {/* Reset Menu Overlay */}
+              {resetMenuCard === "right" && (
+                <div 
+                  className="absolute inset-0 bg-neutral-900/90 backdrop-blur-[2px] flex flex-col items-center justify-center gap-2.5 p-3 text-center z-10 animate-fade-in" 
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  <span className="text-white text-xs font-bold tracking-wide">恢复为默认线条画？</span>
+                  <div className="flex gap-2 mt-1">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCardRight(null);
+                        localStorage.removeItem("mobile_ai_card_right");
+                        setResetMenuCard(null);
+                      }} 
+                      className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-transform"
+                    >
+                      恢复默认
+                    </button>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setResetMenuCard(null);
+                      }} 
+                      className="px-3 py-1.5 bg-neutral-700 text-white rounded-lg text-[10px] font-bold shadow-sm active:scale-95 transition-transform"
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            accept="image/*" 
+            className="hidden" 
+            onChange={handleCardUpload} 
+          />
 
           <div className="mt-4 mb-6 text-center animate-fade-in">
             <h1 className="text-2xl font-mono tracking-tight font-bold text-neutral-950">所有应用</h1>
@@ -570,20 +600,7 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
         </div>
       </div>
 
-      {/* Long press menu */}
-      {longPressMenu && (
-        <>
-          <div className="fixed inset-0 z-40" onTouchStart={() => setLongPressMenu(null)} onClick={() => setLongPressMenu(null)} />
-          <div 
-            className="fixed z-50 bg-white rounded-xl shadow-lg border border-neutral-200 py-1 w-28 animate-fade-in"
-            style={{ top: longPressMenu.y, left: Math.min(longPressMenu.x, window.innerWidth - 120) }}
-          >
-            <button onClick={() => deleteImage(longPressMenu.id)} className="w-full text-left px-4 py-2 text-xs font-bold text-red-600 hover:bg-neutral-50">
-              删除
-            </button>
-          </div>
-        </>
-      )}
+
     </div>
   );
 }

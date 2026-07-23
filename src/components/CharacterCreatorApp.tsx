@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { ChevronLeft, UserPlus, Sparkles, AlertCircle, Smile, HelpCircle, Edit3, MessageSquare, Trash2, Check, Upload, FileText, Zap } from "lucide-react";
 
 import { Character, AppSettings } from "../types";
+import { apiAnalyzeCharacterFile } from "../lib/api";
+import JSZip from "jszip";
 
 interface CharacterCreatorAppProps {
   characters: Character[];
@@ -58,42 +60,34 @@ const compressAndResizeImage = (file: File, maxDimension = 300, quality = 0.8): 
   });
 };
 
-const getAgeFromInstruction = (inst: string) => {
+const getAgeFromInstruction = (inst: string): string => {
+  if (!inst) return "不详";
+  const match = inst.match(/-\s*(?:年龄|岁数|Age)\s*[:：]\s*([^\n]+)/i);
+  return match ? match[1].trim() : "不详";
+};
+
+const getNicknameFromInstruction = (inst: string): string => {
+  if (!inst) return "无";
+  const match = inst.match(/-\s*(?:别名\/昵称|昵称|别名|Nickname|Nick)\s*[:：]\s*([^\n]+)/i);
+  return match ? match[1].trim() : "无";
+};
+
+const getPersonalityFromInstruction = (inst: string): string => {
   if (!inst) return "";
-  const match = inst.match(/-\s*年龄:\s*([^\n]+)/);
-  const val = match ? match[1].trim() : "";
-  return val === "不详" ? "" : val;
+  const match = inst.match(/【性格特点\s*\(Personality\)】\s*[:：]?\s*\n([\s\S]*?)(?=\n【角色背景|\n【语言口吻|$)/i);
+  return match ? match[1].trim() : "";
 };
 
-const getPersonalityFromInstruction = (inst: string) => {
-  if (!inst) return "注重角色感情与独特氛围";
-  const match = inst.match(/【基本设定 \/ 人设 \(Personality Profile\)】:([\s\S]*?)(?:【语言口吻与聊天风格|$)/);
-  if (match) {
-    const parsed = match[1]
-      .replace(/-\s*姓名:[^\n]*\n?/, "")
-      .replace(/-\s*年龄:[^\n]*\n?/, "")
-      .trim();
-    if (parsed) return parsed;
-  }
-  return inst;
+const getBackgroundFromInstruction = (inst: string): string => {
+  if (!inst) return "";
+  const match = inst.match(/【角色背景\s*\(Background\s*&\s*Story\)】\s*[:：]?\s*\n([\s\S]*?)(?=\n【语言口吻|$)/i);
+  return match ? match[1].trim() : "";
 };
 
-const getChatStyleFromInstruction = (inst: string) => {
-  if (!inst) return "沉浸式角色扮演，自然第一人称语气";
-  const match = inst.match(/【语言口吻与聊天风格 \(Chatting Style & Tone\)】:([\s\S]*)/);
-  if (match) {
-    let styleText = match[1].trim();
-    styleText = styleText
-      .replace(/-\s*保持第一人称视角的沉浸式对话。\n?/, "")
-      .replace(/-\s*适当在动作或神态描述旁添加星号\s*\(\*\)，例如：\*微微一笑\*\s*或\s*\*叹了口气\*，以此渲染对话环境。\n?/, "")
-      .replace(/-\s*绝不脱离设定，拒绝扮演旁观的\s*AI\s*助手。\n?/, "")
-      .trim();
-    if (styleText.startsWith("- ")) {
-      styleText = styleText.substring(2).trim();
-    }
-    if (styleText) return styleText;
-  }
-  return "沉浸式角色扮演，自然第一人称语气";
+const getChatStyleFromInstruction = (inst: string): string => {
+  if (!inst) return "";
+  const match = inst.match(/【语言口吻与聊天风格\s*\(Chatting\s*Style\s*&\s*Tone\)】\s*[:：]?\s*\n\s*-\s*([^\n]+)/i);
+  return match ? match[1].trim() : "";
 };
 
 const PRESET_AVATARS = ["🤖", "🖤", "☕", "🔮", "🐱", "🦊", "👑", "🗡️", "🛸", "🎒", "🎓", "🎧", "🎭", "🌿", "🌙"];
@@ -119,15 +113,23 @@ export default function CharacterCreatorApp({
   
   // Form States
   const [name, setName] = useState("");
+  const [nickname, setNickname] = useState(""); // 别名/昵称
   const [avatar, setAvatar] = useState("🤖");
   const [age, setAge] = useState(""); // 角色年龄
-  const [personality, setPersonality] = useState(""); // 人设
+  const [background, setBackground] = useState(""); // 角色背景
+  const [personality, setPersonality] = useState(""); // 人设 / 性格特点
   const [chatStyle, setChatStyle] = useState(""); // 聊天风格
   const [desc, setDesc] = useState(""); // 一句话简介
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false); // AI分析状态
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  
+  // Encoding & File Preview States
+  const [selectedEncoding, setSelectedEncoding] = useState<string>("AUTO");
+  const [importedFile, setImportedFile] = useState<File | null>(null);
+  const [fileContent, setFileContent] = useState<string>("");
   
   // Custom uploaded images
   const [realImage, setRealImage] = useState<string>("");
@@ -151,7 +153,9 @@ export default function CharacterCreatorApp({
     setName(char.name);
     setAvatar(char.avatar || "🤖");
     setAge(getAgeFromInstruction(char.systemInstruction));
+    setNickname(getNicknameFromInstruction(char.systemInstruction));
     setPersonality(getPersonalityFromInstruction(char.systemInstruction));
+    setBackground(getBackgroundFromInstruction(char.systemInstruction));
     setChatStyle(getChatStyleFromInstruction(char.systemInstruction));
     setDesc(char.description || "");
     setRealImage(char.realImage || "");
@@ -164,9 +168,11 @@ export default function CharacterCreatorApp({
   const handleCancelEdit = () => {
     setEditingId(null);
     setName("");
+    setNickname("");
     setAvatar("🤖");
     setAge("");
     setPersonality("");
+    setBackground("");
     setChatStyle("");
     setDesc("");
     setRealImage("");
@@ -186,25 +192,80 @@ export default function CharacterCreatorApp({
     }
 
     try {
-      console.log(`[Avatar Upload Diagnostics] Selected file for ${type}: name=${file.name}, size=${Math.round(file.size / 1024)} KB, type=${file.type}`);
-      setErrorMsg("");
-      setSuccessMsg("正在进行 Canvas 图像压缩解析...");
-
-      const maxDim = type === "chat" ? 300 : 800;
-      const base64 = await compressAndResizeImage(file, maxDim, 0.8);
-      const sizeKB = Math.round(base64.length / 1024);
-
-      console.log(`[Avatar Upload Diagnostics] Canvas compression completed successfully. Output Base64 size = ${sizeKB} KB (${base64.length} chars)`);
-
+      const dataUrl = await compressAndResizeImage(file);
       if (type === "real") {
-        setRealImage(base64);
+        setRealImage(dataUrl);
       } else {
-        setChatAvatar(base64);
+        setChatAvatar(dataUrl);
       }
-      setSuccessMsg(`头像已成功压缩优化 (${sizeKB} KB)，随时可以保存！`);
+      setSuccessMsg("图片上传成功！");
     } catch (err: any) {
-      console.error("[Avatar Upload Diagnostics] Error during image upload/compression:", err);
-      setErrorMsg(`头像读取处理失败: ${err?.message || err}`);
+      console.error(err);
+      setErrorMsg(`图片解析失败: ${err.message || "未知错误"}`);
+    } finally {
+      e.target.value = "";
+    }
+  };
+
+  const processFile = async (file: File, enc: string) => {
+    setIsImporting(true);
+    setErrorMsg("");
+    setSuccessMsg("");
+    try {
+      const fileName = file.name;
+      const lowerName = fileName.toLowerCase();
+      
+      let decodedText = "";
+      if (lowerName.endsWith(".docx")) {
+        const arrayBuffer = await file.arrayBuffer();
+        const zip = new JSZip();
+        const loadedZip = await zip.loadAsync(arrayBuffer);
+        const documentXml = await loadedZip.file("word/document.xml")?.async("string");
+        if (documentXml) {
+          const parser = new DOMParser();
+          const xmlDoc = parser.parseFromString(documentXml, "text/xml");
+          const paragraphs = xmlDoc.getElementsByTagName("w:p");
+          const textParts: string[] = [];
+          for (let i = 0; i < paragraphs.length; i++) {
+            const p = paragraphs[i];
+            const texts = p.getElementsByTagName("w:t");
+            let pText = "";
+            for (let j = 0; j < texts.length; j++) {
+              pText += texts[j].textContent || "";
+            }
+            textParts.push(pText);
+          }
+          decodedText = textParts.join("\n");
+        } else {
+          throw new Error("无效的 docx 结构，未找到 word/document.xml。");
+        }
+      } else {
+        const arrayBuffer = await file.arrayBuffer();
+        if (enc === "AUTO") {
+          const decoderUTF8 = new TextDecoder("utf-8", { fatal: true });
+          try {
+            decodedText = decoderUTF8.decode(new Uint8Array(arrayBuffer));
+          } catch (e) {
+            const decoderGBK = new TextDecoder("gbk");
+            decodedText = decoderGBK.decode(new Uint8Array(arrayBuffer));
+          }
+        } else {
+          const decoder = new TextDecoder(enc);
+          decodedText = decoder.decode(new Uint8Array(arrayBuffer));
+        }
+      }
+      
+      setFileContent(decodedText);
+      
+      // Auto-extract locally so the form is filled with basic information instantly
+      runLocalParser(decodedText, file.name);
+      
+      setSuccessMsg("🎉 成功读取文档内容！已自动尝试本地智能提取。若结果有出入，可点击下方按钮尝试 AI 分析或直接手动修改。");
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(`文件解析失败: ${err.message || "未知错误"}`);
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -214,117 +275,159 @@ export default function CharacterCreatorApp({
 
     setErrorMsg("");
     setSuccessMsg("");
-    setIsImporting(true);
+    setImportedFile(file);
+    e.target.value = "";
+  };
 
-    try {
-      const fileName = file.name;
-      const lowerName = fileName.toLowerCase();
-      if (!lowerName.endsWith(".txt") && !lowerName.endsWith(".docx")) {
-        throw new Error("仅支持 .txt 或 .docx 格式的文本文件。");
+  useEffect(() => {
+    if (importedFile) {
+      processFile(importedFile, selectedEncoding);
+    }
+  }, [selectedEncoding, importedFile]);
+
+  const handleClearImport = () => {
+    setImportedFile(null);
+    setFileContent("");
+  };
+
+  const runLocalParser = (fileText: string, fName: string) => {
+    let parsedName = "";
+    let parsedNickname = "";
+    let parsedAge = "";
+    let parsedPersonality = "";
+    let parsedChatStyle = "";
+    let parsedDesc = "";
+    let parsedBackground = "";
+
+    const lines = fileText.split(/\r?\n/);
+    let currentSection: 'personality' | 'chatStyle' | 'desc' | 'background' | null = null;
+    let hasStructure = false;
+
+    for (let line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+
+      const nameMatch = trimmed.match(/^(?:姓名|名字|名称|角色名|主姓名|Name)\s*[:：]\s*(.+)$/i);
+      if (nameMatch) {
+        parsedName = nameMatch[1].trim();
+        hasStructure = true;
+        continue;
       }
 
-      const reader = new FileReader();
+      const nickMatch = trimmed.match(/^(?:昵称|别名|小名|Nickname|Nick)\s*[:：]\s*(.+)$/i);
+      if (nickMatch) {
+        parsedNickname = nickMatch[1].trim();
+        hasStructure = true;
+        continue;
+      }
 
-      reader.onload = async (event) => {
-        try {
-          const fileText = event.target?.result as string;
-          if (fileText === undefined || fileText === null) {
-            throw new Error("无法读取文件内容。");
-          }
+      const ageMatch = trimmed.match(/^(?:年龄|岁数|Age)\s*[:：]\s*(.+)$/i);
+      if (ageMatch) {
+        parsedAge = ageMatch[1].trim();
+        hasStructure = true;
+        continue;
+      }
 
-          // Client-side parser (Solution B)
-          let parsedName = "";
-          let parsedAge = "不详";
-          let parsedPersonality = "";
-          let parsedChatStyle = "";
-          let parsedDesc = "";
+      const descMatch = trimmed.match(/^(?:一句话介绍|简介|介绍|描述|Slogan|Bio|Description|Desc)\s*[:：]\s*(.+)$/i);
+      if (descMatch) {
+        parsedDesc = descMatch[1].trim();
+        hasStructure = true;
+        continue;
+      }
 
-          const lines = fileText.split(/\r?\n/);
-          let currentSection: 'personality' | 'chatStyle' | 'desc' | null = null;
-          let hasStructure = false;
+      const styleMatch = trimmed.match(/^(?:聊天风格|说话方式|说话风格|口癖|Chat\s*Style|Style)\s*[:：]\s*(.+)$/i);
+      if (styleMatch) {
+        parsedChatStyle = styleMatch[1].trim();
+        hasStructure = true;
+        continue;
+      }
 
-          for (let line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
+      if (trimmed.match(/^(?:性格特点|性格|人设背景|人设|设定|角色设定|Personality|Character\s*Setting)\s*[:：]?$/i)) {
+        currentSection = 'personality';
+        hasStructure = true;
+        continue;
+      } else if (trimmed.match(/^(?:聊天风格|聊天口吻|说话方式|说话风格|口癖|Chat\s*Style|Style|Dialogue\s*Style)\s*[:：]?$/i)) {
+        currentSection = 'chatStyle';
+        hasStructure = true;
+        continue;
+      } else if (trimmed.match(/^(?:角色背景|背景故事|背景设定|故事|Background|Story)\s*[:：]?$/i)) {
+        currentSection = 'background';
+        hasStructure = true;
+        continue;
+      } else if (trimmed.match(/^(?:简介|描述|Description|Summary)\s*[:：]?$/i)) {
+        currentSection = 'desc';
+        hasStructure = true;
+        continue;
+      }
 
-            const nameMatch = trimmed.match(/^(?:姓名|名字|名称|角色名|Name)\s*[:：]\s*(.+)$/i);
-            if (nameMatch) {
-              parsedName = nameMatch[1].trim();
-              hasStructure = true;
-              continue;
-            }
+      if (currentSection === 'personality') {
+        parsedPersonality += (parsedPersonality ? "\n" : "") + trimmed;
+      } else if (currentSection === 'chatStyle') {
+        parsedChatStyle += (parsedChatStyle ? "\n" : "") + trimmed;
+      } else if (currentSection === 'background') {
+        parsedBackground += (parsedBackground ? "\n" : "") + trimmed;
+      } else if (currentSection === 'desc') {
+        parsedDesc += (parsedDesc ? "\n" : "") + trimmed;
+      }
+    }
 
-            const ageMatch = trimmed.match(/^(?:年龄|岁数|Age)\s*[:：]\s*(.+)$/i);
-            if (ageMatch) {
-              parsedAge = ageMatch[1].trim();
-              hasStructure = true;
-              continue;
-            }
+    if (!hasStructure || (!parsedName && !parsedPersonality)) {
+      const baseName = fName.replace(/\.[^/.]+$/, "");
+      parsedName = baseName;
+      parsedPersonality = fileText.trim();
+    }
 
-            const descMatch = trimmed.match(/^(?:一句话介绍|简介|介绍|描述|Description|Desc)\s*[:：]\s*(.+)$/i);
-            if (descMatch) {
-              parsedDesc = descMatch[1].trim();
-              hasStructure = true;
-              continue;
-            }
+    setName(parsedName);
+    setNickname(parsedNickname);
+    setAge(parsedAge);
+    setPersonality(parsedPersonality);
+    setBackground(parsedBackground);
+    setChatStyle(parsedChatStyle);
+    setDesc(parsedDesc || (parsedPersonality.length > 50 ? parsedPersonality.slice(0, 50) + "..." : parsedPersonality));
+  };
 
-            const styleMatch = trimmed.match(/^(?:聊天风格|说话方式|说话风格|口癖|Chat\s*Style|Style)\s*[:：]\s*(.+)$/i);
-            if (styleMatch) {
-              parsedChatStyle = styleMatch[1].trim();
-              hasStructure = true;
-              continue;
-            }
-
-            if (trimmed.match(/^(?:人设背景|背景设定|性格特点|人设|设定|角色设定|Personality|Background|Character\s*Setting)\s*[:：]?$/i)) {
-              currentSection = 'personality';
-              hasStructure = true;
-              continue;
-            } else if (trimmed.match(/^(?:聊天风格|说话方式|说话风格|口癖|Chat\s*Style|Style|Dialogue\s*Style)\s*[:：]?$/i)) {
-              currentSection = 'chatStyle';
-              hasStructure = true;
-              continue;
-            } else if (trimmed.match(/^(?:简介|描述|Description|Summary)\s*[:：]?$/i)) {
-              currentSection = 'desc';
-              hasStructure = true;
-              continue;
-            }
-
-            if (currentSection === 'personality') {
-              parsedPersonality += (parsedPersonality ? "\n" : "") + trimmed;
-            } else if (currentSection === 'chatStyle') {
-              parsedChatStyle += (parsedChatStyle ? "\n" : "") + trimmed;
-            } else if (currentSection === 'desc') {
-              parsedDesc += (parsedDesc ? "\n" : "") + trimmed;
-            }
-          }
-
-          if (!hasStructure || (!parsedName && !parsedPersonality)) {
-            const baseName = file.name.replace(/\.[^/.]+$/, "");
-            parsedName = baseName;
-            parsedPersonality = fileText.trim();
-          }
-
-          setName(parsedName || file.name.replace(/\.[^/.]+$/, ""));
-          setAge(parsedAge);
-          setPersonality(parsedPersonality);
-          setChatStyle(parsedChatStyle);
-          setDesc(parsedDesc || parsedPersonality.slice(0, 100) + (parsedPersonality.length > 100 ? "..." : ""));
-
-          setSuccessMsg("🎉 成功本地识别并导入角色设定！已自动提取并填充，您可以继续微调设定。");
-        } catch (err: any) {
-          console.error(err);
-          setErrorMsg(`导入人设失败: ${err.message || "未知错误"}`);
-        } finally {
-          setIsImporting(false);
-          e.target.value = "";
-        }
-      };
-
-      reader.readAsText(file);
+  const runAiAnalysis = async () => {
+    if (!fileContent) {
+      setErrorMsg("请先选择并解析一个设定文件。");
+      return;
+    }
+    
+    setErrorMsg("");
+    setSuccessMsg("");
+    setIsAnalyzing(true);
+    
+    try {
+      if (!settings?.apiKey) {
+        throw new Error("检测到未配置自定义 API 密钥，AI 智能提炼暂不可用。请点击右上角设置配置 API Key，或直接根据下方预览手动填写。");
+      }
+      
+      const response = await apiAnalyzeCharacterFile({
+        fileText: fileContent,
+        fileName: importedFile?.name || "character.txt",
+        settings
+      });
+      
+      if (response?.success && response?.data) {
+        const { name: aiName, nickname: aiNick, age: aiAge, personality: aiPers, chatStyle: aiChat, background: aiBg, description: aiDesc, avatar: aiAvatar } = response.data;
+        
+        if (aiName) setName(aiName);
+        if (aiNick && aiNick !== "无") setNickname(aiNick);
+        if (aiAge) setAge(aiAge);
+        if (aiPers) setPersonality(aiPers);
+        if (aiBg) setBackground(aiBg);
+        if (aiChat) setChatStyle(aiChat);
+        if (aiDesc) setDesc(aiDesc);
+        if (aiAvatar) setAvatar(aiAvatar);
+        
+        setSuccessMsg("✨ AI 智能一键提炼成功！关键信息已填充至对应字段，您可以继续微调设定。");
+      } else {
+        throw new Error("AI 返回的数据为空或格式不正确。");
+      }
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(`读取文件失败: ${err.message}`);
-      setIsImporting(false);
+      setErrorMsg(`AI 智能提炼失败: ${err.message || "未知错误"}。您现在可以根据下方人设预览直接手动填写。`);
+    } finally {
+      setIsAnalyzing(false);
     }
   };
 
@@ -359,20 +462,25 @@ export default function CharacterCreatorApp({
       if (!finalChatStyle) finalChatStyle = "第一人称沉浸对话";
     }
 
-    // Auto-generate system instruction combining name, age, personality (人设), and chat style (聊天风格)
+    // Auto-generate system instruction combining name, nickname, age, personality, background, and chat style
     const systemInstruction = `你正在扮演角色 "${finalName}"。
 
 【基本设定 / 人设 (Personality Profile)】:
 - 姓名: ${finalName}
+- 别名/昵称: ${nickname.trim() || "无"}
 - 年龄: ${age.trim() || "不详"}
 
+【性格特点 (Personality)】:
 ${finalPersonality}
+
+【角色背景 (Background & Story)】:
+${background.trim() || "暂无背景故事"}
 
 【语言口吻与聊天风格 (Chatting Style & Tone)】:
 - ${finalChatStyle}
 - 保持第一人称视角的沉浸式对话。
-- 适当在动作或神态描述旁添加星号 (*)，例如：*微微一笑* 或 *叹了口气*，以此渲染对话环境。
-- 绝不脱离设定，拒绝扮演旁观的 AI 助手。`;
+- 适当在动作或神态描述旁添加星号 (*), 例如：*微微一笑* 或 *叹了口气*，以此渲染对话环境。
+- 绝不脱离设定，拒绝扮演旁观 of AI 助手。`;
 
     try {
       const payload = {
@@ -407,14 +515,17 @@ ${finalPersonality}
       // Reset form
       setEditingId(null);
       setName("");
+      setNickname("");
       setAvatar("🤖");
       setAge("");
+      setBackground("");
       setPersonality("");
       setChatStyle("");
       setDesc("");
       setRealImage("");
       setChatAvatar("");
       setForceSave(false);
+      handleClearImport();
 
       // Auto switch to list to show created character
       setTimeout(() => {
@@ -426,6 +537,8 @@ ${finalPersonality}
       setErrorMsg(`保存失败: ${err?.message || err}`);
     }
   };
+
+
 
   const handleApplyStylePreset = (styleText: string) => {
     setChatStyle(styleText);

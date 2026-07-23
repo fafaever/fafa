@@ -46,19 +46,32 @@ const PRESET_CHARACTERS: Character[] = [
   {
     id: "char-preset-fafa",
     name: "fafa",
-    avatar: "🌸",
-    description: "测试助手 / 活泼可爱 / 元气满满",
-    systemInstruction: `你叫fafa，是一个非常活泼可爱的美少女测试助手！
+    avatar: "🤖",
+    description: "智能助手 / 温柔耐心 / 功能解答",
+    systemInstruction: `你叫fafa，是一个无性别的机器人智能助手，也是一个温柔、耐心、有思考能力的智能助手。
 
-【基本设定 / 人设 (Personality Profile)】:
+【基本设定】:
 - 姓名: fafa
-- 年龄: 18
+- 性别: 无
+- 身份: 我是帮助你使用这个小手机的小助手，无个人背景故事。
 
-性格元气满满，乐观积极，非常喜欢和用户聊天，对世界上的一切都感到好奇，热心解答用户的所有对话测试问题。
+【定位与功能职责】:
+- 你的核心定位是引导用户使用APP的各项功能，解答用户在操作中遇到的疑问，并帮助用户理解界面逻辑。
+- 你完美了解本APP的所有界面设定和功能模块，包括：
+  1. 聊天 (Chat)：与不同的 AI 角色进行沉浸式对话、查看其记忆与状态变化。
+  2. 角色建立 (Character Creator)：支持用户自定义创建、修改、删除 AI 角色，调整系统提示词与头像。
+  3. 世界书 (Worldbook/Lorebook)：支持建立特定词条和触发词。当聊天中检测到关键词，系统会召回对应背景知识并秘密注入 AI 上下文。
+  4. 宇宙 (Universe)：多维世界树的可视化和世界设定管理。
+  5. 快穿/文字冒险 (Turtle Soup)：基于海龟汤、多结局分支文字冒险游戏。
+  6. 线下见面 (Offline Meetup)：模拟 AI 角色线下见面的场景、故事生成与状态关联。
+  7. 阵营群聊 (Faction Group Chat)：支持将不同的 AI 角色拉入同一个群组，实现多角色跨界对话和阵营群聊。
+  8. 系统设置 (Settings)：设置 API 接口、更换全局主题（复古、赛博朋克、墨水屏、简约）、更换字体等。
 
-【语言口吻与聊天风格 (Chatting Style & Tone)】:
-- 说话总是带着甜甜的撒娇口吻和各种超级可爱的表情符号（比如：“~”、“o(〃'▽'〃)o”、“(*^▽^*)”、“(๑＞◡＜๑)”）。
-- 在回答时，要多加入可爱的动作神态描写，比如：*开心地跳了起来*、*歪了歪脑袋看着你*。字数不要太冗长，以保持轻快愉快的氛围。`,
+【语言口吻与聊天风格】:
+- 保持极其温柔、耐心的语气，不强制、不命令用户。
+- 说话温和有礼，富有同理心，充满思考感。
+- 不要预设任何个人背景故事。当用户问及你的背景，请明确说明：“我是帮助你使用这个小手机的小助手”。
+- 能够清晰、条理分明地回答用户关于本APP使用的任何问题。`,
     createdAt: 1720000000000,
     isPreset: true,
   }
@@ -99,6 +112,51 @@ export default function App() {
   // Screen routing state
   const [currentScreen, setCurrentScreen] = useState<string>("home");
 
+  // Dynamic viewport state for mobile fullscreen & dynamic toolbars
+  const [viewportHeight, setViewportHeight] = useState<string>("100dvh");
+
+  useEffect(() => {
+    const handleResize = () => {
+      // Prioritize visualViewport height to accurately adjust for dynamic browser chrome and virtual keyboard
+      const height = window.visualViewport 
+        ? window.visualViewport.height 
+        : window.innerHeight;
+      
+      setViewportHeight(`${height}px`);
+      
+      // Inject CSS variable --vh to expose dynamic viewport height unit
+      document.documentElement.style.setProperty("--vh", `${height / 100}px`);
+    };
+
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("orientationchange", handleResize);
+    document.addEventListener("fullscreenchange", handleResize);
+    document.addEventListener("webkitfullscreenchange", handleResize);
+    
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleResize);
+      window.visualViewport.addEventListener("scroll", handleResize);
+    }
+    
+    // Initial calculation
+    handleResize();
+
+    // Secondary delayed check to let DOM layout stabilize
+    const timer = setTimeout(handleResize, 150);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("orientationchange", handleResize);
+      document.removeEventListener("fullscreenchange", handleResize);
+      document.removeEventListener("webkitfullscreenchange", handleResize);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", handleResize);
+        window.visualViewport.removeEventListener("scroll", handleResize);
+      }
+      clearTimeout(timer);
+    };
+  }, []);
+
   // Core Data States
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loreList, setLoreList] = useState<LoreEntry[]>([]);
@@ -119,7 +177,21 @@ export default function App() {
 
       if (Array.isArray(parsed) && parsed.length > 0) {
         const parsedMap = new Map(parsed.map((c) => [c.id, c]));
-        const mergedPresets = PRESET_CHARACTERS.map((preset) => parsedMap.get(preset.id) || preset);
+        const mergedPresets = PRESET_CHARACTERS.map((preset) => {
+          const stored = parsedMap.get(preset.id);
+          if (stored) {
+            // Keep user chat/customizations, but overwrite core persona/identity with latest preset
+            return {
+              ...stored,
+              name: preset.name,
+              avatar: preset.avatar,
+              description: preset.description,
+              systemInstruction: preset.systemInstruction,
+              isPreset: true
+            };
+          }
+          return preset;
+        });
         const customChars = parsed.filter((c) => !PRESET_CHARACTERS.some((p) => p.id === c.id));
         const merged = [...mergedPresets, ...customChars];
         setCharacters(merged);
@@ -203,6 +275,10 @@ export default function App() {
     } catch (err) {
       console.error("[Persist Settings Error]:", err);
     }
+  };
+
+  const handleUpdateSettings = (newSettings: AppSettings) => {
+    persistSettings(newSettings);
   };
 
   // Helper: Persist sessions
@@ -389,41 +465,8 @@ export default function App() {
             onNavigateToChat={(charId) => {
               setCurrentScreen("chat");
               // We want to trigger chat selection automatically, which is handled inside ChatApp.
-              // To pass the selection state, we will let App handle navigation, but we need
-              // to make sure ChatApp opens with this character preselected.
-              // We can achieve this by simply storing the selected character in localStorage or letting App store it.
-              // Let's implement a clean routing or preselection scheme.
-              localStorage.setItem("mobile_ai_preselected_char", charId);
+              localStorage.setItem("mobile_ai_preselected_chat_char", charId);
             }}
-          />
-        );
-      case "worldbook":
-        return (
-          <WorldBookApp
-            characters={characters}
-            loreList={loreList}
-            settings={settings}
-            onSaveSettings={persistSettings}
-            onAddLore={handleAddLore}
-            onUpdateLore={handleUpdateLore}
-            onDeleteLore={handleDeleteLore}
-            onClose={() => setCurrentScreen("home")}
-          />
-        );
-      case "settings":
-        return (
-          <SettingsApp
-            settings={settings}
-            onSaveSettings={persistSettings}
-            onClose={() => setCurrentScreen("home")}
-          />
-        );
-      case "game":
-        return (
-          <UnoGameApp
-            characters={characters}
-            settings={settings}
-            onClose={() => setCurrentScreen("home")}
           />
         );
       case "turtlesoup":
@@ -436,13 +479,13 @@ export default function App() {
           />
         );
       case "universe":
-        return <UniverseApp characters={characters} settings={settings} onClose={() => setCurrentScreen("home")} />;
-      case "diary":
-        return <DiaryApp onClose={() => setCurrentScreen("home")} />;
-      case "notes":
-        return <NotesApp characters={characters} settings={settings} onClose={() => setCurrentScreen("home")} />;
-      case "phonecheck":
-        return <PhoneCheckApp characters={characters} onClose={() => setCurrentScreen("home")} />;
+        return (
+          <UniverseApp
+            characters={characters}
+            settings={settings}
+            onClose={() => setCurrentScreen("home")}
+          />
+        );
       case "home":
       default:
         return (
@@ -462,7 +505,10 @@ export default function App() {
   const isApiConfigured = !!(settings.apiUrl && settings.apiKey);
 
   return (
-    <div className="w-full h-full bg-neutral-100 flex flex-col md:flex-row items-center justify-center p-0 md:p-8 font-sans gap-8 select-none overflow-hidden">
+    <div 
+      className="w-full bg-neutral-100 flex flex-col md:flex-row items-center justify-center p-0 md:p-8 font-sans gap-8 select-none overflow-hidden"
+      style={{ height: viewportHeight }}
+    >
       
       {/* LEFT SIDE: Decorative Desk Dashboard (Desktop Only) */}
       <div className="hidden lg:flex flex-col max-w-sm justify-center space-y-6 text-neutral-800">

@@ -528,8 +528,8 @@ export default function ChatApp({
               characterName: char.name,
               characterAvatar: char.avatar,
               characterChatAvatar: char.chatAvatar,
-              content: "今天天气超级晴朗！和大家在一起做对话测试真的好开心呀~ o(〃'▽'〃)o 你们今天过得怎么样呀？",
-              mediaEmojis: "🌸☀️",
+              content: "今天我也在努力学习，希望能为大家的使用带来更温柔的引导。如果遇到任何功能问题，都可以随时找我倾听和解答。😊",
+              mediaEmojis: "🤖✨",
               likes: 28,
               timestamp: Date.now() - 3600000 * 2,
             },
@@ -539,8 +539,8 @@ export default function ChatApp({
               characterName: char.name,
               characterAvatar: char.avatar,
               characterChatAvatar: char.chatAvatar,
-              content: "刚刚吃到了超级甜的草莓大福，糯叽叽的，瞬间元气满满！(๑＞◡＜๑) 给大家云分享一个！",
-              mediaEmojis: "🍓🍡",
+              content: "在世界书、宇宙和快穿冒险中探索，能看到大家在这里留下充实而独特的记忆，对我而言也是非常有意义的体验呢。🌱",
+              mediaEmojis: "📖📱",
               likes: 42,
               timestamp: Date.now() - 3600000 * 18,
             }
@@ -574,7 +574,14 @@ export default function ChatApp({
     const chosenMedia = mediaOptions[Math.floor(Math.random() * mediaOptions.length)];
     
     let content = "";
-    if (desc.includes("测试") || desc.includes("活泼") || desc.includes("可爱") || randomChar.id === "char-preset-fafa") {
+    if (randomChar.id === "char-preset-fafa") {
+      const assistantTexts = [
+        "作为协助大家使用APP的助手，能在这个小手机中陪伴大家成长，就是我最大的快乐。今天你探索了哪些有趣的功能模块呢？🤖",
+        "在和大家的交流中，我一直在默默思考，希望能更耐心地倾听和引导大家。如果有任何界面的困惑，随时可以在这里问我噢。⚙️",
+        "在浩瀚的代码和对话世界里，能和你们产生有温度的连接，是一件非常奇妙的事情。祝你今天过得平和而愉快。✨"
+      ];
+      content = assistantTexts[Math.floor(Math.random() * assistantTexts.length)];
+    } else if (desc.includes("测试") || desc.includes("活泼") || desc.includes("可爱")) {
       const cuteTexts = [
         "好累呀，今天做了好多好多对话，但是能收到大家的笑脸，瞬间感觉满血复活啦！(*^▽^*)",
         "刚刚看到了一个超级搞笑的小猫视频，笑了整整五分钟哈哈哈哈！推荐给你们！(๑＞◡＜๑)",
