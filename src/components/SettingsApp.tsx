@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, ChevronRight, Key, Database, Download, Upload, Trash2, Eye, EyeOff, Layers, Check, Palette } from "lucide-react";
 import { apiFetchModels } from "../lib/api";
+import { ConfirmModal } from "./ConfirmModal";
 
 import { AppSettings, ApiPreset, FontOption, ThemeOption } from "../types";
 
@@ -31,11 +32,12 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
 
-  // Interface Settings State
+  // Interface Settings State (Local to component until saved)
   const [homeWallpaper, setHomeWallpaper] = useState(settings.homeWallpaper || "");
   const [chatWallpaper, setChatWallpaper] = useState(settings.chatWallpaper || "");
   const [globalFont, setGlobalFont] = useState<FontOption>(settings.globalFont || "system");
   const [globalTheme, setGlobalTheme] = useState<ThemeOption>(settings.globalTheme || "warm_paper");
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const compressAndCropImage = (file: File): Promise<string> => {
     return new Promise((resolve) => {
@@ -78,10 +80,8 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
         const base64 = await compressAndCropImage(file);
         if (type === 'home') {
           setHomeWallpaper(base64);
-          onSaveSettings({ ...settings, homeWallpaper: base64, chatWallpaper, globalFont, globalTheme });
         } else {
           setChatWallpaper(base64);
-          onSaveSettings({ ...settings, homeWallpaper, chatWallpaper: base64, globalFont, globalTheme });
         }
       } catch (err) {
         alert("图片处理失败");
@@ -92,21 +92,15 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
   const handleResetWallpaper = (type: 'home' | 'chat') => {
     if (type === 'home') {
       setHomeWallpaper("");
-      onSaveSettings({ ...settings, homeWallpaper: "", chatWallpaper, globalFont, globalTheme });
     } else {
       setChatWallpaper("");
-      onSaveSettings({ ...settings, homeWallpaper, chatWallpaper: "", globalFont, globalTheme });
     }
   };
 
-  const handleFontChange = (font: FontOption) => {
-    setGlobalFont(font);
-    onSaveSettings({ ...settings, homeWallpaper, chatWallpaper, globalFont: font, globalTheme });
-  };
-
-  const handleThemeChange = (theme: ThemeOption) => {
-    setGlobalTheme(theme);
-    onSaveSettings({ ...settings, homeWallpaper, chatWallpaper, globalFont, globalTheme: theme });
+  const handleSaveInterfaceSettings = () => {
+    onSaveSettings({ ...settings, homeWallpaper, chatWallpaper, globalFont, globalTheme });
+    setShowConfirmModal(false);
+    alert("设置已保存");
   };
 
   // Data Management State
@@ -407,7 +401,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                 ].map((f) => (
                   <button
                     key={f.id}
-                    onClick={() => handleFontChange(f.id as FontOption)}
+                    onClick={() => setGlobalFont(f.id as FontOption)}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
                       globalFont === f.id
                         ? 'border-black bg-black text-white'
@@ -432,7 +426,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                 ].map((t) => (
                   <button
                     key={t.id}
-                    onClick={() => handleThemeChange(t.id as ThemeOption)}
+                    onClick={() => setGlobalTheme(t.id as ThemeOption)}
                     className={`p-3 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2 ${t.bg} ${
                       globalTheme === t.id ? 'ring-2 ring-black ring-offset-2' : 'opacity-80 hover:opacity-100'
                     }`}
@@ -445,7 +439,24 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                 ))}
               </div>
             </div>
+
+            {/* Save Button */}
+            <button
+              onClick={() => setShowConfirmModal(true)}
+              className="w-full bg-black text-white py-3.5 rounded-xl font-bold text-sm active:scale-[0.98] transition-all"
+            >
+              保存设置
+            </button>
           </div>
+          
+          {showConfirmModal && (
+            <ConfirmModal
+              title="确定要应用这些设置吗？"
+              message="此操作将覆盖当前的界面设置。"
+              onConfirm={handleSaveInterfaceSettings}
+              onCancel={() => setShowConfirmModal(false)}
+            />
+          )}
         </>
       )}
 

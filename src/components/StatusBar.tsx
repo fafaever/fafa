@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Wifi, Signal, Battery, Maximize2, Minimize2 } from "lucide-react";
+import { Wifi, Signal, Battery, Heart } from "lucide-react";
 
 export default function StatusBar() {
   const [time, setTime] = useState("");
@@ -45,32 +45,27 @@ export default function StatusBar() {
   return (
     <div 
       id="status_bar"
-      className="flex justify-between items-center px-6 py-2.5 text-xs select-none font-sans text-neutral-800 bg-transparent shrink-0 border-b border-neutral-100/20"
+      className="flex justify-between items-center px-6 py-2.5 text-xs select-none bg-[#1A1A1A] shrink-0"
     >
       {/* Left side: Time */}
-      <span id="status_time" className="font-semibold tracking-tight">{time}</span>
+      <span id="status_time" className="font-serif font-medium tracking-tight text-white">{time}</span>
       
       {/* Center: Fullscreen Toggle */}
-      <button
-        id="fullscreen_toggle_btn"
-        onClick={toggleFullscreen}
-        className="p-1 rounded-full hover:bg-neutral-200/50 active:scale-90 transition-all text-neutral-700 flex items-center justify-center"
-        title={isFullscreen ? "退出全屏" : "切至全屏"}
-      >
-        {isFullscreen ? (
-          <Minimize2 className="w-3.5 h-3.5 stroke-[2]" />
-        ) : (
-          <Maximize2 className="w-3.5 h-3.5 stroke-[2]" />
-        )}
-      </button>
+      <div className="flex-1 flex justify-center">
+        <button
+          id="fullscreen_toggle_btn"
+          onClick={toggleFullscreen}
+          className="p-1 rounded-full hover:bg-white/20 active:scale-90 transition-all text-white flex items-center justify-center"
+          title={isFullscreen ? "退出全屏" : "切至全屏"}
+        >
+          <Heart className="w-4 h-4 stroke-[1.5]" />
+        </button>
+      </div>
 
       {/* Right side: Phone indicators */}
-      <div id="status_indicators" className="flex items-center gap-1.5 font-mono text-[10px] font-medium text-neutral-800">
-        <Signal className="w-3.5 h-3.5 stroke-[1.5]" />
-        <span className="text-[9px]">5G</span>
-        <Wifi className="w-3.5 h-3.5 stroke-[1.5]" />
-        <div className="flex items-center gap-0.5">
-          <span className="text-[9px]">88%</span>
+      <div id="status_indicators" className="flex items-center gap-1.5 font-serif text-[12px] font-medium text-white">
+        <div className="flex items-center gap-1">
+          <span>{time ? '88%' : ''}</span>
           <Battery className="w-4 h-4 stroke-[1.5]" />
         </div>
       </div>

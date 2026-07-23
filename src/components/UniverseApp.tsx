@@ -779,12 +779,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
         });
         return initialChats;
       })(),
-      actionOptions: [
-        "走过去与对方说话",
-        "检查四周的环境与线索",
-        "思考当前原主宿留下的记忆",
-        "静观其变，等待对方开口"
-      ]
+      actionOptions: []
     };
 
     const updated = [newWorld, ...worlds];
@@ -795,7 +790,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
     setNewWorldPresetId("");
     setSelectedCharIds([]);
     setIsGenerating(false);
-    setActivePlayTab("behavior");
+    setActivePlayTab("history");
     setActiveTab("transmigration_play");
     } catch (err) {
       console.error("World creation failed:", err);
@@ -2289,6 +2284,20 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
     </div>
   );
 
+  useEffect(() => {
+    if (
+      activeTab === "transmigration_play" &&
+      activeWorld &&
+      activeWorld.messages.length === 1 &&
+      (!activeWorld.actionOptions || activeWorld.actionOptions.length === 0) &&
+      !isGenerating
+    ) {
+      handleTransmigrationUserSend(
+        "【系统指令】：世界初始化完成。请根据背景设定，立刻生成第一张剧情卡片，生动描写当前场景、宿主处境以及周围发生的事件。必须提供 4-6 个具体的行动选项供玩家选择开始冒险。"
+      );
+    }
+  }, [activeTab, activeWorld?.id, activeWorld?.messages?.length, isGenerating]);
+
   return (
     <div className="flex flex-col h-full bg-[#FAFAF9] text-[#1A1A1A] relative font-sans">
       
@@ -2788,6 +2797,14 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                   );
                 })()}
 
+                {/* 固定规则提示区 */}
+                <div className="bg-[#FFFBF0] border-b border-[#FDE68A] px-4 py-2 flex items-center justify-center shrink-0">
+                  <p className="text-[10px] sm:text-[11px] text-[#B45309] font-medium text-center flex items-center gap-1.5 leading-tight">
+                    <Shield className="w-3.5 h-3.5 shrink-0" />
+                    <span>【破绽检测】请沉浸式扮演原住民。发言含有“手机、现代、网络”等词汇将增加暴露度！</span>
+                  </p>
+                </div>
+
                 {/* 剧情消息历史滚动区 */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
                   {/* Story messages stream */}
@@ -2900,20 +2917,6 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                       </div>
                     </div>
                   )}
-
-                  {/* Role play tips */}
-                  <div className="p-4 rounded-2xl bg-white border border-[#EFECE8] space-y-2 text-xs text-[#1A1A1A] shadow-xs">
-                    <h4 className="font-semibold text-[#1A1A1A] flex items-center gap-1.5">
-                      <Shield className="w-3.5 h-3.5 text-[#78716C]" />
-                      <span>快穿世界扮演守则</span>
-                    </h4>
-                    <ul className="list-disc pl-4 space-y-1 text-[#78716C] text-[11px] leading-relaxed">
-                      <li>请沉浸式扮演您在当前世界的原宿主身份，符合时代背景。</li>
-                      <li>严禁使用现代词汇（如：“手机”、“微信”、“AI”、“网络”、“穿越”）。</li>
-                      <li>系统采用高敏检测，一旦发言触发违禁将提示暴露度惩罚。</li>
-                      <li>当好感羁绊提升且任务达成时，将生成完美谢幕记忆碎片。</li>
-                    </ul>
-                  </div>
                 </div>
 
                 {/* 剧情推进区控制底部：Action Options & Custom Input */}

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { ChevronLeft, Plus, Search, Trash2, Tag, BookOpen, Check, X, FileText, ToggleLeft, ToggleRight, Edit3 } from "lucide-react";
 import { LoreEntry, Character, AppSettings } from "../types";
 import JSZip from "jszip";
+import { ConfirmModal } from "./ConfirmModal";
 
 interface WorldBookAppProps {
   characters: Character[];
@@ -36,6 +37,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
   const [priority, setPriority] = useState<"pre" | "mid" | "post">("mid");
   const [mountType, setMountType] = useState<"always" | "trigger">("trigger");
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{title: string, message: string, onConfirm: () => void} | null>(null);
 
   const handleSaveLoreDirectly = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -766,7 +768,16 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                         )}
                       </button>
                       <button
-                        onClick={() => onDeleteLore(item.id)}
+                        onClick={() => {
+                          setConfirmDialog({
+                            title: "删除设定",
+                            message: `确定要删除设定 "${item.title}" 吗？此操作不可撤销。`,
+                            onConfirm: () => {
+                              onDeleteLore(item.id);
+                              setConfirmDialog(null);
+                            }
+                          });
+                        }}
                         className="p-1 text-neutral-300 hover:text-neutral-900 rounded hover:bg-neutral-100 transition-colors"
                         title="删除条目"
                       >
@@ -787,14 +798,18 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                     </div>
                   )}
 
-                  {/* Content snippet */}
-                  <p className="text-xs text-neutral-500 line-clamp-3 leading-relaxed whitespace-pre-wrap font-sans bg-neutral-50 p-2.5 rounded-lg border border-neutral-100">
-                    {item.content}
-                  </p>
                 </div>
               ))
             )}
           </div>
+          {confirmDialog && (
+            <ConfirmModal 
+              title={confirmDialog.title} 
+              message={confirmDialog.message} 
+              onConfirm={confirmDialog.onConfirm}
+              onCancel={() => setConfirmDialog(null)}
+            />
+          )}
         </div>
       )}
     </div>

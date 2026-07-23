@@ -158,20 +158,26 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
     ? [...sessions].sort((a, b) => b.lastActive - a.lastActive)[0]
     : null;
   const timeSinceLast = lastSession ? Math.round((Date.now() - lastSession.lastActive) / 60000) : null;
+  
+  // Random status for demo
+  const [status, setStatus] = useState("在线");
+  useEffect(() => {
+    const statuses = ["在线", "在发呆", "刚刚离线", "正在输入...", "在看风景"];
+    setStatus(statuses[Math.floor(Math.random() * statuses.length)]);
+  }, [defaultCharacter]);
 
   useEffect(() => {
     const updateTimeAndDate = () => {
       const now = new Date();
       
-      // Format time
-      const hours = now.getHours();
-      const ampm = hours < 12 ? '上午' : hours < 18 ? '下午' : '晚上';
-      const hours12 = hours % 12 || 12;
+      // Format time (24h)
+      const hours = String(now.getHours()).padStart(2, "0");
       const minutes = String(now.getMinutes()).padStart(2, "0");
-      setTime(`${ampm} ${hours12}:${minutes}`);
+      setTime(`${hours}:${minutes}`);
 
       // Format date in Chinese
       const options: Intl.DateTimeFormatOptions = { 
+        year: 'numeric',
         month: 'long', 
         day: 'numeric', 
         weekday: 'long' 
@@ -269,101 +275,125 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
       >
         {/* Page 1: Main View */}
         <div className="w-full min-w-full shrink-0 snap-start flex flex-col px-5 pt-4 pb-4 text-neutral-900 select-none overflow-y-auto h-full">
-          {/* Top: Clock & Date Widget - sticky */}
-          <div className="flex flex-col items-center mt-6 text-center animate-fade-in shrink-0 sticky top-0 bg-neutral-50/90 z-10 py-2">
-        <h1 className="text-3xl font-mono tracking-tight font-bold text-neutral-950 mb-1 flex items-center gap-2">
-          {time} 
-          {isEditingGreeting ? (
-            <input 
-              autoFocus 
-              onBlur={(e) => saveGreeting(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && saveGreeting((e.target as HTMLInputElement).value)}
-              defaultValue={greeting}
-              className="text-lg bg-neutral-100 border-none outline-none rounded px-2 w-20 text-center font-sans"
-            />
-          ) : (
-            <span onClick={() => setIsEditingGreeting(true)} className="text-lg cursor-pointer font-sans">{greeting}</span>
-          )}
-        </h1>
-        {isEditingHealing ? (
-           <input 
-             autoFocus 
-             onBlur={(e) => saveHealing(e.target.value)}
-             onKeyDown={(e) => e.key === 'Enter' && saveHealing((e.target as HTMLInputElement).value)}
-             defaultValue={healingText}
-             className="text-xs bg-neutral-100 border-none outline-none rounded px-2 w-40 text-center text-neutral-500 font-sans italic"
-           />
-        ) : (
-          <p onClick={() => setIsEditingHealing(true)} className="text-xs font-medium tracking-wide text-neutral-500 italic cursor-pointer">
-            "{healingText}"
+        {/* Top: Clock & Date Widget - sticky */}
+        <div className="flex flex-col items-center mt-2 text-center animate-fade-in shrink-0 sticky top-0 bg-neutral-50/90 z-10 py-2">
+          <h1 className="text-5xl font-serif tracking-tight font-bold text-neutral-950 mb-1" style={{ fontFamily: '"Playfair Display", serif' }}>
+            {time}
+          </h1>
+          <p className="text-xs font-medium tracking-wide text-neutral-500 font-sans">
+            {date}
           </p>
-        )}
-      </div>
-
-      <div className="flex-1 flex flex-col justify-center gap-4 py-4 min-h-0">
-        {/* NEW: Start Chat Card */}
-        {defaultCharacter && (
-          <button
-            onClick={() => onOpenApp("chat")}
-            className="w-full h-[140px] bg-white border border-neutral-200 shadow-sm rounded-[24px] flex flex-col items-center justify-center gap-1.5 p-4 active:scale-98 transition-transform duration-150 shrink-0"
-          >
-            {defaultCharacter.chatAvatar ? (
-              <img src={defaultCharacter.chatAvatar} alt={defaultCharacter.name} className="w-16 h-16 rounded-full object-cover" referrerPolicy="no-referrer" />
-            ) : (
-              <div className="w-16 h-16 rounded-full bg-neutral-200 flex items-center justify-center text-3xl">
-                {defaultCharacter.avatar || "👤"}
-              </div>
-            )}
-            <span className="text-xl font-bold text-neutral-950">{defaultCharacter.name}</span>
-            <span className="text-[10px] text-neutral-400">
-              {timeSinceLast !== null ? `上次对话：${timeSinceLast}分钟前` : "新对话"}
-            </span>
-          </button>
-        )}
-
-        {/* New 2x2 App Grid */}
-        <div className="grid grid-cols-2 gap-3 shrink-0">
-          <button
-            onClick={() => onOpenApp("phonecheck")}
-            className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
-          >
-            <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
-              <Search className="w-7 h-7 stroke-[1.5] text-neutral-800" />
-            </div>
-            <span className="text-[11px] text-neutral-500 font-sans">查手机</span>
-          </button>
-
-          <button
-            onClick={() => onOpenApp("diary")}
-            className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
-          >
-            <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
-              <Book className="w-7 h-7 stroke-[1.5] text-neutral-800" />
-            </div>
-            <span className="text-[11px] text-neutral-500 font-sans">日记</span>
-          </button>
-
-          <button
-            onClick={() => onOpenApp("notes")}
-            className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
-          >
-            <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
-              <PenTool className="w-7 h-7 stroke-[1.5] text-neutral-800" />
-            </div>
-            <span className="text-[11px] text-neutral-500 font-sans">随笔</span>
-          </button>
-
-          <button
-            onClick={() => onOpenApp("universe")}
-            className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
-          >
-            <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
-              <Sparkles className="w-7 h-7 stroke-[1.5] text-neutral-800" />
-            </div>
-            <span className="text-[11px] text-neutral-500 font-sans">宇宙</span>
-          </button>
         </div>
-      </div>
+
+        <div className="flex-1 flex flex-col justify-start gap-4 pt-3 pb-4 min-h-0">
+          {/* NEW: Start Chat Card */}
+          {defaultCharacter && (
+            <button
+              onClick={() => {
+                  if (lastSession) {
+                    localStorage.setItem("active_char_id", lastSession.characterId);
+                  }
+                  onOpenApp("chat");
+              }}
+              className="w-full h-[88px] bg-white border border-neutral-200 shadow-sm rounded-[20px] flex items-center justify-between px-4 active:scale-98 transition-transform duration-150 shrink-0"
+            >
+              <div className="flex items-center gap-3">
+                {defaultCharacter.chatAvatar ? (
+                  <img src={defaultCharacter.chatAvatar} alt={defaultCharacter.name} className="w-13 h-13 rounded-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-13 h-13 rounded-full bg-neutral-200 flex items-center justify-center text-2xl">
+                    {defaultCharacter.avatar || "👤"}
+                  </div>
+                )}
+                <div className="flex flex-col items-start overflow-hidden">
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-base font-bold text-neutral-900">{defaultCharacter.name}</span>
+                        <span className="text-[11px] text-neutral-400 font-medium">
+                          {status}
+                        </span>
+                    </div>
+                  <span className="text-[13px] text-[#A8A39A] font-sans mt-0.5 w-full truncate">
+                    {lastSession && lastSession.messages.length > 0 
+                      ? (lastSession.messages[lastSession.messages.length - 1].content.length > 18 
+                          ? lastSession.messages[lastSession.messages.length - 1].content.substring(0, 18) + "..."
+                          : lastSession.messages[lastSession.messages.length - 1].content)
+                      : "开始你的第一次对话吧"}
+                  </span>
+                </div>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-600">
+                ➜
+              </div>
+            </button>
+          )}
+
+          {/* New 3x2 App Grid */}
+          <div className="grid grid-cols-3 gap-3 shrink-0">
+            <button
+              onClick={() => onOpenApp("phonecheck")}
+              className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
+            >
+              <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
+                <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-neutral-900" fill="none"><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="12" y1="18" x2="12" y2="18" /></svg>
+              </div>
+              <span className="text-[11px] text-neutral-500 font-sans">查手机</span>
+            </button>
+
+            <button
+              onClick={() => onOpenApp("notes")}
+              className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
+            >
+              <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
+                <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-neutral-900" fill="none"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
+              </div>
+              <span className="text-[11px] text-neutral-500 font-sans">随笔</span>
+            </button>
+
+            <button
+              onClick={() => onOpenApp("universe")}
+              className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
+            >
+              <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
+                <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-neutral-900" fill="none"><circle cx="12" cy="12" r="10" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
+              </div>
+              <span className="text-[11px] text-neutral-500 font-sans">宇宙</span>
+            </button>
+
+            <button
+              onClick={() => onOpenApp("gamelist")}
+              className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
+            >
+              <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
+                <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-neutral-900" fill="none"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 12h4m-2-2v4m10-2h-4" /></svg>
+              </div>
+              <span className="text-[11px] text-neutral-500 font-sans">游戏</span>
+            </button>
+
+            <button
+              onClick={() => onOpenApp("forum")}
+              className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
+            >
+              <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
+                <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-neutral-900" fill="none"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+              </div>
+              <span className="text-[11px] text-neutral-500 font-sans">论坛</span>
+            </button>
+
+            <button
+              onClick={() => onOpenApp("memory")}
+              className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
+            >
+              <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
+                <span className="text-2xl">🧠</span>
+              </div>
+              <span className="text-[11px] text-neutral-500 font-sans">记忆</span>
+            </button>
+          </div>
+          
+          <div className="mt-auto text-center">
+            <span className="text-[13px] text-[#A8A39A] font-sans">重庆 · 28°C 晴</span>
+          </div>
+        </div>
 
     </div>
 

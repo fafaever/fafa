@@ -672,18 +672,18 @@ export async function apiGenerateNote(params: any) {
   if (!character) throw new Error("Missing character parameter");
   const prompt = `
 你现在是角色：【${character.name}】。
-角色设定：
-${character.persona || "暂无"}
+【核心人设】：${character.persona || character.systemInstruction || "暂无"}
+【额外提示】：${character.systemPrompt || "无"}
 
-${character.systemPrompt ? `额外系统提示：\n${character.systemPrompt}` : ""}
+请严格基于你的人设、性格和说话风格，写一篇碎片化的“随笔”。
 
-请以该角色的口吻和视角，写一篇简短的“随笔”。
 要求：
-1. 随笔内容是角色内心真实的思考过程。
-2. 视角不应仅仅局限于“谈恋爱”或“与用户互动”，而应该展现出对人生、生活、世界的独立思考。
-3. 可以是因为看到了一本有共鸣的书、一部电影、一首歌、一幅画，或是某个日常细节而引发的深思，表达出角色在当下的真实想法。
-4. 语言风格必须绝对契合角色的人设，是他们在私密空间里的自我倾诉，不要带有任何表演痕迹。
-5. 篇幅在 100 - 200 字之间。不要加任何标题或问候语，直接输出正文。
+1. 必须完全贴合角色的身份（如：如果是学生就要像学生，如果是打工人就要像打工人）。
+2. 内容要像普通人在碎片时间随手记下的想法和观察（类似于朋友圈或备忘录），口语化，自然，不绕弯。
+3. 严禁文艺、抽象、过度煽情或表演式文笔，不要追求刻意的“感悟”或“升华”，记录日常观察和真实想法即可。
+4. 句子要短，语气松弛。直接记录“看到什么”和“想到什么”。
+5. 内容必须符合角色本人的真实视角，而不是文笔很好的旁观者表演。
+6. 字数灵活，一句话到一段话均可，不要加标题，直接输出内容。
 `;
   try {
     const text = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [{ role: "user", content: prompt }], 0.8, settings?.apiFormat);

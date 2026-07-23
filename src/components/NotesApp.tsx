@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Plus, Trash2, Edit3, Check, Wand2, Loader2, Share2, Lock } from "lucide-react";
-import { apiGenerateNote } from "../lib/api";
+import { ChevronLeft, Plus, Trash2, Edit3, Check, Wand2, Loader2, Lock } from "lucide-react";
+import { ConfirmModal } from "./ConfirmModal";
 
 import { Character, AppSettings } from "../types";
 
@@ -15,14 +15,16 @@ interface NotesAppProps {
   characters: Character[];
   settings: AppSettings;
   onClose: () => void;
+  onGenerateNote: (character: Character, settings: AppSettings) => Promise<void>;
+  isGeneratingMap: Record<string, boolean>;
 }
 
-export default function NotesApp({ characters, settings, onClose }: NotesAppProps) {
+export default function NotesApp({ characters, settings, onClose, onGenerateNote, isGeneratingMap }: NotesAppProps) {
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
+  const isGenerating = selectedCharId ? !!isGeneratingMap[selectedCharId] : false;
   const [autoGenerateInterval, setAutoGenerateInterval] = useState(0);
-  const [shareEnabled, setShareEnabled] = useState(false);
+  const [autoGenerateEnabled, setAutoGenerateEnabled] = useState(false);
 
   // Load notes for selected character
   useEffect(() => {
@@ -38,10 +40,10 @@ export default function NotesApp({ characters, settings, onClose }: NotesAppProp
     }
     
     const savedInterval = localStorage.getItem(`mobile_ai_notes_interval_${selectedCharId}`);
-    setAutoGenerateInterval(savedInterval ? Number(savedInterval) : 0);
-
-    const savedSharePref = localStorage.getItem(`mobile_ai_notes_share_${selectedCharId}`);
-    setShareEnabled(savedSharePref === "true");
+    setAutoGenerateInterval(savedInterval ? Number(savedInterval) : 24);
+    
+    const savedEnabled = localStorage.getItem(`mobile_ai_notes_enabled_${selectedCharId}`);
+    setAutoGenerateEnabled(savedEnabled === "true");
 
     const handleNotesUpdated = () => {
       const updatedSaved = localStorage.getItem(`mobile_ai_notes_${selectedCharId}`);
@@ -61,12 +63,11 @@ export default function NotesApp({ characters, settings, onClose }: NotesAppProp
       localStorage.setItem(`mobile_ai_notes_interval_${selectedCharId}`, val.toString());
     }
   };
-
-  const toggleShare = () => {
-    const newVal = !shareEnabled;
-    setShareEnabled(newVal);
+  
+  const handleEnabledChange = (enabled: boolean) => {
+    setAutoGenerateEnabled(enabled);
     if (selectedCharId) {
-      localStorage.setItem(`mobile_ai_notes_share_${selectedCharId}`, newVal.toString());
+      localStorage.setItem(`mobile_ai_notes_enabled_${selectedCharId}`, enabled.toString());
     }
   };
 
@@ -78,34 +79,23 @@ export default function NotesApp({ characters, settings, onClose }: NotesAppProp
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm("确定删除这条随笔吗？")) {
-      saveNotes(notes.filter(n => n.id !== id));
-    }
+    setConfirmDialog({
+      title: "删除随笔",
+      message: "确定要删除这篇随笔吗？此操作不可撤销。",
+      onConfirm: () => {
+        saveNotes(notes.filter(n => n.id !== id));
+        setConfirmDialog(null);
+      }
+    });
   };
+
+  const [confirmDialog, setConfirmDialog] = useState<{title: string, message: string, onConfirm: () => void} | null>(null);
 
   const handleGenerate = async () => {
     const selectedChar = characters.find(c => c.id === selectedCharId);
     if (!selectedChar) return;
     
-    setIsGenerating(true);
-    try {
-      const data = await apiGenerateNote({ character: selectedChar, settings });
-      if (data.text) {
-        const isSharedRandomly = shareEnabled && Math.random() > 0.5; // Randomly share some if global share is on
-        const newNote: Note = { 
-          id: Date.now().toString(), 
-          text: data.text, 
-          timestamp: Date.now(),
-          isShared: isSharedRandomly
-        };
-        saveNotes([newNote, ...notes]);
-      }
-    } catch (e: any) {
-      console.error("生成随笔失败:", e);
-      alert(`生成失败，请重试 (${e.message})`);
-    } finally {
-      setIsGenerating(false);
-    }
+    await onGenerateNote(selectedChar, settings);
   };
 
   // Gallery View
@@ -188,24 +178,13 @@ export default function NotesApp({ characters, settings, onClose }: NotesAppProp
             </span>
           </div>
         </div>
-        <button 
-          onClick={toggleShare}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-bold transition-all ${
-            shareEnabled 
-              ? "bg-emerald-50 text-emerald-600 border border-emerald-200" 
-              : "bg-neutral-100 text-neutral-500 border border-neutral-200 hover:bg-neutral-200"
-          }`}
-        >
-          {shareEnabled ? <Share2 className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-          {shareEnabled ? "分享到聊天" : "不分享"}
-        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Controls Section */}
         <div className="bg-white p-4 rounded-2xl border border-neutral-200 shadow-sm flex flex-col gap-4 mb-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-neutral-800">生成设置</span>
+            <span className="text-sm font-bold text-neutral-900 italic font-serif" style={{ fontFamily: 'Playfair Display, serif' }}>生成设置</span>
             <button
               onClick={handleGenerate}
               disabled={isGenerating}
@@ -216,19 +195,29 @@ export default function NotesApp({ characters, settings, onClose }: NotesAppProp
             </button>
           </div>
           <div className="flex items-center justify-between bg-neutral-50 p-3 rounded-xl border border-neutral-100">
-            <span className="text-xs text-neutral-600">自动生成频率</span>
-            <div className="flex items-center gap-1.5 text-xs text-neutral-900 font-bold font-mono">
-              <input 
-                type="number" 
-                min="0" 
-                max="72"
-                value={autoGenerateInterval}
-                onChange={(e) => handleIntervalChange(Number(e.target.value) || 0)}
-                className="w-12 px-2 py-1 text-center bg-white rounded-md outline-none border border-neutral-200 focus:border-black transition-colors"
-              />
-              <span className="text-neutral-500 font-sans font-normal">小时/篇</span>
-            </div>
+             <div className="flex items-center gap-2">
+               <span className="text-xs text-neutral-600">自动生成</span>
+               <button 
+                  onClick={() => handleEnabledChange(!autoGenerateEnabled)}
+                  className={`w-8 h-4 rounded-full transition-colors ${autoGenerateEnabled ? 'bg-black' : 'bg-neutral-300'}`}
+               >
+                 <div className={`w-3 h-3 rounded-full bg-white transition-transform ${autoGenerateEnabled ? 'translate-x-[17px]' : 'translate-x-[2px]'}`} />
+               </button>
+             </div>
           </div>
+          {autoGenerateEnabled && (
+            <div className="flex items-center gap-3 bg-neutral-50 p-3 rounded-xl border border-neutral-100">
+               <input 
+                  type="range"
+                  min="1"
+                  max="48"
+                  value={autoGenerateInterval}
+                  onChange={(e) => handleIntervalChange(Number(e.target.value))}
+                  className="flex-1 accent-black"
+               />
+               <span className="text-xs text-neutral-900 font-bold font-mono w-16 text-right">{autoGenerateInterval} 小时</span>
+            </div>
+          )}
         </div>
 
         {/* Notes List */}
@@ -265,6 +254,14 @@ export default function NotesApp({ characters, settings, onClose }: NotesAppProp
               </div>
             </div>
           ))
+        )}
+        {confirmDialog && (
+          <ConfirmModal 
+            title={confirmDialog.title} 
+            message={confirmDialog.message} 
+            onConfirm={confirmDialog.onConfirm}
+            onCancel={() => setConfirmDialog(null)}
+          />
         )}
       </div>
     </div>

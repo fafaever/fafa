@@ -5,6 +5,7 @@ import HomeScreen from "./components/HomeScreen";
 import ChatApp from "./components/ChatApp";
 import WorldBookApp from "./components/WorldBookApp";
 import SettingsApp from "./components/SettingsApp";
+import MemoryApp from "./components/MemoryApp";
 import CharacterCreatorApp from "./components/CharacterCreatorApp";
 import UnoGameApp from "./components/UnoGameApp";
 import TurtleSoupApp from "./components/TurtleSoupApp";
@@ -12,9 +13,11 @@ import UniverseApp from "./components/UniverseApp";
 import DiaryApp from "./components/DiaryApp";
 import NotesApp from "./components/NotesApp";
 import PhoneCheckApp from "./components/PhoneCheckApp";
+import { GameListApp } from "./components/GameListApp";
+import { ForumApp } from "./components/ForumApp";
 import { Character, LoreEntry, AppSettings, ChatSession, Message, FontOption, ThemeOption } from "./types";
 import { Sparkles, HelpCircle } from "lucide-react";
-import { apiChat } from "./lib/api";
+import { apiChat, apiGenerateNote } from "./lib/api";
 
 const getThemeClass = (theme?: ThemeOption) => {
   switch (theme) {
@@ -145,6 +148,18 @@ export default function App() {
     // Secondary delayed check to let DOM layout stabilize
     const timer = setTimeout(handleResize, 150);
 
+    // Screen orientation lock
+    const orientation = screen.orientation as any;
+    if (orientation && orientation.lock) {
+      try {
+        orientation.lock('portrait').catch((err: any) => {
+          console.warn("Screen orientation lock is not supported or was rejected:", err);
+        });
+      } catch (err) {
+        console.warn("Screen orientation lock is not supported on this device:", err);
+      }
+    }
+
     return () => {
       window.removeEventListener("resize", handleResize);
       window.removeEventListener("orientationchange", handleResize);
@@ -157,6 +172,29 @@ export default function App() {
       clearTimeout(timer);
     };
   }, []);
+
+  // Recalculate and reset scrolling on screen change
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    
+    const phoneScreen = document.getElementById("phone_screen");
+    if (phoneScreen) {
+      phoneScreen.scrollTop = 0;
+    }
+
+    const handleResize = () => {
+      const height = window.visualViewport 
+        ? window.visualViewport.height 
+        : window.innerHeight;
+      setViewportHeight(`${height}px`);
+      document.documentElement.style.setProperty("--vh", `${height / 100}px`);
+    };
+    handleResize();
+    const timer = setTimeout(handleResize, 100);
+    return () => clearTimeout(timer);
+  }, [currentScreen]);
 
   // Core Data States
   const [characters, setCharacters] = useState<Character[]>([]);
@@ -173,6 +211,12 @@ export default function App() {
     name: string;
     avatar: string;
     textPreview: string;
+    timestamp: number;
+  }>>([]);
+  const [essayNotifications, setEssayNotifications] = useState<Array<{
+    id: string;
+    noteId: string;
+    text: string;
     timestamp: number;
   }>>([]);
 
@@ -412,7 +456,6 @@ export default function App() {
     }
   };
 
-  // --- ACTIONS: Background AI Response Generation & Notifications ---
   const addNotification = (charId: string, charName: string, charAvatar: string, textPreview: string) => {
     const id = `notif-${Date.now()}-${Math.random()}`;
     const newNotif = {
@@ -434,6 +477,62 @@ export default function App() {
     setTimeout(() => {
       setNotifications(prev => prev.filter(n => n.id !== id));
     }, 5000);
+  };
+  const addEssayNotification = (noteId: string) => {
+    const id = `essay-notif-${Date.now()}`;
+    const newNotif = {
+      id,
+      noteId,
+      text: "📝 随笔已生成完成",
+      timestamp: Date.now(),
+    };
+    
+    setEssayNotifications(prev => [...prev, newNotif]);
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+      setEssayNotifications(prev => prev.filter(n => n.id !== id));
+    }, 5000);
+  };
+
+  const generateNoteBackground = async (character: Character, settings: AppSettings) => {
+    // Check if already generating
+    if (isGeneratingMap[character.id]) return;
+
+    setIsGeneratingMap(prev => ({ ...prev, [character.id]: true }));
+    try {
+      const data = await apiGenerateNote({ character, settings });
+      if (data.text) {
+        // AI 自动决定是否分享
+        const isShared = Math.random() > 0.5; 
+        const newNote = { 
+          id: Date.now().toString(), 
+          text: data.text, 
+          timestamp: Date.now(),
+          isShared: isShared
+        };
+        
+        // Save to localStorage
+        const savedNotes = localStorage.getItem(`mobile_ai_notes_${character.id}`);
+        const notes = savedNotes ? JSON.parse(savedNotes) : [];
+        localStorage.setItem(`mobile_ai_notes_${character.id}`, JSON.stringify([newNote, ...notes]));
+        window.dispatchEvent(new Event('notes_updated'));
+        
+        // Trigger notification
+        addEssayNotification(newNote.id);
+      }
+    } catch (e) {
+      console.error("Background note generation failed", e);
+    } finally {
+      setIsGeneratingMap(prev => ({ ...prev, [character.id]: false }));
+    }
+  };
+
+  const handleEssayNotificationClick = (noteId: string) => {
+    // Navigate to notes app, maybe with noteId pre-selected if possible
+    localStorage.setItem("mobile_ai_preselected_note", noteId);
+    setCurrentScreen("notes");
+    setEssayNotifications(prev => prev.filter(n => n.noteId !== noteId));
   };
 
   const handleNotificationClick = (charId: string) => {
@@ -850,6 +949,82 @@ export default function App() {
             }}
           />
         );
+      case "worldbook":
+        return (
+          <WorldBookApp
+            characters={characters}
+            loreList={loreList}
+            settings={settings}
+            onSaveSettings={handleUpdateSettings}
+            onAddLore={handleAddLore}
+            onUpdateLore={handleUpdateLore}
+            onDeleteLore={handleDeleteLore}
+            onClose={() => setCurrentScreen("home")}
+          />
+        );
+      case "memory":
+        return (
+          <MemoryApp
+            characters={characters}
+            settings={settings}
+            sessions={sessions}
+            onClose={() => setCurrentScreen("home")}
+          />
+        );
+      case "settings":
+        return (
+          <SettingsApp
+            settings={settings}
+            onSaveSettings={handleUpdateSettings}
+            onClose={() => setCurrentScreen("home")}
+          />
+        );
+      case "diary":
+        return (
+          <DiaryApp
+            onClose={() => setCurrentScreen("home")}
+          />
+        );
+      case "notes":
+        return (
+          <NotesApp
+            characters={characters}
+            settings={settings}
+            onClose={() => setCurrentScreen("home")}
+            onGenerateNote={generateNoteBackground}
+            isGeneratingMap={isGeneratingMap}
+          />
+        );
+      case "phonecheck":
+        return (
+          <PhoneCheckApp
+            characters={characters}
+            onClose={() => setCurrentScreen("home")}
+          />
+        );
+      case "gamelist":
+        return (
+          <GameListApp
+            onClose={() => setCurrentScreen("home")}
+            onOpenApp={(appId) => setCurrentScreen(appId as any)}
+          />
+        );
+      case "forum":
+        return (
+          <ForumApp
+            characters={characters}
+            settings={settings}
+            onClose={() => setCurrentScreen("home")}
+          />
+        );
+      case "game":
+        return (
+          <UnoGameApp
+            characters={characters}
+            settings={settings}
+            onClose={() => setCurrentScreen("home")}
+          />
+        );
       case "turtlesoup":
       case "turtle_soup":
         return (
@@ -972,6 +1147,22 @@ export default function App() {
                 >
                   ✕
                 </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Essay Notification Popups */}
+        {essayNotifications.length > 0 && (
+          <div className="absolute top-12 left-0 right-0 z-[9999] pointer-events-none px-4 flex flex-col gap-2">
+            {essayNotifications.map((notif) => (
+              <div
+                key={notif.id}
+                onClick={() => handleEssayNotificationClick(notif.noteId)}
+                className="pointer-events-auto bg-white/95 backdrop-blur-md text-neutral-900 shadow-[0_12px_30px_rgba(0,0,0,0.12)] border border-neutral-200/50 rounded-[12px] py-3 px-4 flex items-center gap-3 cursor-pointer hover:bg-neutral-50 transition-all w-full max-w-sm mx-auto animate-fade-in"
+              >
+                <div className="text-xl">📝</div>
+                <span className="font-sans text-xs font-medium text-neutral-900">{notif.text}</span>
               </div>
             ))}
           </div>

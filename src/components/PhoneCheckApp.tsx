@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, Search, List, MessageCircle, FileText, User } from "lucide-react";
+import { ChevronLeft, MessageCircle, Image, Settings, Calendar, Users, ShoppingBag, FileText, Globe, Search, Battery, Signal, Wifi } from "lucide-react";
 import { Character } from "../types";
 
 interface PhoneCheckAppProps {
@@ -7,172 +7,168 @@ interface PhoneCheckAppProps {
   onClose: () => void;
 }
 
-interface PhoneData {
-  memos: string[];
-  searches: string[];
-  shopping: string[];
-  messages: { sender: string; content: string; time: string }[];
-}
-
 export default function PhoneCheckApp({ characters, onClose }: PhoneCheckAppProps) {
-  const [activeTab, setActiveTab] = useState<"memos" | "searches" | "shopping" | "messages">("searches");
-  const [selectedCharId, setSelectedCharId] = useState<string>(characters.length > 0 ? characters[0].id : "");
-  const [phoneData, setPhoneData] = useState<PhoneData>({ memos: [], searches: [], shopping: [], messages: [] });
-  const [inputText, setInputText] = useState("");
+  const [currentTime, setCurrentTime] = useState(new Date());
+  const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
+  const [showSearchHistory, setShowSearchHistory] = useState(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const selectedChar = characters.find(c => c.id === selectedCharId);
 
-  useEffect(() => {
-    if (!selectedCharId) return;
-    const saved = localStorage.getItem(`mobile_ai_phonecheck_${selectedCharId}`);
-    if (saved) {
-      try {
-        setPhoneData(JSON.parse(saved));
-      } catch (e) {}
-    } else {
-      // Dummy initial data to make it look like a real phone
-      const initial: PhoneData = {
-        memos: ["要记住的事：...", "密码：1234"],
-        searches: ["怎么假装不在意", "今天天气"],
-        shopping: ["咖啡", "猫粮"],
-        messages: [{ sender: "未知联系人", content: "你今天到底来不来？", time: "昨天" }]
-      };
-      setPhoneData(initial);
-      localStorage.setItem(`mobile_ai_phonecheck_${selectedCharId}`, JSON.stringify(initial));
-    }
-  }, [selectedCharId]);
-
-  const saveData = (data: PhoneData) => {
-    setPhoneData(data);
-    localStorage.setItem(`mobile_ai_phonecheck_${selectedCharId}`, JSON.stringify(data));
+  const formatDate = (date: Date) => {
+    return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
   };
 
-  const handleAdd = () => {
-    if (!inputText.trim()) return;
-    const newData = { ...phoneData };
-    if (activeTab === "memos") newData.memos = [inputText.trim(), ...newData.memos];
-    if (activeTab === "searches") newData.searches = [inputText.trim(), ...newData.searches];
-    if (activeTab === "shopping") newData.shopping = [inputText.trim(), ...newData.shopping];
-    if (activeTab === "messages") {
-      newData.messages = [{ sender: "新信息", content: inputText.trim(), time: "刚刚" }, ...newData.messages];
-    }
-    saveData(newData);
-    setInputText("");
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   };
 
-  const handleDelete = (index: number) => {
-    const newData = { ...phoneData };
-    if (activeTab === "memos") newData.memos = newData.memos.filter((_, i) => i !== index);
-    if (activeTab === "searches") newData.searches = newData.searches.filter((_, i) => i !== index);
-    if (activeTab === "shopping") newData.shopping = newData.shopping.filter((_, i) => i !== index);
-    if (activeTab === "messages") newData.messages = newData.messages.filter((_, i) => i !== index);
-    saveData(newData);
-  };
+  const modules = [
+    { name: "短信", icon: <MessageCircle className="w-6 h-6 text-[#1A1A1A]" />, id: "messages" },
+    { name: "相册", icon: <Image className="w-6 h-6 text-[#1A1A1A]" />, id: "gallery" },
+    { name: "设置", icon: <Settings className="w-6 h-6 text-[#1A1A1A]" />, id: "settings" },
+    { name: "日历", icon: <Calendar className="w-6 h-6 text-[#1A1A1A]" />, id: "calendar" },
+    { name: "论坛", icon: <Users className="w-6 h-6 text-[#1A1A1A]" />, id: "forum" },
+    { name: "购物车", icon: <ShoppingBag className="w-6 h-6 text-[#1A1A1A]" />, id: "shopping" },
+    { name: "备忘录", icon: <FileText className="w-6 h-6 text-[#1A1A1A]" />, id: "notes" },
+    { name: "浏览器", icon: <Globe className="w-6 h-6 text-[#1A1A1A]" />, id: "browser" },
+  ];
+
+  // Simulated search history based on character tags or basic logic
+  const searchHistory = selectedChar ? [
+    `${selectedChar.name} 最近关注的事`,
+    "心理咨询师考试",
+    "附近的咖啡馆",
+    "如何提高AI交互感",
+    "深夜美食推荐"
+  ] : [];
+
+  if (!selectedCharId) {
+    return (
+      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] font-sans text-[#1A1A1A]">
+        <div className="flex items-center p-4">
+          <button onClick={onClose} className="p-2 bg-white rounded-full shadow-sm active:scale-95 transition-all">
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <h2 className="flex-1 text-center font-serif text-lg">查手机</h2>
+          <div className="w-9" />
+        </div>
+        
+        <div className="flex-1 p-8">
+          <div className="grid grid-cols-2 gap-8 max-w-sm mx-auto">
+            {characters.map(char => (
+              <button 
+                key={char.id}
+                onClick={() => setSelectedCharId(char.id)}
+                className="flex flex-col items-center gap-3 group active:scale-95 transition-all"
+              >
+                <div className="w-[60px] h-[60px] rounded-full overflow-hidden border-2 border-white shadow-md group-hover:border-neutral-900/10 transition-colors">
+                  {char.chatAvatar || char.avatar ? (
+                    <img src={char.chatAvatar || char.avatar} alt={char.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full bg-neutral-200 flex items-center justify-center text-2xl">👤</div>
+                  )}
+                </div>
+                <span className="font-serif text-sm font-medium">{char.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex-1 flex flex-col bg-neutral-100 animate-fade-in relative h-full">
-      {/* Header */}
-      <div className="h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-3 shrink-0 z-10">
-        <button onClick={onClose} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
-          <ChevronLeft className="w-5 h-5" />
+    <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] relative overflow-hidden font-sans text-[#1A1A1A]">
+      {/* Phone Header - Status Bar */}
+      <div className="px-5 pt-3 flex justify-between items-center text-[10px] text-[#A8A39A] font-medium">
+        <div className="flex items-center gap-1">
+          <Signal className="w-3 h-3" />
+          <span>中国移动</span>
+          <Wifi className="w-3 h-3" />
+        </div>
+        <div className="flex items-center gap-1">
+          <span>88%</span>
+          <Battery className="w-3 h-3 rotate-90" />
+        </div>
+      </div>
+
+      {/* Time & Weather */}
+      <div className="flex flex-col items-center justify-center py-6 shrink-0 relative">
+        <button 
+          onClick={() => setSelectedCharId(null)}
+          className="absolute left-4 top-1/2 -translate-y-1/2 p-2 bg-white/50 backdrop-blur-sm rounded-full shadow-sm active:scale-95 transition-all z-10"
+        >
+          <ChevronLeft className="w-5 h-5 text-[#A8A39A]" />
         </button>
-        <span className="font-bold text-sm text-neutral-900 font-sans tracking-wide">偷看手机 (Spy)</span>
-        <div className="w-8" />
+        <div className="font-serif italic font-normal text-[#A8A39A] text-4xl tracking-tight mb-1">{formatTime(currentTime)}</div>
+        <div className="flex items-center gap-2 text-[#A8A39A] font-serif italic text-sm">
+          <span>{formatDate(currentTime)}</span>
+          <span className="mx-1">|</span>
+          <span>晴 28°C</span>
+        </div>
       </div>
 
-      {/* Character Selector */}
-      <div className="bg-white px-4 py-3 border-b border-neutral-100 flex items-center gap-3 shrink-0 overflow-x-auto scrollbar-none">
-        {characters.map(char => (
-          <button
-            key={char.id}
-            onClick={() => setSelectedCharId(char.id)}
-            className={`flex flex-col items-center gap-1 min-w-[50px] shrink-0 transition-opacity ${selectedCharId === char.id ? 'opacity-100' : 'opacity-40 hover:opacity-100'}`}
+      {/* Search Bar */}
+      <div className="px-6 mb-6">
+        <div className="relative">
+          <button 
+            onClick={() => setShowSearchHistory(!showSearchHistory)}
+            className="w-full bg-white/60 backdrop-blur-md border border-neutral-200/50 rounded-xl py-2 px-4 flex items-center gap-2 text-neutral-400 text-sm shadow-sm transition-all active:scale-[0.98]"
           >
-            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-xl bg-neutral-100 border-2 ${selectedCharId === char.id ? 'border-black' : 'border-transparent'}`}>
-              {char.chatAvatar ? <img src={char.chatAvatar} className="w-full h-full rounded-full object-cover" /> : char.avatar || "👤"}
-            </div>
-            <span className="text-[10px] font-bold text-neutral-800 truncate w-full text-center">{char.name}</span>
+            <Search className="w-4 h-4" />
+            <span>搜索...</span>
           </button>
-        ))}
-      </div>
 
-      {/* Tabs */}
-      <div className="flex bg-white border-b border-neutral-200 shrink-0">
-        <TabButton active={activeTab === "searches"} onClick={() => setActiveTab("searches")} icon={<Search className="w-3.5 h-3.5" />} label="搜索记录" />
-        <TabButton active={activeTab === "memos"} onClick={() => setActiveTab("memos")} icon={<FileText className="w-3.5 h-3.5" />} label="备忘录" />
-        <TabButton active={activeTab === "shopping"} onClick={() => setActiveTab("shopping")} icon={<List className="w-3.5 h-3.5" />} label="购物清单" />
-        <TabButton active={activeTab === "messages"} onClick={() => setActiveTab("messages")} icon={<MessageCircle className="w-3.5 h-3.5" />} label="信息" />
-      </div>
-
-      {/* Input Area */}
-      <div className="p-3 bg-white border-b border-neutral-100 shrink-0 flex gap-2">
-        <input
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          placeholder={`添加一条新的${activeTab === "memos" ? "备忘" : activeTab === "searches" ? "搜索" : activeTab === "shopping" ? "清单" : "信息"}...`}
-          className="flex-1 text-xs border border-neutral-200 rounded-lg px-3 py-2 outline-none focus:border-black bg-neutral-50"
-          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-        />
-        <button onClick={handleAdd} className="bg-black text-white px-3 py-2 rounded-lg text-xs font-bold active:scale-95 transition">添加</button>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        {selectedChar && (
-          <div className="text-center mb-4">
-            <span className="text-[10px] text-neutral-400 font-mono uppercase tracking-widest">{selectedChar.name}'s Privacy Data</span>
-          </div>
-        )}
-
-        {activeTab === "memos" && phoneData.memos.map((item, idx) => (
-          <ListItem key={idx} content={item} onDelete={() => handleDelete(idx)} />
-        ))}
-        {activeTab === "searches" && phoneData.searches.map((item, idx) => (
-          <ListItem key={idx} content={item} onDelete={() => handleDelete(idx)} />
-        ))}
-        {activeTab === "shopping" && phoneData.shopping.map((item, idx) => (
-          <ListItem key={idx} content={item} onDelete={() => handleDelete(idx)} />
-        ))}
-        {activeTab === "messages" && phoneData.messages.map((item, idx) => (
-          <div key={idx} className="bg-white p-3 rounded-xl border border-neutral-200 shadow-sm flex items-start justify-between group">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-bold text-neutral-900">{item.sender}</span>
-                <span className="text-[9px] text-neutral-400">{item.time}</span>
+          {showSearchHistory && (
+            <div className="absolute top-full left-0 right-0 mt-2 bg-white/90 backdrop-blur-lg rounded-xl shadow-lg border border-neutral-100 p-3 z-20 animate-in fade-in slide-in-from-top-1 duration-200">
+              <div className="text-[10px] text-neutral-400 uppercase tracking-widest mb-2 px-1">最近搜索</div>
+              <div className="space-y-2">
+                {searchHistory.map((item, idx) => (
+                  <div key={idx} className="text-xs py-1 px-1 border-b border-neutral-50 last:border-0 text-neutral-600">
+                    {item}
+                  </div>
+                ))}
               </div>
-              <p className="text-xs text-neutral-600">{item.content}</p>
+              <button 
+                onClick={() => setShowSearchHistory(false)}
+                className="w-full text-center text-[10px] text-neutral-400 mt-3 pt-2 border-t border-neutral-50"
+              >
+                关闭
+              </button>
             </div>
-            <button onClick={() => handleDelete(idx)} className="opacity-0 group-hover:opacity-100 lg:opacity-100 p-1 text-neutral-400 hover:text-red-500 transition-opacity">
-              ✕
+          )}
+        </div>
+      </div>
+
+      {/* App Grid */}
+      <div className="flex-1 px-6 overflow-y-auto pb-20">
+        <div className="grid grid-cols-4 gap-y-8 gap-x-4">
+          {modules.map((mod) => (
+            <button key={mod.id} className="flex flex-col items-center gap-2 group">
+              <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] border border-white/50 group-hover:scale-105 transition-transform active:scale-95">
+                {mod.icon}
+              </div>
+              <span className="font-sans text-[11px] font-medium text-[#1A1A1A]">{mod.name}</span>
             </button>
-          </div>
-        ))}
+          ))}
+        </div>
+      </div>
+
+      {/* Bottom Footer Info */}
+      <div className="mt-auto px-6 py-4 flex flex-col items-center gap-1 border-t border-neutral-200/20">
+        <div className="flex items-center gap-2">
+          <img src={selectedChar?.chatAvatar || selectedChar?.avatar || "👤"} alt={selectedChar?.name} className="w-8 h-8 rounded-full object-cover border border-white shadow-sm" />
+          <span className="font-serif italic text-xs text-[#A8A39A]">{selectedChar?.name}的手机</span>
+        </div>
+        <div className="text-[10px] text-[#BFBAB2] font-sans">
+          存储空间：已用 32.8GB / 64GB
+        </div>
       </div>
     </div>
   );
 }
-
-const TabButton: React.FC<{ active: boolean, onClick: () => void, icon: React.ReactNode, label: string }> = ({ active, onClick, icon, label }) => {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 flex flex-col items-center justify-center gap-1 py-2.5 transition-all border-b-2 ${
-        active ? "border-black text-black bg-neutral-50/50" : "border-transparent text-neutral-400 hover:text-neutral-700 hover:bg-neutral-50"
-      }`}
-    >
-      {icon}
-      <span className="text-[9px] font-bold tracking-wider">{label}</span>
-    </button>
-  );
-};
-
-const ListItem: React.FC<{ content: string, onDelete: () => void }> = ({ content, onDelete }) => {
-  return (
-    <div className="bg-white p-3 rounded-xl border border-neutral-200 shadow-sm flex items-center justify-between group">
-      <span className="text-xs text-neutral-800">{content}</span>
-      <button onClick={onDelete} className="opacity-0 group-hover:opacity-100 lg:opacity-100 p-1 text-neutral-400 hover:text-red-500 transition-opacity">
-        ✕
-      </button>
-    </div>
-  );
-};

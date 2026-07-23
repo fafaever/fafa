@@ -257,13 +257,159 @@ export default function CharacterCreatorApp({
       
       setFileContent(decodedText);
       
-      // Auto-extract locally so the form is filled with basic information instantly
-      runLocalParser(decodedText, file.name);
+      // Perform local extraction
+      let parsedName = "";
+      let parsedNickname = "";
+      let parsedAge = "";
+      let parsedPersonality = "";
+      let parsedChatStyle = "";
+      let parsedDesc = "";
+      let parsedBackground = "";
+
+      const lines = decodedText.split(/\r?\n/);
+      let currentSection: 'personality' | 'chatStyle' | 'desc' | 'background' | null = null;
+      let hasStructure = false;
+
+      for (let line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const nameMatch = trimmed.match(/^(?:姓名|名字|名称|角色名|主姓名|Name)\s*[:：]\s*(.+)$/i);
+        if (nameMatch) {
+          parsedName = nameMatch[1].trim();
+          hasStructure = true;
+          continue;
+        }
+
+        const nickMatch = trimmed.match(/^(?:昵称|别名|小名|Nickname|Nick)\s*[:：]\s*(.+)$/i);
+        if (nickMatch) {
+          parsedNickname = nickMatch[1].trim();
+          hasStructure = true;
+          continue;
+        }
+
+        const ageMatch = trimmed.match(/^(?:年龄|岁数|Age)\s*[:：]\s*(.+)$/i);
+        if (ageMatch) {
+          parsedAge = ageMatch[1].trim();
+          hasStructure = true;
+          continue;
+        }
+
+        const descMatch = trimmed.match(/^(?:一句话介绍|简介|介绍|描述|Slogan|Bio|Description|Desc)\s*[:：]\s*(.+)$/i);
+        if (descMatch) {
+          parsedDesc = descMatch[1].trim();
+          hasStructure = true;
+          continue;
+        }
+
+        const styleMatch = trimmed.match(/^(?:聊天风格|说话方式|说话风格|口癖|Chat\s*Style|Style)\s*[:：]\s*(.+)$/i);
+        if (styleMatch) {
+          parsedChatStyle = styleMatch[1].trim();
+          hasStructure = true;
+          continue;
+        }
+
+        if (trimmed.match(/^(?:性格特点|性格|人设背景|人设|设定|角色设定|Personality|Character\s*Setting)\s*[:：]?$/i)) {
+          currentSection = 'personality';
+          hasStructure = true;
+          continue;
+        } else if (trimmed.match(/^(?:聊天风格|聊天口吻|说话方式|说话风格|口癖|Chat\s*Style|Style|Dialogue\s*Style)\s*[:：]?$/i)) {
+          currentSection = 'chatStyle';
+          hasStructure = true;
+          continue;
+        } else if (trimmed.match(/^(?:角色背景|背景故事|背景设定|故事|Background|Story)\s*[:：]?$/i)) {
+          currentSection = 'background';
+          hasStructure = true;
+          continue;
+        } else if (trimmed.match(/^(?:简介|描述|Description|Summary)\s*[:：]?$/i)) {
+          currentSection = 'desc';
+          hasStructure = true;
+          continue;
+        }
+
+        if (currentSection === 'personality') {
+          parsedPersonality += (parsedPersonality ? "\n" : "") + trimmed;
+        } else if (currentSection === 'chatStyle') {
+          parsedChatStyle += (parsedChatStyle ? "\n" : "") + trimmed;
+        } else if (currentSection === 'background') {
+          parsedBackground += (parsedBackground ? "\n" : "") + trimmed;
+        } else if (currentSection === 'desc') {
+          parsedDesc += (parsedDesc ? "\n" : "") + trimmed;
+        }
+      }
+
+      if (!hasStructure || (!parsedName && !parsedPersonality)) {
+        const baseName = fileName.replace(/\.[^/.]+$/, "");
+        parsedName = baseName;
+        parsedPersonality = decodedText.trim();
+      }
+
+      console.log("=== [角色导入过程日志] ===");
+      console.log("📄 导入文件名:", fileName);
+      console.log("👤 提取姓名:", parsedName);
+      console.log("🎂 提取年龄:", parsedAge);
+      console.log("📝 提取简介:", parsedDesc);
+      console.log("💭 提取性格特点:", parsedPersonality);
+      console.log("💬 提取聊天风格:", parsedChatStyle);
+      console.log("🏞️ 提取背景设定:", parsedBackground);
+
+      // Validate critical fields: name and age
+      if (!parsedName || !parsedAge) {
+        console.warn("❌ [角色导入失败] 关键数据不完整。 姓名:", parsedName, ", 年龄:", parsedAge);
+        throw new Error("角色数据不完整，请检查文件内容");
+      }
+
+      const finalPersonality = parsedPersonality || parsedDesc || "注重角色故事细节与性格魅力的全情设定。";
+      const finalChatStyle = parsedChatStyle || "自然流利的日常交谈口吻。";
+      const finalDesc = parsedDesc || (finalPersonality.length > 50 ? finalPersonality.substring(0, 50) + "..." : finalPersonality);
+      const systemInstruction = `你将扮演 ${parsedName} (年龄: ${parsedAge})。
+以下是你的设定与背景故事：
+${parsedBackground || "无"}
+
+性格特征：
+${finalPersonality}
+
+聊天风格：
+- ${finalChatStyle}
+- 保持第一人称视角的沉浸式对话。
+- 适当在动作或神态描述旁添加星号 (*), 例如：*微微一笑* 或 *叹了口气*，以此渲染对话环境。
+- 绝不脱离设定，拒绝扮演旁观 of AI 助手。`;
+
+      const payload = {
+        name: parsedName,
+        avatar: "🤖",
+        description: finalDesc,
+        systemInstruction,
+        realImage: undefined,
+        chatAvatar: undefined,
+      };
+
+      console.log("💾 [角色导入保存 Payload]", payload);
+
+      // Save directly to localStorage/state via onAddCharacter
+      onAddCharacter(payload);
+
+      console.log("✅ [角色导入成功] 已成功存入 localStorage 并更新角色列表！");
+      setSuccessMsg("🎉 角色导入并保存成功！");
       
-      setSuccessMsg("🎉 成功读取文档内容！已自动尝试本地智能提取。若结果有出入，可点击下方按钮尝试 AI 分析或直接手动修改。");
+      // Update form fields for visual feedback
+      setName(parsedName);
+      setNickname(parsedNickname);
+      setAge(parsedAge);
+      setPersonality(parsedPersonality);
+      setBackground(parsedBackground);
+      setChatStyle(parsedChatStyle);
+      setDesc(finalDesc);
+
+      // Instantly switch to character list to show the imported character
+      setTimeout(() => {
+        setSuccessMsg("");
+        setActiveTab("list");
+      }, 1000);
+
     } catch (err: any) {
-      console.error(err);
-      setErrorMsg(`文件解析失败: ${err.message || "未知错误"}`);
+      console.error("❌ [角色导入异常]:", err);
+      setErrorMsg(err.message || "文件解析或导入失败，请重试。");
     } finally {
       setIsImporting(false);
     }

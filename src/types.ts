@@ -83,3 +83,15 @@ export interface ChatSession {
   lastActive: number;
   currentOS?: string;
 }
+
+export interface Memory {
+  id: string;
+  characterId: string;
+  text: string;
+  timestamp: number;
+  layer: 1 | 2 | 3;
+  source: string;
+  isShared?: boolean;
+  isSimplified?: boolean;
+  sourceDialogue?: string;
+}
