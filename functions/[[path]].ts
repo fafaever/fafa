@@ -9,62 +9,61 @@ export const onRequestOptions = async () => {
   });
 };
 
-export const onRequestPost = async (context: { request: Request }) => {
+export const onRequestPost = async (context: { request: Request, env: Env }) => {
   const url = new URL(context.request.url);
   const pathname = url.pathname;
+
+  // =========【关键修复】非/api路径 → 转发静态网页 =========
+  if (!pathname.startsWith("/api/")) {
+    return context.env.ASSETS.fetch(context.request);
+  }
 
   try {
     const reqJson = await context.request.json().catch(() => ({})) as any;
 
-    if (pathname.startsWith("/api/")) {
-      let targetUrl = reqJson?.url;
-      let headers = reqJson?.headers || {};
-      let body = reqJson?.body || reqJson;
-      let method = reqJson?.method || "POST";
+    let targetUrl = reqJson?.url;
+    let headers = reqJson?.headers || {};
+    let body = reqJson?.body || reqJson;
+    let method = reqJson?.method || "POST";
 
-      if (!targetUrl && reqJson?.settings?.apiUrl) {
-        let cleanUrl = reqJson.settings.apiUrl.trim();
-        if (!/^https?:\/\//i.test(cleanUrl)) cleanUrl = "https://" + cleanUrl;
-        cleanUrl = cleanUrl.replace(/\/+$/, "");
-        targetUrl = cleanUrl.endsWith("/chat/completions") ? cleanUrl : `${cleanUrl}/chat/completions`;
-        headers = {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${reqJson.settings.apiKey}`,
-        };
-        body = {
-          model: reqJson.settings.model || "gpt-3.5-turbo",
-          messages: reqJson.messages,
-          temperature: reqJson.temperature || 0.8,
-        };
-      }
+    if (!targetUrl && reqJson?.settings?.apiUrl) {
+      let cleanUrl = reqJson.settings.apiUrl.trim();
+      if (!/^https?:\/\//i.test(cleanUrl)) cleanUrl = "https://" + cleanUrl;
+      cleanUrl = cleanUrl.replace(/\/+$/, "");
+      targetUrl = cleanUrl.endsWith("/chat/completions") ? cleanUrl : `${cleanUrl}/chat/completions`;
+      headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${reqJson.settings.apiKey}`,
+      };
+      body = {
+        model: reqJson.settings.model || "gpt-3.5-turbo",
+        messages: reqJson.messages,
+        temperature: reqJson.temperature || 0.8,
+      };
+    }
 
-      if (!targetUrl) {
-        return new Response(JSON.stringify({ error: "Missing target url or settings" }), {
-          status: 400,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        });
-      }
-
-      const res = await fetch(targetUrl, {
-        method,
-        headers,
-        body: JSON.stringify(body),
-      });
-
-      const responseText = await res.text();
-      return new Response(responseText, {
-        status: res.status,
-        headers: {
-          "Content-Type": res.headers.get("content-type") || "application/json",
-          "Access-Control-Allow-Origin": "*",
-        },
+    if (!targetUrl) {
+      return new Response(JSON.stringify({ error: "Missing target url or settings" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
       });
     }
 
-    return new Response(JSON.stringify({ error: `Unhandled API endpoint: ${pathname}` }), {
-      status: 404,
-      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+    const res = await fetch(targetUrl, {
+      method,
+      headers,
+      body: JSON.stringify(body),
     });
+
+    const responseText = await res.text();
+    return new Response(responseText, {
+      status: res.status,
+      headers: {
+        "Content-Type": res.headers.get("content-type") || "application/json",
+        "Access-Control-Allow-Origin": "*",
+      },
+    });
+
   } catch (err: any) {
     return new Response(JSON.stringify({ error: err.message || "Server Error" }), {
       status: 500,
@@ -73,7 +72,7 @@ export const onRequestPost = async (context: { request: Request }) => {
   }
 };
 
-export const onRequest = async (context: { request: Request }) => {
+export const onRequest = async (context: { request: Request, env: Env }) => {
   if (context.request.method === "OPTIONS") {
     return onRequestOptions();
   }
