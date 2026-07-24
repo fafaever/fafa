@@ -380,8 +380,9 @@ ${finalPersonality}
         const payload = {
           name: parsedName,
           avatar: "🤖",
-          description: finalDesc,
+          description: finalDesc || "从文件导入的角色",
           systemInstruction,
+          model: settings?.model || "gemini-2.5-flash",
           realImage: undefined,
           chatAvatar: undefined,
         };

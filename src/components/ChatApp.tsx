@@ -946,8 +946,9 @@ export default function ChatApp({
     onAddCharacter({
       name: charName.trim(),
       avatar: charAvatar.trim() || "🤖",
-      description: charDesc.trim(),
-      systemInstruction: charSys.trim(),
+      description: charDesc.trim() || "暂无简介",
+      systemInstruction: charSys.trim() || `你正在扮演角色 "${charName.trim()}"。`,
+      model: settings?.model || "gemini-2.5-flash",
     });
 
     // Reset Form
@@ -1048,6 +1049,8 @@ export default function ChatApp({
     }
 
     onUpdateSessionMessages(activeCharId, updatedMessages);
+    // Auto trigger AI reply upon sending user message
+    handleTriggerAiReply(updatedMessages);
   };
 
   // Trigger AI reply (supporting customMessages, replyLength, replyCount, mood, memories)
@@ -1106,14 +1109,20 @@ export default function ChatApp({
 
       // 2. Request API response
       const cleanCharacter = {
+        id: activeChar.id,
         name: activeChar.name,
-        description: activeChar.description,
-        systemInstruction: activeChar.systemInstruction,
+        avatar: activeChar.avatar,
+        description: activeChar.description || "一个充满魅力的角色",
+        systemInstruction: activeChar.systemInstruction || `你正在扮演角色 "${activeChar.name}"。请保持符合人设的自然日常对话。`,
+        model: activeChar.model || settings?.model || "gemini-2.5-flash",
       };
       const requestParams = {
         messages: [...currentHistory, promptMessage], // append hidden prompt message
         character: cleanCharacter,
-        settings: settings,
+        settings: {
+          ...settings,
+          model: activeChar.model || settings?.model || "gemini-2.5-flash",
+        },
         matchedLore: matched,
         chatMode: chatMode,
         replyLength: replyLength,
@@ -2771,7 +2780,9 @@ export default function ChatApp({
                     className="w-10 h-10 bg-black hover:bg-neutral-800 disabled:bg-neutral-100 disabled:text-neutral-300 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
                     title="生成AI回复"
                   >
-                    <Sparkles className="w-4 h-4 stroke-[1.75] text-amber-300 fill-amber-300 animate-pulse" />
+                    <div className="w-5 h-5 rounded-full border-[2px] border-white bg-white flex items-center justify-center shadow-sm">
+                      <Heart className="w-3 h-3 text-black stroke-[2] fill-none" />
+                    </div>
                   </button>
                 </div>
                 <button
@@ -2945,6 +2956,7 @@ export default function ChatApp({
                       placeholder={isGenerating ? "生成中..." : "输入消息..."}
                       value={inputText}
                       onChange={(e) => setInputText(e.target.value)}
+                      onFocus={() => setTimeout(scrollToBottom, 200)}
                       disabled={isGenerating}
                       className="flex-1 text-xs border border-neutral-200 hover:border-neutral-300 focus:border-neutral-950 px-3.5 py-2.5 rounded-xl bg-neutral-50 focus:bg-white outline-none transition-all"
                     />
@@ -2963,7 +2975,9 @@ export default function ChatApp({
                       className="w-10 h-10 bg-black hover:bg-neutral-800 disabled:bg-neutral-100 disabled:text-neutral-300 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
                       title="生成AI回复 (点击生成一轮回复)"
                     >
-                      <Heart className="w-4 h-4 stroke-[1.75] text-rose-400 fill-rose-400 animate-pulse" />
+                      <div className="w-5 h-5 rounded-full border-[2px] border-white bg-white flex items-center justify-center shadow-sm">
+                        <Heart className="w-3 h-3 text-black stroke-[2] fill-none" />
+                      </div>
                     </button>
                   </div>
                 </form>
@@ -3868,7 +3882,8 @@ export default function ChatApp({
                       avatar: subAccountAvatar.trim().startsWith("http") ? "🤖" : subAccountAvatar.trim(),
                       chatAvatar: subAccountAvatar.trim().startsWith("http") ? subAccountAvatar.trim() : undefined,
                       description: `[${parent.name}] 的小号 · 用途: ${subAccountPurpose.trim() || "未设定"}`,
-                      systemInstruction: parent.systemInstruction, // Inherit base prompt
+                      systemInstruction: parent.systemInstruction || `你正在扮演 "${subAccountName.trim()}"，是 "${parent.name}" 的小号。`,
+                      model: parent.model || settings?.model || "gemini-2.5-flash",
                       group: parent.group || "其它",
                       isSubAccount: true,
                       parentCharacterId: parent.id,

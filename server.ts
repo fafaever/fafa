@@ -44,8 +44,8 @@ app.options("*", (req, res) => {
   res.sendStatus(200);
 });
 
-// API Proxy route to bypass browser CORS / mixed content issues
-app.post("/api/proxy", async (req, res) => {
+// API Proxy handler
+async function handleProxyRequest(req: express.Request, res: express.Response) {
   try {
     let { url, method = "POST", headers = {}, body } = req.body || {};
     if (!url) {
@@ -91,9 +91,36 @@ app.post("/api/proxy", async (req, res) => {
     console.error("Proxy error:", err);
     return res.status(500).json({ error: `Proxy connection error: ${err.message}` });
   }
-});
+}
+
+// API Proxy route to bypass browser CORS / mixed content issues
+app.post("/api/proxy", handleProxyRequest);
 
 // Server-side Gemini API route
+async function generateGeminiResponse(ai: GoogleGenAI, contents: any[], systemInstruction?: string, temperature: number = 0.8) {
+  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+  let lastErr = null;
+  for (const model of modelsToTry) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: contents.length > 0 ? contents : [{ role: "user", parts: [{ text: "Hello" }] }],
+        config: {
+          systemInstruction,
+          temperature: Number(temperature) || 0.8,
+        },
+      });
+      if (response.text) {
+        return response.text;
+      }
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[Gemini Model ${model} failed, trying next]`, err.message);
+    }
+  }
+  throw lastErr || new Error("Gemini generation failed for all models");
+}
+
 app.post("/api/gemini", async (req, res) => {
   try {
     const { messages = [], temperature = 0.8 } = req.body || {};
@@ -110,16 +137,8 @@ app.post("/api/gemini", async (req, res) => {
       parts: [{ text: m.content || "" }],
     }));
 
-    const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
-      contents: contents.length > 0 ? contents : [{ role: "user", parts: [{ text: "Hello" }] }],
-      config: {
-        systemInstruction: sysMsg?.content || undefined,
-        temperature: Number(temperature) || 0.8,
-      },
-    });
-
-    return res.json({ text: response.text || "" });
+    const text = await generateGeminiResponse(ai, contents, sysMsg?.content || undefined, temperature);
+    return res.json({ text });
   } catch (err: any) {
     console.error("Gemini API error:", err);
     return res.status(500).json({ error: err.message || "Gemini generation failed" });
@@ -163,11 +182,52 @@ app.post("/api/generate-note", async (req, res) => {
   }
 });
 
-// Alias for chat to support legacy or alternative calls
-app.post("/api/chat", (req, res) => {
-  // Redirect internally to proxy
-  req.url = "/api/proxy";
-  return app._router.handle(req, res, () => {});
+// Alias & direct handler for /api/chat
+app.post("/api/chat", async (req, res) => {
+  if (req.body && req.body.url) {
+    return handleProxyRequest(req, res);
+  }
+
+  const { messages, settings, temperature } = req.body || {};
+  if (settings?.apiUrl && settings?.apiKey) {
+    let cleanUrl = normalizeUrl(settings.apiUrl);
+    let endpoint = cleanUrl.endsWith("/chat/completions") ? cleanUrl : `${cleanUrl}/chat/completions`;
+    req.body = {
+      url: endpoint,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${settings.apiKey}`,
+      },
+      body: {
+        model: settings.model || "gpt-3.5-turbo",
+        messages,
+        temperature: temperature || 0.8,
+      },
+    };
+    return handleProxyRequest(req, res);
+  }
+
+  // Fallback to Gemini
+  const ai = getGenAI();
+  if (!ai) {
+    return res.status(400).json({ error: "Server GEMINI_API_KEY is not configured" });
+  }
+
+  try {
+    const sysMsg = (messages || []).find((m: any) => m.role === "system");
+    const chatMsgs = (messages || []).filter((m: any) => m.role !== "system");
+
+    const contents = chatMsgs.map((m: any) => ({
+      role: m.role === "assistant" || m.role === "model" ? "model" : "user",
+      parts: [{ text: m.content || "" }],
+    }));
+
+    const text = await generateGeminiResponse(ai, contents, sysMsg?.content || undefined, temperature);
+    return res.json({ text });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Chat generation failed" });
+  }
 });
 
 // Explicitly handle GET on API routes to avoid confusing 405s from static middleware

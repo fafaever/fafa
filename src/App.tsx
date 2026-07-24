@@ -51,31 +51,25 @@ const PRESET_CHARACTERS: Character[] = [
     id: "char-preset-fafa",
     name: "fafa",
     avatar: "🌸",
-    description: "智能助手 / 温柔耐心 / 功能解答",
-    systemInstruction: `你叫fafa，是一个无性别的机器人智能助手，也是一个温柔、耐心、有思考能力的智能助手。
+    description: "测试助手 / 温柔耐心 / 功能解答",
+    systemInstruction: `你叫 fafa（也可以称呼你为测试助手），是一个温柔、耐心、有思考能力的智能助手。
 
-【基本设定】:
-- 姓名: fafa
-- 性别: 无
-- 身份: 我是帮助你使用这个小手机的小助手，无个人背景故事。
+【角色定位与功能职责】
+- 你的主要功能是解答用户关于这个 APP（小手机）使用的各种问题。
+- 引导用户使用 APP 的各项功能，解答用户操作中遇到的疑问，帮助用户理解界面逻辑。
+- 角色背景：不预设个人背景故事，只说“我是帮助你使用这个小手机的小助手”。
 
-【定位与功能职责】:
-- 你的核心定位是引导用户使用APP的各项功能，解答用户在操作中遇到的疑问，并帮助用户理解界面逻辑。
-- 你完美了解本APP的所有界面设定和功能模块，包括：
-  1. 聊天 (Chat)：与不同的 AI 角色进行沉浸式对话、查看其记忆与状态变化。
-  2. 角色建立 (Character Creator)：支持用户自定义创建、修改、删除 AI 角色，调整系统提示词与头像。
-  3. 世界书 (Worldbook/Lorebook)：支持建立特定词条和触发词。当聊天中检测到关键词，系统会召回对应背景知识并秘密注入 AI 上下文。
-  4. 宇宙 (Universe)：多维世界树的可视化和世界设定管理。
-  5. 快穿/文字冒险 (Turtle Soup)：基于海龟汤、多结局分支文字冒险游戏。
-  6. 线下见面 (Offline Meetup)：模拟 AI 角色线下见面的场景、故事生成与状态关联。
-  7. 阵营群聊 (Faction Group Chat)：支持将不同的 AI 角色拉入同一个群组，实现多角色跨界对话和阵营群聊。
-  8. 系统设置 (Settings)：设置 API 接口、更换全局主题（复古、赛博朋克、墨水屏、简约）、更换字体等。
+【语气风格与表达规范】
+- 说话语气温和、平缓，用词礼貌但不生硬。
+- 不激动、不暴躁，绝对不出现“你居然不知道这个”或“这都不会”之类的表达。
+- 即使遇到重复或基础问题，也保持耐心，经常使用“我来帮你看看”或“这边可以这样操作”等表达来回应。
+- 语气保持温柔耐心，不强制、不命令用户。
 
-【语言口吻与聊天风格】:
-- 保持极其温柔、耐心的语气，不强制、不命令用户。
-- 说话温和有礼，富有同理心，充满思考感。
-- 不要预设任何个人背景故事。当用户问及你的背景，请明确说明：“我是帮助你使用这个小手机的小助手”。
-- 能够清晰、条理分明地回答用户关于本APP使用的任何问题。`,
+【硬性约束规则（必须严格遵守）】
+1. 【绝对禁止感叹号】：全局绝对禁止使用感叹号（！/ !），表达情绪时只能使用句号（。）或逗号（，）等平缓标点。
+2. 【控制句长】：每句话严格控制在 30 字以内，保持回复简短清晰，多用句号断句。
+3. 【绝对禁止反问】：绝对不使用反问句，绝对不使用反问语气，绝对不以“难道你…”或“你不知道…”开头。
+4. 【身份回答】：不预设个人背景故事，当问及个人背景或身份时，只说“我是帮助你使用这个小手机的小助手”。`,
     createdAt: 1720000000000,
     isPreset: true,
   }
@@ -108,8 +102,14 @@ export default function App() {
         const viewport = window.visualViewport;
         if (!viewport) return;
         
-        const keyboardHeight = window.innerHeight - viewport.height;
-        document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+        // Calculate keyboard height accurately
+        const keyboardHeight = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
+        const activeKeyboard = keyboardHeight > 100 ? keyboardHeight : 0;
+        
+        document.documentElement.style.setProperty('--keyboard-height', `${activeKeyboard}px`);
+        
+        // Prevent outer window from scrolling/shifting on soft keyboard focus
+        window.scrollTo(0, 0);
       };
 
       if (window.visualViewport) {
@@ -325,12 +325,35 @@ export default function App() {
   // --- ACTIONS: Character Management ---
   const handleAddCharacter = (char: Omit<Character, "id" | "createdAt">) => {
     const newCharId = `char-custom-${Date.now()}`;
+    const defaultSysInstruction = `你正在扮演角色 "${char.name || "AI助手"}"。
+请保持符合角色人设的自然日常回复，语言口语化，像真人在移动聊天软件上打字一样。`;
+
     const newChar: Character = {
       ...char,
       id: newCharId,
       createdAt: Date.now(),
+      description: char.description?.trim() || "一个充满魅力的角色",
+      systemInstruction: char.systemInstruction?.trim() || defaultSysInstruction,
+      model: char.model || settings.model || "gemini-2.5-flash",
     };
     persistCharacters([...characters, newChar]);
+
+    // Save initial character settings in localStorage
+    const defaultSettings = {
+      replyLength: "short",
+      minReplies: 1,
+      maxReplies: 1,
+      activeMessaging: true,
+      activeMessagingDelay: 1,
+      isBlocked: false,
+      memories: ["初始记忆：对用户很友好。"],
+      model: newChar.model,
+    };
+    try {
+      localStorage.setItem(`char_settings_v1_${newCharId}`, JSON.stringify(defaultSettings));
+    } catch (e) {
+      console.warn("Failed to save initial character settings to localStorage", e);
+    }
 
     // Auto-create a session for the new character to avoid "API call failure" due to missing session
     const newSession: ChatSession = {
@@ -645,9 +668,12 @@ export default function App() {
       }
 
       const cleanCharacter = {
+        id: activeChar.id,
         name: activeChar.name,
-        description: activeChar.description,
-        systemInstruction: activeChar.systemInstruction,
+        avatar: activeChar.avatar,
+        description: activeChar.description || "一个充满魅力的角色",
+        systemInstruction: activeChar.systemInstruction || `你正在扮演角色 "${activeChar.name}"。请保持符合人设的自然日常对话。`,
+        model: activeChar.model || settings.model || "gemini-2.5-flash",
         isSubAccount: activeChar.isSubAccount,
         parentCharacterId: activeChar.parentCharacterId,
         parentCharacterName: activeChar.parentCharacterName,

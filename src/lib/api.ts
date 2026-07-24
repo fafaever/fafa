@@ -248,7 +248,14 @@ function sanitizeBannedPhrases(text: string, osText: string, character: any, par
   const isCold = /冷|克制|静|高冷|傲娇|漠|毒舌|淡/i.test((parsedInfo?.personality || "") + " " + (parsedInfo?.chatStyle || "") + " " + (character?.description || "") + " " + (character?.name || ""));
   const isWarm = /热|温柔|软|可爱|娇|暖|撒娇|活泼/i.test((parsedInfo?.personality || "") + " " + (parsedInfo?.chatStyle || "") + " " + (character?.description || "") + " " + (character?.name || ""));
 
-  if (character?.name?.toLowerCase() === "fafa" || isWarm) {
+  const isFafa = character?.name?.toLowerCase().includes("fafa") || character?.id === "char-preset-fafa";
+
+  if (isFafa) {
+    return {
+      cleanText: `刚才网络连接好像有些不平稳，我来帮你重新看一下，你可以再发送一次试试。`,
+      osText: `（os：虽然没有看清刚才的消息，但我会一直陪着你。）`
+    };
+  } else if (isWarm) {
     return {
       cleanText: `咦？(⊙_⊙)? 刚刚网络信号好像有些奇怪呢，你刚刚说了些什么呀？要不要跟 ${character?.name || "我"} 聊聊别的话题，比如今天开心的事？~ (*^▽^*)`,
       osText: `（os：刚刚那是什么奇奇怪怪的问题，哼哼~ 不过能陪在你身边就很开心啦！） [喜悦]`
@@ -645,6 +652,14 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
       const { cleanText, osText } = sanitizeBannedPhrases(finalCleanText, finalOs, character, parsedInfo);
       finalCleanText = cleanText;
       finalOs = osText;
+
+      // Enforce hard constraints for fafa (no exclamation marks, clean punctuation)
+      if (character?.name?.toLowerCase().includes("fafa") || character?.id === "char-preset-fafa") {
+        finalCleanText = finalCleanText.replace(/[！!]/g, "。").replace(/。{2,}/g, "。");
+        if (finalOs) {
+          finalOs = finalOs.replace(/[！!]/g, "。").replace(/。{2,}/g, "。");
+        }
+      }
 
       // Successfully processed, break loop
       break;
