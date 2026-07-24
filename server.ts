@@ -10,6 +10,12 @@ const PORT = 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// Request logger for debugging 405/404 errors
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+});
+
 let genAIClient: GoogleGenAI | null = null;
 function getGenAI() {
   if (!genAIClient) {
@@ -29,6 +35,14 @@ function normalizeUrl(url: string): string {
   }
   return trimmed;
 }
+
+// Handle preflight requests
+app.options("*", (req, res) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-goog-api-key");
+  res.sendStatus(200);
+});
 
 // API Proxy route to bypass browser CORS / mixed content issues
 app.post("/api/proxy", async (req, res) => {
@@ -147,6 +161,23 @@ app.post("/api/generate-note", async (req, res) => {
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
+});
+
+// Alias for chat to support legacy or alternative calls
+app.post("/api/chat", (req, res) => {
+  // Redirect internally to proxy
+  req.url = "/api/proxy";
+  return app._router.handle(req, res, () => {});
+});
+
+// Explicitly handle GET on API routes to avoid confusing 405s from static middleware
+app.get("/api/*", (req, res) => {
+  res.status(405).json({ error: "Method Not Allowed. This API endpoint requires POST." });
+});
+
+// Catch-all for undefined API routes
+app.all("/api/*", (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.url}` });
 });
 
 async function startServer() {

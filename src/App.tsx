@@ -102,6 +102,29 @@ export default function App() {
       }
     }, []);
 
+    useEffect(() => {
+      // Handle visual viewport for mobile keyboard
+      const handleVisualViewportResize = () => {
+        const viewport = window.visualViewport;
+        if (!viewport) return;
+        
+        const keyboardHeight = window.innerHeight - viewport.height;
+        document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+      };
+
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', handleVisualViewportResize);
+        window.visualViewport.addEventListener('scroll', handleVisualViewportResize);
+      }
+
+      return () => {
+        if (window.visualViewport) {
+          window.visualViewport.removeEventListener('resize', handleVisualViewportResize);
+          window.visualViewport.removeEventListener('scroll', handleVisualViewportResize);
+        }
+      };
+    }, []);
+
   // Recalculate and reset scrolling on screen change
   useEffect(() => {
     window.scrollTo(0, 0);

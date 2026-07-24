@@ -27,14 +27,20 @@ html, body, #root {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 8px;
+  /* Sync padding with keyboard height */
+  transition: padding-bottom 0.2s ease-out;
 }
 
 .chat-input-area {
   flex-shrink: 0;
   padding: 8px 12px;
-  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  /* Use env(safe-area-inset-bottom) and our custom keyboard height */
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px) + var(--keyboard-height, 0px));
   background: #FFFFFF;
   border-top: 1px solid #EFECE8;
+  position: relative;
+  z-index: 20;
+  transition: padding-bottom 0.2s ease-out;
 }
 
 /* Portrait lock helper CSS */
@@ -44,14 +50,14 @@ html, body, #root {
   }
 }
 
-@layer base {
-  html, body, #root {
-    height: 100dvh;
-    height: 100vh; /* 降级方案 */
-    overflow: hidden;
-    margin: 0;
-    padding: 0;
-  }
+/* Ensure root containers are full screen and don't scroll weirdly */
+html, body, #root {
+  width: 100vw;
+  height: 100dvh;
+  overflow: hidden;
+  position: fixed;
+  top: 0;
+  left: 0;
 }
 
 @layer utilities {
