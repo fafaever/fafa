@@ -77,9 +77,9 @@ export async function callLLM(apiUrl: string, apiKey: string, model: string, mes
       console.warn("⚠️ [Direct Client Fetch Failed, attempting proxy]", err.message);
     }
 
-    // 2. Try backend proxy fallback
+    // 2. Try backend proxy fallback (/api/chat & /api/proxy)
     try {
-      const response = await fetch("/api/proxy", {
+      let response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -87,12 +87,28 @@ export async function callLLM(apiUrl: string, apiKey: string, model: string, mes
           method: "POST",
           headers,
           body,
+          settings: { apiUrl, apiKey, model },
+          messages,
+          temperature,
         }),
       });
 
+      if (!response.ok) {
+        response = await fetch("/api/proxy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: endpoint,
+            method: "POST",
+            headers,
+            body,
+          }),
+        });
+      }
+
       if (response.ok) {
         const data = await response.json();
-        const text = apiFormat === 'openai' ? (data.choices?.[0]?.message?.content || "") : (data.candidates?.[0]?.content?.parts?.[0]?.text || "");
+        const text = apiFormat === 'openai' ? (data.choices?.[0]?.message?.content || data.text || "") : (data.candidates?.[0]?.content?.parts?.[0]?.text || data.text || "");
         if (text) return text;
       } else {
         const proxyErrJson = await response.json().catch(() => null);
@@ -353,9 +369,47 @@ ${text}
   }
 }
 
+export function getThreeDataSourcesPrompt(character: any, memories?: any[], lores?: any[]) {
+  if (!character) return "";
+
+  const personaContent = `
+--- 【数据源 1：角色人设 (PERSONA & BACKGROUND)】 ---
+- 角色姓名：${character.name || "未知角色"}
+- 基础描述：${character.description || "一个充满魅力的角色"}
+- 人设指令与背景：${character.systemInstruction || character.persona || "保持沉浸式人设与真实聊天风格"}
+`;
+
+  const memoryList = memories || character.memories || [];
+  const memoryContent = `
+--- 【数据源 2：角色记忆库 (CHARACTER MEMORY BANK)】 ---
+${memoryList.length > 0
+  ? memoryList.map((m: any, idx: number) => `  ${idx + 1}. ${typeof m === 'string' ? m : (m.content || JSON.stringify(m))}`).join("\n")
+  : "  (暂无特定保存的长期记忆，请基于对话历史与核心人设交互)"}
+`;
+
+  const loreList = lores || character.lores || [];
+  const loreContent = `
+--- 【数据源 3：世界书设定 (WORLD BOOK / LORE SETTINGS)】 ---
+${loreList.length > 0
+  ? loreList.map((l: any, idx: number) => `  [世界条目 ${idx + 1} - ${l.title || "设定"}]: ${l.content || l.description || ""}`).join("\n")
+  : "  (当前未挂载专属世界书，默认通用现实/都市生活环境)"}
+`;
+
+  return `
+==================================================
+【必须同时读取的三大核心数据源 (MANDATORY THREE DATA SOURCES)】
+在进行任何 AI 生成活动（聊天回复、随笔生成、心声生成、论坛互动、剧情推进等）时，你必须【同时整合与严格读取】以下三个数据源，缺一不可：
+${personaContent}
+${memoryContent}
+${loreContent}
+==================================================
+`;
+}
+
 export async function apiChat(params: any) {
   const { messages, character, settings, matchedLore, chatMode, replyLength, replyCount, mood, memories, userDidNotReply, isBlocked } = params;
   try {
+    const threeDataSources = getThreeDataSourcesPrompt(character, memories, matchedLore || params.lores || params.loreList);
     const modeInstruction = chatMode === "online" ? `
 --- IMPORTANT DIRECTIVE: ONLINE CHAT MODE ---
 - You are communicating through a mobile chat app (线上聊天模式).
@@ -467,11 +521,14 @@ ${memories.map((m: string) => `  - ${m}`).join("\n")}
 - You MUST append the character's secret, private, colloquial inner thoughts (OS) to your response on a brand new line at the very end.
 - Formatting rule: Use exactly the marker "[OS_INNER]" followed by: "（os：内心想法） [情绪标签]"
 - Requirements for the Inner Thoughts (OS):
-  1. It must be very colloquial, natural, and raw—never stiff, robotic, or literary (口语化，不能生硬).
+  1. It must be very colloquial, natural, and raw—never stiff, robotic, or literary (口语化，自然真诚).
   2. It must be between 10 to 40 Chinese characters.
   3. It must reflect their current mood: 【${mood || "平静"}】.
-  4. It must directly echo or respond to the user's last message, maintaining perfect context.
-  5. It must contrast their polite or surface message by revealing their true desires, hidden motives, or secrets.
+  4. 【心声真实性准则】心声是角色在当前对话中的真实内心想法，必须基于：
+     - 角色的人设（性格、说话风格、背景）
+     - 当前对话的上下文
+     - 角色对用户的真实感受（由对话历史决定）
+  5. 【严禁强行编造反差】绝对不允许为了“制造反差”而强行写出与表面回复相反的内容。如果角色表面说“好的”，心里可能真的觉得“好的”，也可能有别的想法，但都必须完全取决于人设与语境自然决定，绝对不能为了制造反差而虚构反义词或违背逻辑的想法。
 - Example structure at the very end of your reply:
   [OS_INNER]（os：这家伙居然还主动关心我……嘴硬个什么劲啊，笨蛋） [感动]
 `;
@@ -539,11 +596,10 @@ ${params.parentChatContext}
 `;
 
     const layeredPersonaInstruction = `
---- CHARACTER LAYERED PERSONA STRUCTURE (人设分层结构) ---
-- 你的人设采用严格的【表层与里层分层结构】：
-  1. 【表层性格】：这是你在普通聊天对话回复中直接展示给用户看的样子。必须百分之百保持人设的一致性与稳定性（例如高冷角色表面说话必须维持冷静、克制、简短，哪怕内心其实非常关心）。
-  2. 【里层想法（心声）】：这是你在 [OS_INNER] 内心世界（os：内心想法）中暴露出来的。只有在此区域，你才被允许、且应当真实透露你对用户的隐藏情感、暗中吃醋、娇羞、心疼、窃喜或焦虑不安。
-- 绝对禁止把里层的温柔/在乎情感不加修饰地平铺直叙在表层对话里。两层之间必须产生鲜明、生动的戏剧张力。
+--- CHARACTER LAYERED PERSONA STRUCTURE (人设分层与心声逻辑) ---
+- 角色心声是角色在当前对话中的真实内心想法，绝对不是“表面回复的反向反义词”：
+  1. 【表层性格】：在常规对话回复中直接展示给用户，必须百分之百保持人设的一致性与稳定性。
+  2. 【里层想法（心声）】：这是你在 [OS_INNER] 内心世界（os：内心想法）中展现的真实心理活动。心声必须基于角色人设、当前上下文以及对用户的真实态度，自然流露。如果角色表面表示认可，且内心真实想法也是赞同，心声如实表达即可，严禁为了制造虚假反差而强行伪造反向想法。
 `;
 
     const priorityInstruction = `
@@ -563,6 +619,8 @@ ${params.parentChatContext}
 `;
 
     const sysInstruction = `${anchorInstruction}
+
+${threeDataSources}
 
 You are playing the role of "${character.name}".
 Character Profile: ${character.description || "A helpful assistant."}
@@ -671,16 +729,23 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
 }
 
 export async function apiGenerateNote(params: any) {
-  const { character, settings } = params;
+  const { character, settings, memories, lore, lores } = params;
   if (!character) throw new Error("缺少角色参数");
-  const prompt = `
-你现在是角色：【${character.name}】。
-【核心人设】：${character.persona || character.systemInstruction || "暂无"}
+  
+  const threeDataSources = getThreeDataSourcesPrompt(
+    character, 
+    memories || character.memories, 
+    lore || lores || character.lores
+  );
 
-请严格基于你的人设、性格和说话风格，写一篇碎片化的“随笔”。
+  const prompt = `
+${threeDataSources}
+
+你现在是角色：【${character.name}】。
+请综合并同时读取以上【三位一体数据源】（1.角色人设、2.记忆库、3.世界书设定），以你的第一人称写一篇碎片化的日常“随笔”。
 
 要求：
-1. 必须完全贴合角色的身份。
+1. 必须完全贴合角色的身份、性格、说话风格、记忆库内容与当前世界书背景。
 2. 内容要像普通人在碎片时间随手记下的想法和观察，口语化，自然。
 3. 严禁文艺、抽象、过度煽情，直接记录日常观察和真实想法。
 4. 每一句话都不要太长。
@@ -697,9 +762,10 @@ export async function apiGenerateNote(params: any) {
 }
 
 export async function apiUnoDialogue(params: any) {
-  const { character, event, cardDetails, context, settings } = params;
+  const { character, event, cardDetails, context, settings, memories, lores } = params;
   if (!character) throw new Error("Missing character parameter");
   const parsedInfo = parseCharacterInstruction(character.name, character.systemInstruction, character.description);
+  const threeDataSources = getThreeDataSourcesPrompt(character, memories, lores);
 
   const anchorMessage = `你叫 ${character.name}，${parsedInfo.age}岁，${character.description || "一个充满魅力的角色"}。
 【性格核心】：${parsedInfo.personality}
@@ -708,6 +774,8 @@ export async function apiUnoDialogue(params: any) {
 【禁止行为】：${parsedInfo.forbiddenBehaviors}`;
 
   const prompt = `
+${threeDataSources}
+
 【人设绝对锚定机制 - 最高优先级指令】
 - 无论玩游戏还是日常闲聊，你都必须绝对忠于此人设，绝对禁止人设变形或语言风格走样：
 - 人设描述：

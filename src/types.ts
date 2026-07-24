@@ -19,6 +19,8 @@ export interface Character {
   purpose?: string; // Alt-account purpose setting
   isBusted?: boolean; // Whether the alt-account is busted
   bustQuestionsCount?: number; // Count of persistent questioning
+  memories?: any[]; // Character long term memories
+  lores?: any[]; // Character world book settings
 }
 
 export interface Message {
@@ -36,6 +38,7 @@ export interface Message {
     status: 'pending' | 'collected' | 'returned';
     transferId: string;
   };
+  os?: string;
 }
 
 export interface LoreEntry {

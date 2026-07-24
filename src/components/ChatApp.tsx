@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy } from "lucide-react";
 import { apiChat } from "../lib/api";
 import { Character, Message, LoreEntry, AppSettings, ChatSession } from "../types";
 import ProfileView from "./ProfileView";
@@ -176,6 +176,75 @@ export default function ChatApp({
   const [activeMessage, setActiveMessage] = useState<Message | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [quotedMsgState, setQuotedMsgState] = useState<Message | null>(null);
+  const [showAllOsModal, setShowAllOsModal] = useState(false);
+  const [msgOsModalTarget, setMsgOsModalTarget] = useState<Message | null>(null);
+  const [copyToast, setCopyToast] = useState<string | null>(null);
+
+  const fallbackCopyText = (text: string) => {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand("copy");
+    } catch (e) {
+      console.error("Copy failed", e);
+    }
+    document.body.removeChild(textarea);
+  };
+
+  const handleCopyContent = (content: string) => {
+    if (!content) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(content).catch(() => {
+        fallbackCopyText(content);
+      });
+    } else {
+      fallbackCopyText(content);
+    }
+    setCopyToast("已复制");
+    setShowBottomSheet(false);
+    setTimeout(() => {
+      setCopyToast(null);
+    }, 1500);
+  };
+
+  // Extract all OS entries in chronological order (from old to new)
+  const getSessionOsHistory = () => {
+    if (!activeSession || !activeSession.messages) return [];
+    const items: { id: string; msg: Message; os: string; timestamp: number }[] = [];
+
+    activeSession.messages.forEach((m) => {
+      if (m.os && m.os.trim()) {
+        items.push({
+          id: `os-${m.id}`,
+          msg: m,
+          os: m.os,
+          timestamp: m.timestamp,
+        });
+      }
+    });
+
+    // Fallback: If no message has m.os saved, but activeSession.currentOS exists,
+    // attach currentOS to the last assistant message (or last message)
+    if (items.length === 0 && activeSession.currentOS && activeSession.currentOS.trim()) {
+      const lastAssistantMsg = [...activeSession.messages].reverse().find((m) => m.role === "assistant") || activeSession.messages[activeSession.messages.length - 1];
+      if (lastAssistantMsg) {
+        items.push({
+          id: `os-current-${lastAssistantMsg.id}`,
+          msg: lastAssistantMsg,
+          os: activeSession.currentOS,
+          timestamp: lastAssistantMsg.timestamp,
+        });
+      }
+    }
+
+    // Ensure chronological order (from old to new)
+    items.sort((a, b) => a.timestamp - b.timestamp);
+    return items;
+  };
 
   // Character specific settings (dynamic)
   const [replyLength, setReplyLength] = useState<"short" | "medium" | "detailed">("short");
@@ -1049,8 +1118,7 @@ export default function ChatApp({
     }
 
     onUpdateSessionMessages(activeCharId, updatedMessages);
-    // Auto trigger AI reply upon sending user message
-    handleTriggerAiReply(updatedMessages);
+    // Send button strictly sends user message only. AI reply must be manually triggered via Heart button.
   };
 
   // Trigger AI reply (supporting customMessages, replyLength, replyCount, mood, memories)
@@ -1173,6 +1241,7 @@ export default function ChatApp({
             content: part,
             timestamp: Date.now(),
             matchedLoreKeys: keys.length > 0 ? keys : undefined,
+            os: i === parts.length - 1 ? (data.os || undefined) : undefined,
           };
           currentMessages = [...currentMessages, newBotMsg];
           const osToSave = i === parts.length - 1 ? (data.os || "") : undefined;
@@ -2431,9 +2500,6 @@ export default function ChatApp({
                         <span>{osParsed.emotion}</span>
                       </span>
                     </div>
-                    <span className="text-[9px] text-amber-600 font-sans tracking-wide truncate max-w-[150px] italic">
-                      {osParsed.text}
-                    </span>
                   </>
                 );
               })()}
@@ -3409,8 +3475,8 @@ export default function ChatApp({
               <p className="text-xs text-neutral-500 font-sans truncate">"{activeMessage.content}"</p>
             </div>
 
-            {/* Grid container with responsive column count based on role */}
-            <div className={`grid gap-4 pt-2 ${activeMessage.role === "assistant" ? "grid-cols-4" : "grid-cols-3"}`}>
+            {/* Grid container with 5 columns for actions */}
+            <div className="grid grid-cols-5 gap-2 pt-2">
               
               {/* Action 1: Delete */}
               <button
@@ -3423,8 +3489,8 @@ export default function ChatApp({
                 }}
                 className="flex flex-col items-center gap-1.5 group focus:outline-none"
               >
-                <div className="w-12 h-12 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
-                  <Trash2 className="w-5 h-5 stroke-[1.5]" />
+                <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
+                  <Trash2 className="w-4.5 h-4.5 stroke-[1.5]" />
                 </div>
                 <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">删除</span>
               </button>
@@ -3445,8 +3511,8 @@ export default function ChatApp({
                 }}
                 className="flex flex-col items-center gap-1.5 group focus:outline-none"
               >
-                <div className="w-12 h-12 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
-                  <CornerUpLeft className="w-5 h-5 stroke-[1.5]" />
+                <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
+                  <CornerUpLeft className="w-4.5 h-4.5 stroke-[1.5]" />
                 </div>
                 <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">撤回</span>
               </button>
@@ -3459,14 +3525,14 @@ export default function ChatApp({
                 }}
                 className="flex flex-col items-center gap-1.5 group focus:outline-none"
               >
-                <div className="w-12 h-12 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
-                  <Quote className="w-5 h-5 stroke-[1.5]" />
+                <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
+                  <Quote className="w-4.5 h-4.5 stroke-[1.5]" />
                 </div>
                 <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">引用</span>
               </button>
 
-              {/* Action 4: Edit (only for user messages!) */}
-              {activeMessage.role === "user" && (
+              {/* Action 4: Edit (for user) / Reroll (for assistant) */}
+              {activeMessage.role === "user" ? (
                 <button
                   onClick={() => {
                     setInputText(activeMessage.content);
@@ -3475,38 +3541,48 @@ export default function ChatApp({
                   }}
                   className="flex flex-col items-center gap-1.5 group focus:outline-none"
                 >
-                  <div className="w-12 h-12 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
-                    <Edit className="w-5 h-5 stroke-[1.5]" />
+                  <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
+                    <Edit className="w-4.5 h-4.5 stroke-[1.5]" />
                   </div>
                   <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">编辑</span>
                 </button>
-              )}
-
-              {/* Action 5: Reroll (only for assistant messages!) */}
-              {activeMessage.role === "assistant" && (
+              ) : (
                 <button
                   onClick={handleReroll}
                   className="flex flex-col items-center gap-1.5 group focus:outline-none animate-fade-in"
                 >
-                  <div className="w-12 h-12 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
-                    <Dices className="w-5 h-5 stroke-[1.5]" />
+                  <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
+                    <Dices className="w-4.5 h-4.5 stroke-[1.5]" />
                   </div>
                   <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">重roll</span>
                 </button>
               )}
+
+              {/* Action 5: Copy */}
+              <button
+                onClick={() => {
+                  handleCopyContent(activeMessage.content);
+                }}
+                className="flex flex-col items-center gap-1.5 group focus:outline-none"
+              >
+                <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
+                  <Copy className="w-4.5 h-4.5 stroke-[1.5]" />
+                </div>
+                <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">复制</span>
+              </button>
 
             </div>
           </div>
         </div>
       )}
 
-      {/* -------------------- OVERLAY 2: FULLSCREEN CHARACTER DETAIL PROFILE MODAL -------------------- */}
+      {/* -------------------- OVERLAY 2: CHARACTER PROFILE & INNER THOUGHT MODAL -------------------- */}
       {showProfileModal && activeChar && (
         <div className="fixed inset-0 bg-neutral-950/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in select-none">
-          <div className="bg-white w-full max-w-[340px] rounded-[32px] overflow-hidden shadow-2xl border border-neutral-200/50 flex flex-col max-h-[85vh] animate-scale-up">
+          <div className="bg-white w-full max-w-[280px] sm:max-w-[300px] rounded-[24px] overflow-hidden shadow-2xl border border-stone-200/80 flex flex-col animate-scale-up">
             
-            {/* Real Appearance Standee Banner */}
-            <div className="relative h-64 bg-neutral-100 shrink-0 overflow-hidden flex items-center justify-center">
+            {/* 1. Top Section: 1:1 Square Portrait/Standee */}
+            <div className="relative w-full aspect-square bg-stone-100 shrink-0 overflow-hidden flex items-center justify-center border-b border-stone-100">
               {activeChar.realImage ? (
                 <img 
                   src={activeChar.realImage} 
@@ -3515,89 +3591,93 @@ export default function ChatApp({
                   referrerPolicy="no-referrer"
                 />
               ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-gradient-to-b from-neutral-50 to-neutral-200/50">
-                  <div className="w-16 h-16 rounded-3xl bg-white shadow-md flex items-center justify-center text-4xl mb-3">
+                <div className="w-full h-full bg-stone-200/50 flex flex-col items-center justify-center text-center p-4">
+                  <div className="w-12 h-12 rounded-2xl bg-white shadow-xs flex items-center justify-center text-3xl mb-1.5">
                     {activeChar.avatar}
                   </div>
-                  <span className="text-[11px] font-sans font-bold text-neutral-400 tracking-wider uppercase">暂无真实面貌立绘</span>
-                  <span className="text-[9px] font-sans text-neutral-400 mt-0.5">可在建立角色时手动上传或由文档生成</span>
+                  <span className="text-[11px] font-sans text-stone-400">真实面貌立绘</span>
                 </div>
               )}
-              {/* Close Button */}
+
+              {/* Close Button on Top Right */}
               <button 
                 onClick={() => setShowProfileModal(false)}
-                className="absolute top-4 right-4 w-8 h-8 rounded-full bg-black/60 hover:bg-black text-white flex items-center justify-center text-xs transition-all active:scale-90"
+                className="absolute top-2.5 right-2.5 w-7 h-7 rounded-full bg-black/50 hover:bg-black text-white flex items-center justify-center text-xs transition-all active:scale-90"
               >
                 ✕
               </button>
+
+              {/* 2. Chat Avatar: 28px Circular in bottom-right corner inside image area */}
+              <div className="absolute bottom-2.5 right-2.5 w-[28px] h-[28px] rounded-full border-2 border-white shadow-md overflow-hidden bg-stone-100 flex items-center justify-center text-xs shrink-0">
+                {activeChar.chatAvatar ? (
+                  <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  activeChar.avatar
+                )}
+              </div>
             </div>
 
-            {/* Profile Information Scroll Area */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            {/* Profile Information & Inner Thought Body */}
+            <div className="p-4 space-y-3">
               
-              {/* Header with name and age */}
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-neutral-50 border border-neutral-100 flex items-center justify-center overflow-hidden text-2xl shadow-inner shrink-0">
-                  {activeChar.chatAvatar ? (
-                    <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                  ) : (
-                    activeChar.avatar
-                  )}
-                </div>
-                <div>
-                  <h2 className="font-sans font-bold text-base text-neutral-950 flex items-center gap-1.5 leading-tight">
-                    {activeChar.name}
-                  </h2>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    {/* Age tag */}
-                    <span className="text-[9px] font-sans font-bold px-1.5 py-0.5 bg-neutral-100 text-neutral-600 rounded">
-                      年龄: {getAgeFromInstruction(activeChar.systemInstruction)}
-                    </span>
-                    <span className="text-[9px] font-mono text-neutral-400">ID: {activeChar.id.substring(12, 17) || "preset"}</span>
-                  </div>
-                </div>
+              {/* Character Name: 14px, Deep Gray, Playfair Display */}
+              <div>
+                <h2 
+                  style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+                  className="font-bold text-[14px] text-stone-800 tracking-tight"
+                >
+                  {activeChar.name}
+                </h2>
               </div>
 
-              {/* Description */}
-              <div className="space-y-1">
-                <span className="text-[9px] font-mono font-bold text-neutral-400 uppercase tracking-wider block">一句话简介 (Bio)</span>
-                <p className="text-xs text-neutral-600 leading-relaxed font-sans font-medium">
-                  {activeChar.description || "一个极具故事感的人工智能。"}
+              {/* 3. Character's Current Inner Thought */}
+              <div className="bg-stone-50 border border-stone-200/60 p-3 rounded-[12px] space-y-1 shadow-xs">
+                <span className="text-[10px] font-mono font-bold text-stone-400 uppercase tracking-wider block">
+                  💭 当前内心心声
+                </span>
+                <p 
+                  style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+                  className="text-stone-800 text-xs leading-relaxed whitespace-pre-wrap italic"
+                >
+                  {parseOS(activeSession?.currentOS).text}
                 </p>
               </div>
 
-              {/* Character OS/Inner Voice */}
-              <div className="space-y-2">
-                <span className="text-[10px] font-mono font-bold text-amber-500 uppercase tracking-wider block flex items-center gap-1">
-                  💭 角色当前内心心声 (Inner Thoughts)
-                </span>
-                <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-100 text-neutral-800 font-sans text-xs whitespace-pre-wrap leading-relaxed italic shadow-inner">
-                  {parseOS(activeSession?.currentOS).text}
-                </div>
-              </div>
-
-              {/* Custom styled dialog buttons */}
-              {!activeChar.isSubAccount && (
+              {/* 4. Action Buttons */}
+              <div className="space-y-2 pt-1">
+                {/* View All Inner Thoughts */}
                 <button
+                  type="button"
                   onClick={() => {
                     setShowProfileModal(false);
-                    setSubAccountParentId(activeChar.id);
+                    setShowAllOsModal(true);
                   }}
-                  className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-sans font-bold text-xs py-3 rounded-xl tracking-wider active:scale-[0.98] transition-all text-center block mb-2"
+                  className="w-full bg-stone-900 hover:bg-black text-white font-sans font-medium text-xs py-2.5 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
                 >
-                  👤 创建小号 (Create Sub-Account)
+                  <span>查看所有心声</span>
+                  <span className="text-xs">→</span>
                 </button>
-              )}
 
-              <button
-                onClick={() => setShowProfileModal(false)}
-                className="w-full bg-black hover:bg-neutral-900 text-white font-sans font-bold text-xs py-3 rounded-xl tracking-wider active:scale-[0.98] transition-all text-center block mt-2 shadow-md"
-              >
-                返回对话 (BACK TO CHAT)
-              </button>
+                {/* Close Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowProfileModal(false)}
+                  className="w-full bg-transparent hover:bg-stone-100 text-stone-500 font-sans text-xs py-1.5 rounded-xl transition-all text-center block"
+                >
+                  关闭
+                </button>
+              </div>
 
             </div>
           </div>
+        </div>
+      )}
+
+      {/* -------------------- OVERLAY TOAST NOTIFICATION -------------------- */}
+      {copyToast && (
+        <div className="fixed bottom-12 left-1/2 -translate-x-1/2 bg-stone-900/90 text-white text-xs font-sans px-4 py-2 rounded-full shadow-lg z-[100] animate-fade-in flex items-center gap-1.5 backdrop-blur-md border border-stone-800">
+          <Check className="w-3.5 h-3.5 text-stone-200 stroke-[2.5]" />
+          <span>{copyToast}</span>
         </div>
       )}
 
@@ -3912,6 +3992,204 @@ export default function ChatApp({
           onSyncToOnlineChat={handleSyncOfflineMemory}
           onClose={() => setShowOfflineMeet(false)}
         />
+      )}
+
+      {/* -------------------- OVERLAY: SINGLE MESSAGE OS MODAL -------------------- */}
+      {msgOsModalTarget && activeChar && (
+        <div className="fixed inset-0 bg-neutral-950/40 backdrop-blur-sm z-[80] flex items-center justify-center p-4 animate-fade-in select-none">
+          <div className="bg-white w-full max-w-sm rounded-[24px] overflow-hidden shadow-2xl border border-stone-200 flex flex-col p-5 space-y-4 animate-scale-up">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">💭</span>
+                <h3
+                  style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+                  className="font-bold text-base text-stone-900"
+                >
+                  消息内心心声
+                </h3>
+              </div>
+              <button
+                onClick={() => setMsgOsModalTarget(null)}
+                className="p-1.5 text-stone-400 hover:text-black rounded-full hover:bg-stone-100 transition-all"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Message content preview */}
+            <div className="bg-[#F8F6F2] p-3 rounded-[12px] border border-stone-200/60 text-xs text-stone-600 font-sans">
+              <span className="text-[10px] font-bold text-[#8C827A] block mb-1">
+                {msgOsModalTarget.role === "assistant" ? `${activeChar.name} 的消息:` : "你的消息:"}
+              </span>
+              <p className="line-clamp-3 italic text-stone-700">"{msgOsModalTarget.content}"</p>
+            </div>
+
+            {/* Inner thought content */}
+            <div className="bg-amber-50/70 p-4 rounded-[16px] border border-amber-100 text-xs text-stone-800 font-sans leading-relaxed italic space-y-1.5 shadow-inner">
+              {(() => {
+                const targetOs = msgOsModalTarget.os || activeSession?.currentOS;
+                const parsed = parseOS(targetOs);
+                return (
+                  <>
+                    <div className="flex items-center justify-between text-[10px] not-italic text-amber-900 font-bold">
+                      <span className="flex items-center gap-1">
+                        <span>{parsed.emoji}</span>
+                        <span>{activeChar.name} 的真实想法</span>
+                      </span>
+                      <span className="bg-amber-100/80 text-amber-900 px-1.5 py-0.5 rounded text-[9px]">
+                        {parsed.emotion}
+                      </span>
+                    </div>
+                    <p className="whitespace-pre-wrap text-[#2C2825] not-italic">{parsed.text}</p>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Buttons */}
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setMsgOsModalTarget(null);
+                  setShowAllOsModal(true);
+                }}
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white font-sans font-bold text-xs py-2.5 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
+              >
+                <span>💭</span>
+                <span>查看所有历史心声</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMsgOsModalTarget(null)}
+                className="w-full bg-stone-100 hover:bg-stone-200 text-stone-700 font-sans font-medium text-xs py-2 rounded-xl transition-all"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- OVERLAY: ALL HISTORICAL OS MODAL -------------------- */}
+      {showAllOsModal && activeChar && activeSession && (
+        <div className="fixed inset-0 bg-neutral-950/50 backdrop-blur-sm z-[80] flex items-center justify-center p-3 sm:p-4 animate-fade-in select-none">
+          <div className="bg-white w-full max-w-lg h-[85vh] sm:h-[80vh] rounded-[24px] overflow-hidden shadow-2xl border border-stone-200 flex flex-col animate-scale-up">
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-stone-200 flex items-center justify-between bg-white">
+              <div className="flex items-center gap-2.5">
+                <span className="text-xl">💭</span>
+                <div>
+                  <h3
+                    style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+                    className="font-bold text-lg text-stone-900 tracking-tight flex items-center gap-2"
+                  >
+                    历史心声
+                    <span className="text-xs font-normal text-stone-700 bg-stone-100 px-2.5 py-0.5 rounded-full font-sans">
+                      {activeChar.name}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-stone-400 font-sans">
+                    按时间顺序记录的角色内心真实想法（从旧到新）
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAllOsModal(false)}
+                className="p-2 text-stone-400 hover:text-stone-900 rounded-full hover:bg-stone-100 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* List content (Chronological, old to new) with 12px spacing between cards */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-[12px] bg-stone-50/50">
+              {(() => {
+                const osHistory = getSessionOsHistory();
+                if (osHistory.length === 0) {
+                  return (
+                    <div className="py-16 text-center space-y-3">
+                      <span className="text-4xl block">💭</span>
+                      <p className="text-xs text-stone-500 font-sans">暂无生成的心声历史</p>
+                      <p className="text-[11px] text-stone-400 font-sans">在对话中角色表达内心想法后即可在此汇总查看</p>
+                    </div>
+                  );
+                }
+
+                return osHistory.map((item, idx) => {
+                  const parsed = parseOS(item.os);
+                  const formattedTime = new Date(item.timestamp).toLocaleString([], {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  });
+
+                  return (
+                    <div
+                      key={item.id || idx}
+                      className="bg-white rounded-[12px] shadow-xs border border-stone-200 p-[12px_16px] flex flex-col justify-between transition-all hover:border-stone-400"
+                    >
+                      {/* Top-left: Corresponding message preview */}
+                      <div className="text-[11px] text-stone-400 font-sans truncate mb-2 flex items-center gap-1.5">
+                        <span className="font-medium shrink-0">
+                          {item.msg.role === "assistant" ? `${activeChar.name}:` : "用户:"}
+                        </span>
+                        <span className="truncate italic">"{item.msg.content}"</span>
+                      </div>
+
+                      {/* Middle: Inner thought content (Playfair Display) */}
+                      <div className="my-1 text-xs md:text-sm text-stone-800 font-sans leading-relaxed whitespace-pre-wrap bg-stone-50 p-3 rounded-[10px] border border-stone-200/80">
+                        <div className="flex items-center justify-between text-[10px] text-stone-500 font-bold mb-1">
+                          <span className="flex items-center gap-1">
+                            <span>{parsed.emoji}</span>
+                            <span>内心想法</span>
+                          </span>
+                          <span className="bg-stone-200/60 text-stone-700 px-1.5 py-0.2 rounded text-[9px]">
+                            {parsed.emotion}
+                          </span>
+                        </div>
+                        <p 
+                          style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
+                          className="text-stone-800 font-normal leading-relaxed"
+                        >
+                          {parsed.text}
+                        </p>
+                      </div>
+
+                      {/* Bottom: Generation timestamp & Copy Button */}
+                      <div className="flex items-center justify-between text-[10px] text-stone-400 font-mono pt-2 border-t border-stone-100 mt-1">
+                        <div className="flex items-center gap-2">
+                          <span>#{idx + 1}</span>
+                          <span>{formattedTime}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyContent(parsed.text)}
+                          className="flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-900 font-sans transition-colors active:scale-95 px-2 py-0.5 rounded hover:bg-stone-100"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>复制心声</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Footer close button */}
+            <div className="p-3.5 border-t border-stone-200 bg-white">
+              <button
+                onClick={() => setShowAllOsModal(false)}
+                className="w-full bg-stone-900 hover:bg-black text-white font-sans font-medium text-xs py-2.5 rounded-xl transition-all active:scale-95"
+              >
+                关闭并返回聊天
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

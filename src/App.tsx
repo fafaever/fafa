@@ -508,7 +508,7 @@ export default function App() {
 
     setIsGeneratingMap(prev => ({ ...prev, [character.id]: true }));
     try {
-      const data = await apiGenerateNote({ character, settings });
+      const data = await apiGenerateNote({ character, settings, memories: character.memories, lores: loreList });
       if (data.text) {
         // AI 自动决定是否分享
         const isShared = Math.random() > 0.5; 
@@ -753,6 +753,7 @@ export default function App() {
             transferData,
             timestamp: Date.now(),
             matchedLoreKeys: keys.length > 0 ? keys : undefined,
+            os: i === parts.length - 1 ? (data.os || undefined) : undefined,
           };
           currentMessages = [...currentMessages, newBotMsg];
           const osToSave = i === parts.length - 1 ? (data.os || "") : undefined;
@@ -908,7 +909,7 @@ export default function App() {
           const now = Date.now();
           if (now - lastGen >= intervalHours * 3600 * 1000) {
             try {
-              const data = await apiGenerateNote({ character: char, settings });
+              const data = await apiGenerateNote({ character: char, settings, memories: char.memories, lores: loreList });
               if (data.text) {
                 const savedNotes = localStorage.getItem(`mobile_ai_notes_${char.id}`);
                 const notes = savedNotes ? JSON.parse(savedNotes) : [];
@@ -1035,6 +1036,7 @@ export default function App() {
           <ForumApp
             characters={characters}
             settings={settings}
+            loreList={loreList}
             onClose={() => setCurrentScreen("home")}
           />
         );

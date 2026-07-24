@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ChevronLeft, MessageCircle, Heart, Search, User, Sparkles, X, Compass, Mail, Edit3, MessageSquare } from "lucide-react";
-import { Character, AppSettings } from "../types";
+import { Character, AppSettings, LoreEntry } from "../types";
 import { apiChat } from "../lib/api";
 import { ConfirmModal } from "./ConfirmModal";
 
@@ -30,6 +30,7 @@ interface ForumComment {
 interface ForumAppProps {
   characters: Character[];
   settings: AppSettings;
+  loreList?: LoreEntry[];
   onClose: () => void;
 }
 
@@ -62,7 +63,7 @@ const generateAnonymousAvatar = (seed: string) => {
   return `data:image/svg+xml;base64,${btoa(svg)}`;
 };
 
-export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
+export function ForumApp({ characters, settings, loreList = [], onClose }: ForumAppProps) {
   const [activeTab, setActiveTab] = useState<'public' | 'private' | 'profile'>('public');
   const [activeFilterTag, setActiveFilterTag] = useState<string>('全部');
   const [posts, setPosts] = useState<ForumPost[]>([]);
@@ -132,7 +133,14 @@ export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
   "tag": "必须从[日常, 吐槽, 恐怖, 闲聊, 求助]中选择一个",
   "content": "帖子的正文内容"
 }`;
-        const response = await apiChat({ messages: [{ role: "user", content: prompt }], settings, systemInstruction: "你是一个只能输出JSON的API。" });
+        const response = await apiChat({ 
+          messages: [{ role: "user", content: prompt }], 
+          character: activeChar,
+          memories: activeChar.memories,
+          matchedLore: loreList,
+          settings, 
+          systemInstruction: "你是一个只能输出JSON的API。" 
+        });
         const responseText = response.text || "";
         
         let parsed = null;
@@ -179,7 +187,13 @@ export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
 请以你的口吻写一条简短的回复（10-50字）。
 输出纯文本，不要包含任何格式。`;
 
-        const response = await apiChat({ messages: [{ role: "user", content: prompt }], settings });
+        const response = await apiChat({ 
+          messages: [{ role: "user", content: prompt }], 
+          character: activeChar,
+          memories: activeChar.memories,
+          matchedLore: loreList,
+          settings 
+        });
         const cleanText = (response.text || "").trim();
         
         if (cleanText) {

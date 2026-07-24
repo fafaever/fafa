@@ -67,11 +67,5 @@ export const onRequest = async (context: { request: Request }) => {
   if (context.request.method === "OPTIONS") {
     return onRequestOptions();
   }
-  if (context.request.method === "POST") {
-    return onRequestPost(context);
-  }
-  return new Response(JSON.stringify({ error: "Method Not Allowed. Expected POST." }), {
-    status: 405,
-    headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-  });
+  return onRequestPost(context);
 };
