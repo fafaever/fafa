@@ -5,7 +5,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   define: {
-    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    _BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
   plugins: [react(), tailwindcss()],
   resolve: {
@@ -19,5 +19,11 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    rollupOptions: {
+      input: {
+        main: 'index.html'
+      },
+      external: ['server.ts']
+    }
   },
 });
