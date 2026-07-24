@@ -169,8 +169,8 @@ export default function ChatApp({
       const handleResize = () => {
         const viewport = window.visualViewport;
         if (viewport) {
-          // Improved calculation for keyboard height
-          // Using offsetTop can help on some iOS versions where the viewport is shifted
+          // Calculation for keyboard height
+          // On mobile, the visual viewport height decreases when keyboard appears
           const height = window.innerHeight - viewport.height;
           setKeyboardHeight(Math.max(0, height));
         }
@@ -1034,7 +1034,7 @@ export default function ChatApp({
     }
 
     onUpdateSessionMessages(activeCharId, updatedMessages);
-    await handleTriggerAiReply();
+    await handleTriggerAiReply(updatedMessages);
   };
 
   // Trigger AI reply (supporting customMessages, replyLength, replyCount, mood, memories)
@@ -2269,9 +2269,28 @@ export default function ChatApp({
                       <span className="font-sans font-bold text-neutral-600">当前AI端点 (Gemini Proxy)</span>
                       <span className="font-mono text-neutral-400">已内置安全中转</span>
                     </div>
-                    <div className="p-4 flex items-center justify-between text-xs">
-                      <span className="font-sans font-bold text-neutral-600">终端黑白极简版本 (Build)</span>
-                      <span className="font-mono text-neutral-400">v1.4.2 (Monochrome)</span>
+                    <div className="p-4 flex flex-col gap-1 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-sans font-bold text-neutral-600">终端黑白极简版本 (Build)</span>
+                        <span className="font-mono text-neutral-400">v1.4.2 (Monochrome)</span>
+                      </div>
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="font-sans text-[10px] text-neutral-400">更新于：{
+                          (() => {
+                            try {
+                              const date = new Date(typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : Date.now());
+                              const Y = date.getFullYear();
+                              const M = String(date.getMonth() + 1).padStart(2, '0');
+                              const D = String(date.getDate()).padStart(2, '0');
+                              const h = String(date.getHours()).padStart(2, '0');
+                              const m = String(date.getMinutes()).padStart(2, '0');
+                              return `${Y}-${M}-${D} ${h}:${m}`;
+                            } catch (e) {
+                              return "未知时间";
+                            }
+                          })()
+                        }</span>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -2435,7 +2454,10 @@ export default function ChatApp({
           {/* Messages Scroll Area */}
           <div 
             className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 bg-neutral-50/50 transition-all duration-150"
-            style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight + 80}px` : "96px" }}
+            style={{ 
+              paddingBottom: keyboardHeight > 0 ? `${keyboardHeight + 84}px` : "100px",
+              scrollBehavior: "smooth"
+            }}
           >
             {activeSession.messages.length === 0 ? (
               <div className="py-20 text-center space-y-3">
@@ -2865,8 +2887,12 @@ export default function ChatApp({
 
                 <form 
                   onSubmit={handleSendMessage} 
-                  className="fixed bottom-0 left-0 right-0 p-3 bg-white z-50 transition-transform duration-150 border-t border-neutral-100"
-                  style={{ transform: `translateY(-${keyboardHeight}px)` }}
+                  className="fixed left-0 right-0 p-3 bg-white z-50 transition-all duration-150 border-t border-neutral-100 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]"
+                  style={{ 
+                    bottom: `${keyboardHeight}px`,
+                    // Add extra 4px spacing as requested when keyboard is up
+                    marginBottom: keyboardHeight > 0 ? '4px' : '0px'
+                  }}
                 >
                   <div className="flex items-center gap-2">
                     <button

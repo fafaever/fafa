@@ -33,12 +33,42 @@ interface ForumAppProps {
   onClose: () => void;
 }
 
+const generateAnonymousAvatar = (seed: string) => {
+  // Simple deterministic random based on seed string
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  
+  const shapes = [
+    `<circle cx="50" cy="50" r="30" stroke="black" stroke-width="2" fill="none" />`,
+    `<rect x="25" y="25" width="50" height="50" stroke="black" stroke-width="2" fill="none" />`,
+    `<path d="M50 20 L80 80 L20 80 Z" stroke="black" stroke-width="2" fill="none" />`,
+    `<path d="M20 50 Q50 20 80 50 Q50 80 20 50" stroke="black" stroke-width="2" fill="none" />`,
+    `<path d="M30 30 L70 70 M70 30 L30 70" stroke="black" stroke-width="2" fill="none" />`,
+    `<circle cx="50" cy="50" r="15" stroke="black" stroke-width="2" fill="none" />`,
+    `<path d="M50 20 V80 M20 50 H80" stroke="black" stroke-width="2" fill="none" />`
+  ];
+  
+  const shapeIndex = Math.abs(hash) % shapes.length;
+  const rotation = (Math.abs(hash) % 8) * 45;
+  
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+    <g transform="rotate(${rotation} 50 50)">
+      ${shapes[shapeIndex]}
+    </g>
+  </svg>`;
+  
+  return `data:image/svg+xml;base64,${btoa(svg)}`;
+};
+
 export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
   const [activeTab, setActiveTab] = useState<'public' | 'private' | 'profile'>('public');
   const [activeFilterTag, setActiveFilterTag] = useState<string>('全部');
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [selectedPost, setSelectedPost] = useState<ForumPost | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{title: string, message: string, onConfirm: () => void} | null>(null);
+  const [randomizedContacts, setRandomizedContacts] = useState<Character[]>([]);
 
   // Settings
   const [postGenCount, setPostGenCount] = useState<number>(3);
@@ -61,6 +91,16 @@ export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
   useEffect(() => {
     localStorage.setItem("mobile_ai_forum_posts", JSON.stringify(posts));
   }, [posts]);
+
+  // Randomize DM contacts
+  useEffect(() => {
+    if (characters.length > 0) {
+      // Pick 2-4 random characters as "system generated" contacts
+      const shuffled = [...characters].sort(() => 0.5 - Math.random());
+      const count = Math.min(shuffled.length, Math.floor(Math.random() * 3) + 2);
+      setRandomizedContacts(shuffled.slice(0, count));
+    }
+  }, [characters]);
 
   // Load config
   useEffect(() => {
@@ -107,8 +147,8 @@ export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
           generatedPosts.push({
             id: Date.now().toString() + "-" + i,
             authorId: activeChar.id,
-            authorName: activeChar.name,
-            authorAvatar: activeChar.chatAvatar || activeChar.avatar || "👤",
+            authorName: "匿名用户",
+            authorAvatar: generateAnonymousAvatar(activeChar.id),
             title: "匿名帖子",
             content: parsed.content,
             tag: parsed.tag || "日常",
@@ -146,8 +186,8 @@ export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
           newComments.push({
             id: Date.now().toString() + "-" + i,
             authorId: activeChar.id,
-            authorName: activeChar.name,
-            authorAvatar: activeChar.chatAvatar || activeChar.avatar || "👤",
+            authorName: "匿名用户",
+            authorAvatar: generateAnonymousAvatar(activeChar.id),
             content: cleanText,
             timestamp: Date.now(),
             floor: post.comments.length + newComments.length + 1
@@ -199,7 +239,7 @@ export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
                     </div>
                   )}
                   <div>
-                    <div className="text-sm font-bold text-neutral-900">{selectedPost.authorName}</div>
+                    <div className="text-sm font-bold text-neutral-900">匿名用户</div>
                     <div className="text-[10px] text-neutral-400">{formatTime(selectedPost.timestamp)}</div>
                   </div>
                 </div>
@@ -255,7 +295,7 @@ export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
                   )}
                   <div className="flex-1 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-neutral-900">{c.authorName}</span>
+                      <span className="text-xs font-bold text-neutral-900">匿名用户</span>
                       <span className="text-[10px] text-neutral-400">#{c.floor}</span>
                     </div>
                     <p className="text-xs text-neutral-700 font-medium break-all whitespace-pre-wrap leading-relaxed">
@@ -350,7 +390,7 @@ export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
                         </div>
                       )}
                       <div>
-                        <div className="text-xs font-bold text-neutral-900">{post.authorName}</div>
+                        <div className="text-xs font-bold text-neutral-900">匿名用户</div>
                         <div className="text-[10px] text-neutral-400">{formatTime(post.timestamp)}</div>
                       </div>
                     </div>
@@ -395,46 +435,43 @@ export function ForumApp({ characters, settings, onClose }: ForumAppProps) {
           <div className="flex-1 flex flex-col p-4 space-y-3 overflow-y-auto">
             <div className="bg-white rounded-2xl border border-neutral-100 p-4 shadow-sm mb-2">
               <p className="text-xs font-bold text-neutral-800 mb-1">论坛私信</p>
-              <p className="text-[10px] text-neutral-500">此处的私聊将转至系统的主要对话功能。</p>
+              <p className="text-[10px] text-neutral-500">此处的私聊将转至系统的主要对话功能。联系人为系统随机生成。</p>
             </div>
             
-            {characters.map(char => (
+            {randomizedContacts.map(char => (
               <div 
                 key={char.id}
                 onClick={() => {
                   localStorage.setItem("mobile_ai_preselected_chat_char", char.id);
-                  onClose(); // This sends them back to home. To go to chat directly we'd need onNavigateToChat.
+                  onClose(); 
                 }}
                 className="bg-white p-3 rounded-2xl shadow-sm border border-neutral-100 flex items-center justify-between cursor-pointer active:scale-95 transition-all"
               >
                 <div className="flex items-center gap-3">
-                  {char.chatAvatar || char.avatar ? (
-                    char.chatAvatar ? (
-                      <img src={char.chatAvatar} className="w-10 h-10 rounded-full object-cover" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center text-xl">{char.avatar}</div>
-                    )
-                  ) : (
-                    <div className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center text-xl">👤</div>
-                  )}
+                  <img src={generateAnonymousAvatar(char.id)} className="w-10 h-10 rounded-full object-cover border border-neutral-100" />
                   <div>
-                    <div className="text-xs font-bold text-neutral-900">{char.name}</div>
-                    <div className="text-[10px] text-neutral-400 mt-0.5 line-clamp-1">{char.description || "暂无简介"}</div>
+                    <div className="text-xs font-bold text-neutral-900">匿名用户</div>
+                    <div className="text-[10px] text-neutral-400 mt-0.5 line-clamp-1">活跃于论坛的匿名用户</div>
                   </div>
                 </div>
                 <MessageCircle className="w-4 h-4 text-neutral-300" />
               </div>
             ))}
+            {randomizedContacts.length === 0 && (
+              <div className="text-center py-20 text-neutral-400 text-xs">
+                暂无私信联系人
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'profile' && (
           <div className="flex-1 flex flex-col p-4 space-y-4">
             <div className="bg-white rounded-2xl p-5 border border-neutral-100 shadow-sm flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-neutral-100 flex items-center justify-center text-3xl">👤</div>
+              <img src={generateAnonymousAvatar("me-user")} className="w-16 h-16 rounded-full border border-neutral-100" />
               <div>
                 <div className="font-bold text-base text-neutral-900">我 (匿名用户)</div>
-                <div className="text-xs text-neutral-400 mt-0.5">发帖数: 0</div>
+                <div className="text-xs text-neutral-400 mt-0.5">发帖数: {posts.filter(p => p.authorId === 'user').length}</div>
               </div>
             </div>
 

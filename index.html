@@ -7,8 +7,36 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;1,400&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+      @media screen and (orientation: landscape) {
+        #landscape-overlay {
+          display: flex !important;
+        }
+      }
+      #landscape-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.9);
+        z-index: 99999;
+        color: white;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-family: system-ui, -apple-system, sans-serif;
+        text-align: center;
+        padding: 20px;
+      }
+    </style>
   </head>
   <body>
+    <div id="landscape-overlay">
+      <div style="font-size: 48px; margin-bottom: 20px;">📱</div>
+      <div style="font-size: 18px; font-weight: 500;">请竖屏使用 (Please use portrait mode)</div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

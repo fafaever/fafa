@@ -60,12 +60,6 @@ const compressAndResizeImage = (file: File, maxDimension = 300, quality = 0.8): 
   });
 };
 
-const getAgeFromInstruction = (inst: string): string => {
-  if (!inst) return "不详";
-  const match = inst.match(/-\s*(?:年龄|岁数|Age)\s*[:：]\s*([^\n]+)/i);
-  return match ? match[1].trim() : "不详";
-};
-
 const getNicknameFromInstruction = (inst: string): string => {
   if (!inst) return "无";
   const match = inst.match(/-\s*(?:别名\/昵称|昵称|别名|Nickname|Nick)\s*[:：]\s*([^\n]+)/i);
@@ -115,7 +109,6 @@ export default function CharacterCreatorApp({
   const [name, setName] = useState("");
   const [nickname, setNickname] = useState(""); // 别名/昵称
   const [avatar, setAvatar] = useState("🤖");
-  const [age, setAge] = useState(""); // 角色年龄
   const [background, setBackground] = useState(""); // 角色背景
   const [personality, setPersonality] = useState(""); // 人设 / 性格特点
   const [chatStyle, setChatStyle] = useState(""); // 聊天风格
@@ -152,7 +145,6 @@ export default function CharacterCreatorApp({
     setEditingId(char.id);
     setName(char.name);
     setAvatar(char.avatar || "🤖");
-    setAge(getAgeFromInstruction(char.systemInstruction));
     setNickname(getNicknameFromInstruction(char.systemInstruction));
     setPersonality(getPersonalityFromInstruction(char.systemInstruction));
     setBackground(getBackgroundFromInstruction(char.systemInstruction));
@@ -170,7 +162,6 @@ export default function CharacterCreatorApp({
     setName("");
     setNickname("");
     setAvatar("🤖");
-    setAge("");
     setPersonality("");
     setBackground("");
     setChatStyle("");
@@ -260,7 +251,6 @@ export default function CharacterCreatorApp({
       // Perform local extraction
       let parsedName = "";
       let parsedNickname = "";
-      let parsedAge = "";
       let parsedPersonality = "";
       let parsedChatStyle = "";
       let parsedDesc = "";
@@ -274,23 +264,19 @@ export default function CharacterCreatorApp({
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        const nameMatch = trimmed.match(/^(?:姓名|名字|名称|角色名|主姓名|Name)\s*[:：]\s*(.+)$/i);
-        if (nameMatch) {
-          parsedName = nameMatch[1].trim();
-          hasStructure = true;
-          continue;
+        // Optimized name extraction: prioritize specific labels and ignore generic ones early in the document
+        if (!parsedName) {
+          const nameMatch = trimmed.match(/^(?:姓名|角色名|主姓名|Name)\s*[:：]\s*(.+)$/i);
+          if (nameMatch) {
+            parsedName = nameMatch[1].trim();
+            hasStructure = true;
+            continue;
+          }
         }
 
         const nickMatch = trimmed.match(/^(?:昵称|别名|小名|Nickname|Nick)\s*[:：]\s*(.+)$/i);
         if (nickMatch) {
           parsedNickname = nickMatch[1].trim();
-          hasStructure = true;
-          continue;
-        }
-
-        const ageMatch = trimmed.match(/^(?:年龄|岁数|Age)\s*[:：]\s*(.+)$/i);
-        if (ageMatch) {
-          parsedAge = ageMatch[1].trim();
           hasStructure = true;
           continue;
         }
@@ -347,16 +333,14 @@ export default function CharacterCreatorApp({
       console.log("=== [角色导入过程日志] ===");
       console.log("📄 导入文件名:", fileName);
       console.log("👤 提取姓名:", parsedName);
-      console.log("🎂 提取年龄:", parsedAge);
       console.log("📝 提取简介:", parsedDesc);
       console.log("💭 提取性格特点:", parsedPersonality);
       console.log("💬 提取聊天风格:", parsedChatStyle);
       console.log("🏞️ 提取背景设定:", parsedBackground);
 
-      // Validate critical fields: name and age
+      // Validate critical fields: name
       const missingFields: string[] = [];
       if (!parsedName) missingFields.push("姓名 (Name)");
-      if (!parsedAge) missingFields.push("年龄 (Age)");
 
       if (missingFields.length > 0) {
         console.warn("⚠️ [角色导入警告] 数据不完整。 缺失字段:", missingFields.join(", "));
@@ -364,13 +348,6 @@ export default function CharacterCreatorApp({
         // If name is missing, we can use the filename as a fallback
         if (!parsedName) {
           parsedName = fileName.replace(/\.[^/.]+$/, "");
-        }
-        
-        // If age is missing, we don't throw error immediately, instead we allow the user to see what's extracted
-        // and fill in the rest. 
-        if (!parsedAge) {
-          setErrorMsg(`角色数据不完全，缺失字段: ${missingFields.join(", ")}。请在下方手动补充。`);
-          // We don't throw here anymore, we let it proceed to fill whatever it found.
         }
       }
 
@@ -381,14 +358,13 @@ export default function CharacterCreatorApp({
       // Update form fields for visual feedback
       setName(parsedName);
       setNickname(parsedNickname);
-      setAge(parsedAge);
       setPersonality(parsedPersonality);
       setBackground(parsedBackground);
       setChatStyle(parsedChatStyle);
       setDesc(finalDesc);
 
-      if (parsedName && parsedAge) {
-        const systemInstruction = `你将扮演 ${parsedName} (年龄: ${parsedAge})。
+      if (parsedName) {
+        const systemInstruction = `你将扮演 ${parsedName}。
 以下是你的设定与背景故事：
 ${parsedBackground || "无"}
 
@@ -459,7 +435,6 @@ ${finalPersonality}
   const runLocalParser = (fileText: string, fName: string) => {
     let parsedName = "";
     let parsedNickname = "";
-    let parsedAge = "";
     let parsedPersonality = "";
     let parsedChatStyle = "";
     let parsedDesc = "";
@@ -473,23 +448,19 @@ ${finalPersonality}
       const trimmed = line.trim();
       if (!trimmed) continue;
 
-      const nameMatch = trimmed.match(/^(?:姓名|名字|名称|角色名|主姓名|Name)\s*[:：]\s*(.+)$/i);
-      if (nameMatch) {
-        parsedName = nameMatch[1].trim();
-        hasStructure = true;
-        continue;
+      // Prioritize name extraction
+      if (!parsedName) {
+        const nameMatch = trimmed.match(/^(?:姓名|角色名|主姓名|Name)\s*[:：]\s*(.+)$/i);
+        if (nameMatch) {
+          parsedName = nameMatch[1].trim();
+          hasStructure = true;
+          continue;
+        }
       }
 
       const nickMatch = trimmed.match(/^(?:昵称|别名|小名|Nickname|Nick)\s*[:：]\s*(.+)$/i);
       if (nickMatch) {
         parsedNickname = nickMatch[1].trim();
-        hasStructure = true;
-        continue;
-      }
-
-      const ageMatch = trimmed.match(/^(?:年龄|岁数|Age)\s*[:：]\s*(.+)$/i);
-      if (ageMatch) {
-        parsedAge = ageMatch[1].trim();
         hasStructure = true;
         continue;
       }
@@ -545,7 +516,6 @@ ${finalPersonality}
 
     setName(parsedName);
     setNickname(parsedNickname);
-    setAge(parsedAge);
     setPersonality(parsedPersonality);
     setBackground(parsedBackground);
     setChatStyle(parsedChatStyle);
@@ -574,11 +544,10 @@ ${finalPersonality}
       });
       
       if (response?.success && response?.data) {
-        const { name: aiName, nickname: aiNick, age: aiAge, personality: aiPers, chatStyle: aiChat, background: aiBg, description: aiDesc, avatar: aiAvatar } = response.data;
+        const { name: aiName, nickname: aiNick, personality: aiPers, chatStyle: aiChat, background: aiBg, description: aiDesc, avatar: aiAvatar } = response.data;
         
         if (aiName) setName(aiName);
         if (aiNick && aiNick !== "无") setNickname(aiNick);
-        if (aiAge) setAge(aiAge);
         if (aiPers) setPersonality(aiPers);
         if (aiBg) setBackground(aiBg);
         if (aiChat) setChatStyle(aiChat);
@@ -628,13 +597,12 @@ ${finalPersonality}
       if (!finalChatStyle) finalChatStyle = "第一人称沉浸对话";
     }
 
-    // Auto-generate system instruction combining name, nickname, age, personality, background, and chat style
+    // Auto-generate system instruction combining name, nickname, personality, background, and chat style
     const systemInstruction = `你正在扮演角色 "${finalName}"。
 
 【基本设定 / 人设 (Personality Profile)】:
 - 姓名: ${finalName}
 - 别名/昵称: ${nickname.trim() || "无"}
-- 年龄: ${age.trim() || "不详"}
 
 【性格特点 (Personality)】:
 ${finalPersonality}
@@ -683,7 +651,6 @@ ${background.trim() || "暂无背景故事"}
       setName("");
       setNickname("");
       setAvatar("🤖");
-      setAge("");
       setBackground("");
       setPersonality("");
       setChatStyle("");
@@ -884,50 +851,16 @@ ${background.trim() || "暂无背景故事"}
             </div>
           </div>
 
-          {/* Avatar selector & Name & Age */}
-          <div className="grid grid-cols-4 gap-3">
-            <div className="space-y-1">
-              <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">头像</label>
-              <div className="relative">
-                <select
-                  value={avatar}
-                  onChange={(e) => setAvatar(e.target.value)}
-                  className="w-full text-center text-lg border border-neutral-200 focus:border-neutral-950 py-2 rounded-xl bg-white outline-none cursor-pointer appearance-none"
-                >
-                  {!PRESET_AVATARS.includes(avatar) && (
-                    <option value={avatar}>{avatar} (导入)</option>
-                  )}
-                  {PRESET_AVATARS.map((av) => (
-                    <option key={av} value={av}>{av}</option>
-                  ))}
-                </select>
-                <div className="absolute inset-0 pointer-events-none flex items-center justify-center text-lg">
-                  {avatar}
-                </div>
-              </div>
-            </div>
-
-            <div className="col-span-2 space-y-1">
-              <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">角色名字 (Name)</label>
-              <input
-                type="text"
-                placeholder="例如: 银翼赏金猎人"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">年龄 (Age)</label>
-              <input
-                type="text"
-                placeholder="例如: 24 / 不详"
-                value={age}
-                onChange={(e) => setAge(e.target.value)}
-                className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none text-center"
-              />
-            </div>
+          {/* Name Input Only */}
+          <div className="space-y-1">
+            <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">角色名字 (Name)</label>
+            <input
+              type="text"
+              placeholder="例如: 银翼赏金猎人"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none"
+            />
           </div>
 
           {/* Quick Description */}

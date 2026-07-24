@@ -50,7 +50,7 @@ const PRESET_CHARACTERS: Character[] = [
   {
     id: "char-preset-fafa",
     name: "fafa",
-    avatar: "🤖",
+    avatar: "🌸",
     description: "智能助手 / 温柔耐心 / 功能解答",
     systemInstruction: `你叫fafa，是一个无性别的机器人智能助手，也是一个温柔、耐心、有思考能力的智能助手。
 
@@ -82,35 +82,7 @@ const PRESET_CHARACTERS: Character[] = [
 ];
 
 // Pre-made rich world book entries
-const PRESET_LORE: LoreEntry[] = [
-  {
-    id: "lore-preset-eldoria",
-    title: "艾尔德利亚帝国",
-    keys: ["帝国", "艾尔德利亚", "eldoria", "上城区", "下城区"],
-    content: "艾尔德利亚帝国是一个由魔能引擎驱动的庞大封建帝国。统治层极度腐败。帝国分为金碧辉煌的‘上城区’和常年不见天日的‘下城区机械贫民窟’。由于黑客、反抗军以及晶石走私集团在此频繁集结，下城区充满了反抗暴政的暗流。",
-    category: "地点",
-    enabled: true,
-    createdAt: 1720000000000,
-  },
-  {
-    id: "lore-preset-crystal",
-    title: "魔能结晶",
-    keys: ["魔能", "晶石", "结晶", "能源"],
-    content: "魔能结晶（Mana Crystal）是地底深层提取的幽蓝色发光矿石，蕴含惊人的魔法能源，是帝国所有机械引擎的核心。然而提炼过程会散发高致病的‘魔能辐射’，长期接触会在皮肤上长出幽蓝矿晶，最终结晶化死去。黑市上价格极高，属于禁运物资。",
-    category: "物品",
-    enabled: true,
-    createdAt: 1720000000001,
-  },
-  {
-    id: "lore-preset-ankh",
-    title: "古神安卡",
-    keys: ["古神", "安卡", "深渊", "旧日", "虚空"],
-    content: "古神安卡（The Old God Ankh）是沉睡于帝国极北深渊底部的太古旧日神祇，象征着虚空与狂乱。安卡处于永恒的休眠中，其精神辐射会污染接触法师的心智。希瑞尔曾经在窥探星空时感应到安卡的梦境，从而获得了暗影法术，但也受到了永无止境的低语折磨。",
-    category: "概念",
-    enabled: true,
-    createdAt: 1720000000002,
-  }
-];
+const PRESET_LORE: LoreEntry[] = [];
 
 export default function App() {
   // Screen routing state
@@ -198,11 +170,27 @@ export default function App() {
 
   useEffect(() => {
     // Force portrait orientation if supported
-    if (window.screen && (window.screen as any).orientation && (window.screen as any).orientation.lock) {
-      (window.screen as any).orientation.lock("portrait").catch(() => {
-        // Ignore errors (e.g. if the browser doesn''t support locking or requires full screen)
-      });
-    }
+    const lockOrientation = async () => {
+      try {
+        if (window.screen && (window.screen as any).orientation && (window.screen as any).orientation.lock) {
+          await (window.screen as any).orientation.lock("portrait");
+        }
+      } catch (error) {
+        // Ignore errors (e.g. if the browser doesn't support locking or requires full screen)
+        console.warn("Orientation lock failed:", error);
+      }
+    };
+    
+    lockOrientation();
+    
+    // Fallback: listen for orientation change
+    const handleOrientationChange = () => {
+      if (window.orientation === 90 || window.orientation === -90) {
+        // Screen is landscape
+      }
+    };
+    window.addEventListener("orientationchange", handleOrientationChange);
+    return () => window.removeEventListener("orientationchange", handleOrientationChange);
   }, []);
 
   // Core Data States

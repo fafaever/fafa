@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Wifi, Signal, Battery, Heart } from "lucide-react";
+import { Wifi, Signal, Battery, Heart, Bell } from "lucide-react";
 
 export default function StatusBar() {
   const [time, setTime] = useState("");
@@ -47,11 +47,9 @@ export default function StatusBar() {
       id="status_bar"
       className="flex justify-between items-center px-6 py-2.5 text-xs select-none bg-[#1A1A1A] shrink-0"
     >
-      {/* Left side: Time */}
-      <span id="status_time" className="font-serif font-medium tracking-tight text-white">{time}</span>
-      
-      {/* Center: Fullscreen Toggle */}
-      <div className="flex-1 flex justify-center">
+      {/* Left side: Time & Heart Toggle */}
+      <div id="status_left" className="flex items-center gap-3">
+        <span id="status_time" className="font-serif font-medium tracking-tight text-white">{time}</span>
         <button
           id="fullscreen_toggle_btn"
           onClick={toggleFullscreen}
@@ -61,11 +59,18 @@ export default function StatusBar() {
           <Heart className="w-4 h-4 stroke-[1.5]" />
         </button>
       </div>
-
+      
       {/* Right side: Phone indicators */}
-      <div id="status_indicators" className="flex items-center gap-1.5 font-serif text-[12px] font-medium text-white">
+      <div id="status_indicators" className="flex items-center gap-3 font-serif text-[12px] font-medium text-white">
+        {/* Network & Bell */}
+        <div className="flex items-center gap-2">
+          <Bell className="w-3.5 h-3.5 stroke-[1.5] text-white/80" />
+          <Signal className="w-4 h-4 stroke-[1.5]" />
+        </div>
+        
+        {/* Battery */}
         <div className="flex items-center gap-1">
-          <span>{time ? '88%' : ''}</span>
+          <span>88%</span>
           <Battery className="w-4 h-4 stroke-[1.5]" />
         </div>
       </div>
