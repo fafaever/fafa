@@ -9,151 +9,102 @@ export function normalizeUrl(url: string): string {
   return trimmed.replace(/\/+$/, "");
 }
 
-export async function callLLM(apiUrl: string, apiKey: string, model: string, messages: any[], temperature = 0.8, apiFormat: 'openai' | 'gemini' = 'openai') {
-  const hasCustomApi = !!(apiUrl && apiKey);
-  let lastErrorDetail = "";
+export function getStoredApiConfig(passedApiUrl?: string, passedApiKey?: string, passedModel?: string) {
+  let apiUrl = (passedApiUrl || "").trim();
+  let apiKey = (passedApiKey || "").trim();
+  let model = (passedModel || "").trim();
 
-  if (hasCustomApi) {
-    const cleanApiUrl = normalizeUrl(apiUrl);
-    let endpoint = "";
-    if (apiFormat === 'openai') {
-      if (cleanApiUrl.endsWith('/chat/completions')) {
-        endpoint = cleanApiUrl;
-      } else {
-        endpoint = `${cleanApiUrl}/chat/completions`;
-      }
-    } else {
-      if (cleanApiUrl.includes(':generateContent')) {
-        endpoint = cleanApiUrl;
-      } else {
-        const selectedModel = model || "gemini-2.5-flash";
-        if (cleanApiUrl.includes('/models/')) {
-          endpoint = `${cleanApiUrl}:generateContent`;
-        } else {
-          endpoint = `${cleanApiUrl}/models/${selectedModel}:generateContent`;
-        }
-      }
-      if (apiKey && !endpoint.includes('key=')) {
-        endpoint += (endpoint.includes('?') ? '&' : '?') + `key=${encodeURIComponent(apiKey)}`;
-      }
-    }
+  // Read direct keys from localStorage
+  if (!apiUrl) {
+    apiUrl = (localStorage.getItem("apiUrl") || "").trim();
+  }
+  if (!apiKey) {
+    apiKey = (localStorage.getItem("apiKey") || "").trim();
+  }
+  if (!model) {
+    model = (localStorage.getItem("model") || "").trim();
+  }
 
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (apiFormat === 'openai') {
-      headers["Authorization"] = `Bearer ${apiKey}`;
-    } else {
-      headers["x-goog-api-key"] = apiKey;
-      if (apiKey) {
-        headers["Authorization"] = `Bearer ${apiKey}`;
-      }
-    }
-
-    const body = apiFormat === 'openai'
-      ? { model: model || "gpt-3.5-turbo", messages, temperature }
-      : { contents: messages.map(m => ({ role: m.role === 'assistant' || m.role === 'model' ? 'model' : 'user', parts: [{ text: m.content || "" }] })), generationConfig: { temperature } };
-
-    // 1. Direct client fetch
+  // Fallback to mobile_ai_settings JSON
+  if (!apiUrl || !apiKey) {
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const text = apiFormat === 'openai' ? (data.choices?.[0]?.message?.content || "") : (data.candidates?.[0]?.content?.parts?.[0]?.text || "");
-        if (text) return text;
-      } else {
-        const errJson = await response.json().catch(() => null);
-        const errMsg = errJson?.error?.message || errJson?.error || errJson?.message || response.statusText;
-        lastErrorDetail = `[HTTP ${response.status}] ${errMsg}`;
-        console.warn(`⚠️ [Direct Client Fetch Status ${response.status}]`, errMsg);
+      const savedSettings = localStorage.getItem("mobile_ai_settings");
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        if (!apiUrl && parsed.apiUrl) apiUrl = (parsed.apiUrl || "").trim();
+        if (!apiKey && parsed.apiKey) apiKey = (parsed.apiKey || "").trim();
+        if (!model && parsed.model) model = (parsed.model || "").trim();
       }
-    } catch (err: any) {
-      lastErrorDetail = `[网络连接错误] ${err.message}`;
-      console.warn("⚠️ [Direct Client Fetch Failed, attempting proxy]", err.message);
-    }
-
-    // 2. Try backend proxy fallback (/api/chat & /api/proxy)
-    try {
-      let response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: endpoint,
-          method: "POST",
-          headers,
-          body,
-          settings: { apiUrl, apiKey, model },
-          messages,
-          temperature,
-        }),
-      });
-
-      if (!response.ok) {
-        response = await fetch("/api/proxy", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: endpoint,
-            method: "POST",
-            headers,
-            body,
-          }),
-        });
-      }
-
-      if (response.ok) {
-        const data = await response.json();
-        const text = apiFormat === 'openai' ? (data.choices?.[0]?.message?.content || data.text || "") : (data.candidates?.[0]?.content?.parts?.[0]?.text || data.text || "");
-        if (text) return text;
-      } else {
-        const proxyErrJson = await response.json().catch(() => null);
-        const proxyErrMsg = proxyErrJson?.error?.message || proxyErrJson?.error || proxyErrJson?.message || response.statusText;
-        lastErrorDetail = `[代理响应 HTTP ${response.status}] ${proxyErrMsg}`;
-      }
-    } catch (proxyErr: any) {
-      console.warn("⚠️ [Proxy Fetch Failed, attempting server Gemini fallback]", proxyErr.message);
+    } catch (e) {
+      console.error("Failed to parse mobile_ai_settings from localStorage", e);
     }
   }
 
-  // 3. Server-side Gemini API fallback (/api/gemini)
-  let serverGeminiErr = "";
-  try {
-    const geminiRes = await fetch("/api/gemini", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, temperature }),
-    });
+  return { apiUrl, apiKey, model };
+}
 
-    if (geminiRes.ok) {
-      const data = await geminiRes.json();
-      if (data.text) {
-        console.log("✅ [Gemini Fallback Success]");
-        return data.text;
-      }
+export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, messages: any[] = [], temperature = 0.8, apiFormat?: 'openai' | 'gemini') {
+  const config = getStoredApiConfig(apiUrl, apiKey, model);
+
+  if (!config.apiUrl || !config.apiKey) {
+    throw new Error("请先在设置页配置 API");
+  }
+
+  const cleanApiUrl = normalizeUrl(config.apiUrl);
+  let endpoint = cleanApiUrl;
+  if (!endpoint.endsWith('/chat/completions')) {
+    endpoint = `${endpoint}/chat/completions`;
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${config.apiKey}`,
+  };
+
+  const formattedMessages = messages.map((m: any) => {
+    let role = m.role;
+    if (role === "assistant" || role === "model") role = "assistant";
+    else if (role === "system") role = "system";
+    else role = "user";
+
+    let content = "";
+    if (typeof m.content === "string") {
+      content = m.content;
+    } else if (Array.isArray(m.parts)) {
+      content = m.parts.map((p: any) => p.text || "").join("\n");
     } else {
-      const errData = await geminiRes.json().catch(() => ({}));
-      serverGeminiErr = errData.error || `HTTP ${geminiRes.status}`;
-      console.warn("⚠️ [Server Gemini API Error Response]", geminiRes.status, errData);
+      content = String(m.content || "");
     }
-  } catch (geminiErr: any) {
-    serverGeminiErr = geminiErr.message;
-    console.warn("⚠️ [Server Gemini API Network Error]", geminiErr.message);
+
+    return { role, content };
+  });
+
+  const body = {
+    model: config.model || "gpt-3.5-turbo",
+    messages: formattedMessages,
+    temperature: temperature ?? 0.8,
+  };
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let errDetail = "";
+    try {
+      const errJson = await response.json();
+      errDetail = errJson?.error?.message || errJson?.error || errJson?.message || JSON.stringify(errJson);
+    } catch (e) {
+      errDetail = await response.text().catch(() => response.statusText);
+    }
+    throw new Error(`API 请求失败 [HTTP ${response.status}]: ${errDetail || response.statusText}`);
   }
 
-  if (hasCustomApi) {
-    throw new Error(`API 调用失败：${lastErrorDetail || "请检查设置中的 API 地址与 API Key 是否正确"}`);
-  }
-
-  if (serverGeminiErr && serverGeminiErr.includes("GEMINI_API_KEY is not configured")) {
-    throw new Error("尚未配置 API！请在【设置】->【API 设置】中填入您的 API 地址、API Key 和模型名称。");
-  }
-
-  throw new Error(`API 调用失败：${serverGeminiErr || lastErrorDetail || "请检查网络或在【设置】中配置 API"}`);
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content || "";
+  return text;
 }
 
 // Helper functions
@@ -880,36 +831,21 @@ export async function apiTestConnection(params: any) {
   }
 }
 
-export async function apiFetchModels(params: any) {
-  const { apiUrl, apiKey } = params;
-  if (!apiUrl || !apiKey) {
-    throw new Error("请填写 API 地址和 API Key");
+export async function apiFetchModels(params: any = {}) {
+  const config = getStoredApiConfig(params.apiUrl, params.apiKey);
+  if (!config.apiUrl || !config.apiKey) {
+    throw new Error("请先在设置页配置 API");
   }
-  let cleanApiUrl = normalizeUrl(apiUrl);
+  let cleanApiUrl = normalizeUrl(config.apiUrl);
   if (cleanApiUrl.endsWith('/chat/completions')) {
     cleanApiUrl = cleanApiUrl.replace(/\/chat\/completions$/, '');
   }
   const endpoint = cleanApiUrl.endsWith('/models') ? cleanApiUrl : `${cleanApiUrl}/models`;
-  let response: Response | null = null;
-  try {
-    response = await fetch(endpoint, {
-      headers: { "Authorization": `Bearer ${apiKey}` },
-    });
-  } catch (err: any) {
-    try {
-      response = await fetch("/api/proxy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: endpoint,
-          method: "GET",
-          headers: { "Authorization": `Bearer ${apiKey}` },
-        }),
-      });
-    } catch (proxyErr: any) {
-      throw new Error(`网络连接失败，请检查 API 地址: ${err.message}`);
-    }
-  }
+  
+  const response = await fetch(endpoint, {
+    headers: { "Authorization": `Bearer ${config.apiKey}` },
+  });
+
   if (!response.ok) {
     let errText = "";
     try { errText = await response.text(); } catch (e) {}

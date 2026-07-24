@@ -251,9 +251,9 @@ export default function App() {
       try {
         const parsed = JSON.parse(savedSettings);
         const s = {
-          apiUrl: parsed.apiUrl || "",
-          apiKey: parsed.apiKey || "",
-          model: parsed.model || "",
+          apiUrl: parsed.apiUrl || localStorage.getItem("apiUrl") || "",
+          apiKey: parsed.apiKey || localStorage.getItem("apiKey") || "",
+          model: parsed.model || localStorage.getItem("model") || "",
           apiPresets: parsed.apiPresets || [],
           activePresetId: parsed.activePresetId || "",
           homeWallpaper: parsed.homeWallpaper || "",
@@ -263,6 +263,9 @@ export default function App() {
         };
         setSettings(s);
         setPreviewSettings(s);
+        if (s.apiUrl) localStorage.setItem("apiUrl", s.apiUrl);
+        if (s.apiKey) localStorage.setItem("apiKey", s.apiKey);
+        if (s.model) localStorage.setItem("model", s.model);
       } catch (e) {
         console.error(e);
       }
@@ -303,6 +306,9 @@ export default function App() {
     setPreviewSettings(newSettings);
     try {
       localStorage.setItem("mobile_ai_settings", JSON.stringify(newSettings));
+      if (newSettings.apiUrl !== undefined) localStorage.setItem("apiUrl", newSettings.apiUrl);
+      if (newSettings.apiKey !== undefined) localStorage.setItem("apiKey", newSettings.apiKey);
+      if (newSettings.model !== undefined) localStorage.setItem("model", newSettings.model);
     } catch (err) {
       console.error("[Persist Settings Error]:", err);
     }
