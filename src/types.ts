@@ -39,6 +39,9 @@ export interface Message {
     transferId: string;
   };
   os?: string;
+  senderId?: string;
+  senderName?: string;
+  senderAvatar?: string;
 }
 
 export interface LoreEntry {
@@ -82,7 +85,13 @@ export interface AppSettings {
 
 export interface ChatSession {
   id: string;
-  characterId: string;
+  characterId?: string;
+  isGroup?: boolean;
+  groupName?: string;
+  groupAvatar?: string;
+  memberIds?: string[];
+  syncMemory?: boolean;
+  worldSetting?: string;
   messages: Message[];
   lastActive: number;
   currentOS?: string;

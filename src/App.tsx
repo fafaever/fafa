@@ -348,9 +348,10 @@ export default function App() {
     const defaultSettings = {
       replyLength: "short",
       minReplies: 1,
-      maxReplies: 1,
-      activeMessaging: true,
+      maxReplies: 6,
+      activeMessaging: false,
       activeMessagingDelay: 1,
+      timePerception: false,
       isBlocked: false,
       memories: ["初始记忆：对用户很友好。"],
       model: newChar.model,
@@ -443,8 +444,8 @@ export default function App() {
   };
 
   // --- ACTIONS: Chat Messages Synchronization ---
-  const handleUpdateSessionMessages = (characterId: string, messages: Message[], currentOS?: string) => {
-    const sessionIndex = sessions.findIndex((s) => s.characterId === characterId);
+  const handleUpdateSessionMessages = (targetId: string, messages: Message[], currentOS?: string, extraFields?: Partial<ChatSession>) => {
+    const sessionIndex = sessions.findIndex((s) => s.characterId === targetId || s.id === targetId);
 
     if (sessionIndex !== -1) {
       // Update existing session
@@ -454,16 +455,20 @@ export default function App() {
         messages,
         lastActive: Date.now(),
         ...(currentOS !== undefined ? { currentOS } : {}),
+        ...(extraFields || {}),
       };
       persistSessions(updatedSessions);
     } else {
       // Create new session
+      const isGroup = targetId.startsWith("group-");
       const newSession: ChatSession = {
-        id: `session-${Date.now()}`,
-        characterId,
+        id: targetId,
+        characterId: isGroup ? undefined : targetId,
+        isGroup,
         messages,
         lastActive: Date.now(),
         currentOS,
+        ...(extraFields || {}),
       };
       persistSessions([...sessions, newSession]);
     }
@@ -570,7 +575,8 @@ export default function App() {
     const savedSettings = localStorage.getItem(`char_settings_v1_${characterId}`);
     let replyLength = "short";
     let minReplies = 1;
-    let maxReplies = 1;
+    let maxReplies = 6;
+    let timePerception = false;
     let memories: string[] = ["初始记忆：对用户很友好。"];
     let isBlocked = activeChar.isBlocked || false;
 
@@ -579,7 +585,8 @@ export default function App() {
         const parsed = JSON.parse(savedSettings);
         replyLength = parsed.replyLength || "short";
         minReplies = parsed.minReplies !== undefined ? parsed.minReplies : 1;
-        maxReplies = parsed.maxReplies !== undefined ? parsed.maxReplies : 1;
+        maxReplies = parsed.maxReplies !== undefined ? parsed.maxReplies : 6;
+        timePerception = parsed.timePerception !== undefined ? parsed.timePerception : false;
         memories = parsed.memories || [];
         isBlocked = parsed.isBlocked !== undefined ? parsed.isBlocked : isBlocked;
       } catch (e) {
@@ -692,6 +699,19 @@ export default function App() {
       const userDidNotReply = lastMessage?.role === 'assistant';
       const mood = localStorage.getItem(`char_mood_${characterId}`) || "平静";
 
+      const now = new Date();
+      const currentTimeStr = now.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'long', hour: '2-digit', minute: '2-digit' });
+      const lastMsg = targetMessages[targetMessages.length - 1];
+      const lastMsgTime = lastMsg ? lastMsg.timestamp : (session?.lastActive || Date.now());
+      const diffMs = Date.now() - lastMsgTime;
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMins / 60);
+      const diffDays = Math.floor(diffHours / 24);
+      let awayTimeDesc = "刚刚";
+      if (diffDays > 0) awayTimeDesc = `${diffDays}天前`;
+      else if (diffHours > 0) awayTimeDesc = `${diffHours}小时前`;
+      else if (diffMins > 0) awayTimeDesc = `${diffMins}分钟前`;
+
       const requestParams = {
         messages: targetMessages,
         character: cleanCharacter,
@@ -709,6 +729,9 @@ export default function App() {
         isBlocked: activeChar.isBlocked,
         blockedAt: activeChar.blockedAt,
         parentChatContext: parentChatContext,
+        timePerception: timePerception,
+        currentTime: currentTimeStr,
+        awayTimeDesc: awayTimeDesc,
       };
 
       console.log('🚀 [App Background RequestParams]:', requestParams);

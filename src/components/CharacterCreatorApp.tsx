@@ -112,7 +112,6 @@ export default function CharacterCreatorApp({
   const [background, setBackground] = useState(""); // 角色背景
   const [personality, setPersonality] = useState(""); // 人设 / 性格特点
   const [chatStyle, setChatStyle] = useState(""); // 聊天风格
-  const [desc, setDesc] = useState(""); // 一句话简介
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [isImporting, setIsImporting] = useState(false);
@@ -149,7 +148,6 @@ export default function CharacterCreatorApp({
     setPersonality(getPersonalityFromInstruction(char.systemInstruction));
     setBackground(getBackgroundFromInstruction(char.systemInstruction));
     setChatStyle(getChatStyleFromInstruction(char.systemInstruction));
-    setDesc(char.description || "");
     setRealImage(char.realImage || "");
     setChatAvatar(char.chatAvatar || "");
     setErrorMsg("");
@@ -165,7 +163,6 @@ export default function CharacterCreatorApp({
     setPersonality("");
     setBackground("");
     setChatStyle("");
-    setDesc("");
     setRealImage("");
     setChatAvatar("");
     setErrorMsg("");
@@ -351,12 +348,16 @@ export default function CharacterCreatorApp({
       }
 
       if (!parsedName) {
-        parsedName = fileName.replace(/\.[^/.]+$/, "");
+        const firstLine = decodedText.split(/\r?\n/)[0]?.trim();
+        if (firstLine && firstLine.length < 15 && !firstLine.includes("设定") && !firstLine.includes("背景")) {
+          parsedName = firstLine;
+        } else {
+          parsedName = fileName.replace(/\.[^/.]+$/, "");
+        }
       }
 
-      const finalPersonality = parsedPersonality || parsedDesc || decodedText.trim();
-      const finalChatStyle = parsedChatStyle || "保持自然流畅的第一人称角色口吻，带有情感与心理动作描写。";
-      const finalDesc = parsedDesc || (finalPersonality.length > 50 ? finalPersonality.substring(0, 50) + "..." : finalPersonality);
+      const finalPersonality = parsedPersonality || decodedText.trim();
+      const finalChatStyle = parsedChatStyle || `作为${parsedName}，说话时字里行间流露出独特的个人特质与语气，语气真实生动，带有沉浸式动作与心理描写。`;
       
       // Update form fields for visual feedback
       setName(parsedName);
@@ -364,7 +365,6 @@ export default function CharacterCreatorApp({
       setPersonality(finalPersonality);
       setBackground(parsedBackground);
       setChatStyle(finalChatStyle);
-      setDesc(finalDesc);
 
       // If settings has API key, automatically run AI analysis for premium extraction
       if (settings?.apiKey) {
@@ -375,13 +375,12 @@ export default function CharacterCreatorApp({
             settings
           });
           if (aiRes?.success && aiRes?.data) {
-            const { name: aiName, nickname: aiNick, personality: aiPers, chatStyle: aiChat, background: aiBg, description: aiDesc, avatar: aiAvatar } = aiRes.data;
+            const { name: aiName, nickname: aiNick, personality: aiPers, chatStyle: aiChat, background: aiBg, avatar: aiAvatar } = aiRes.data;
             if (aiName) setName(aiName);
             if (aiNick && aiNick !== "无") setNickname(aiNick);
             if (aiPers) setPersonality(aiPers);
             if (aiBg) setBackground(aiBg);
             if (aiChat) setChatStyle(aiChat);
-            if (aiDesc) setDesc(aiDesc);
             if (aiAvatar) setAvatar(aiAvatar);
             setSuccessMsg("✨ 文件读取成功！AI 已智能提炼角色姓名、昵称、性格与说话风格，已填充至表单。请核对后点击下方【保存角色】按钮。");
             setIsImporting(false);
@@ -505,12 +504,20 @@ export default function CharacterCreatorApp({
       parsedPersonality = fileText.trim();
     }
 
+    if (!parsedName) {
+      const firstLine = fileText.split(/\r?\n/)[0]?.trim();
+      if (firstLine && firstLine.length < 15 && !firstLine.includes("设定") && !firstLine.includes("背景")) {
+        parsedName = firstLine;
+      } else {
+        parsedName = fName.replace(/\.[^/.]+$/, "");
+      }
+    }
+
     setName(parsedName);
     setNickname(parsedNickname);
-    setPersonality(parsedPersonality);
+    setPersonality(parsedPersonality || fileText.trim());
     setBackground(parsedBackground);
-    setChatStyle(parsedChatStyle);
-    setDesc(parsedDesc || (parsedPersonality.length > 50 ? parsedPersonality.slice(0, 50) + "..." : parsedPersonality));
+    setChatStyle(parsedChatStyle || `作为${parsedName}，说话时字里行间流露出独特的个人特质与语气，语气真实生动，带有沉浸式动作与心理描写。`);
   };
 
   const runAiAnalysis = async () => {
@@ -535,14 +542,13 @@ export default function CharacterCreatorApp({
       });
       
       if (response?.success && response?.data) {
-        const { name: aiName, nickname: aiNick, personality: aiPers, chatStyle: aiChat, background: aiBg, description: aiDesc, avatar: aiAvatar } = response.data;
+        const { name: aiName, nickname: aiNick, personality: aiPers, chatStyle: aiChat, background: aiBg, avatar: aiAvatar } = response.data;
         
         if (aiName) setName(aiName);
         if (aiNick && aiNick !== "无") setNickname(aiNick);
         if (aiPers) setPersonality(aiPers);
         if (aiBg) setBackground(aiBg);
         if (aiChat) setChatStyle(aiChat);
-        if (aiDesc) setDesc(aiDesc);
         if (aiAvatar) setAvatar(aiAvatar);
         
         setSuccessMsg("✨ AI 智能一键提炼成功！关键信息已填充至对应字段，您可以继续微调设定。");
@@ -576,10 +582,10 @@ export default function CharacterCreatorApp({
         return;
       }
       if (!finalPersonality) {
-        finalPersonality = desc.trim() || "注重角色故事细节与性格魅力的全情设定。";
+        finalPersonality = "注重角色故事细节与性格魅力的全情设定。";
       }
       if (!finalChatStyle) {
-        finalChatStyle = "保持自然流畅的第一人称角色口吻，带有情感与心理动作描写。";
+        finalChatStyle = `作为${finalName}，说话时字里行间流露出独特的个人特质与语气，语气真实生动，带有沉浸式动作与心理描写。`;
       }
     } else {
       console.warn("[Character Save Warning] Force Save Mode Active! Bypassing field validations.");
@@ -591,7 +597,7 @@ export default function CharacterCreatorApp({
     // Auto-generate system instruction combining name, nickname, personality, background, and chat style
     const systemInstruction = `你正在扮演角色 "${finalName}"。
 
-【基本设定 / 人设 (Personality Profile)】:
+【基本设定 / 인设 (Personality Profile)】:
 - 姓名: ${finalName}
 - 别名/昵称: ${nickname.trim() || "无"}
 
@@ -611,7 +617,7 @@ ${background.trim() || "暂无背景故事"}
       const payload = {
         name: finalName,
         avatar,
-        description: desc.trim() || `${finalPersonality.substring(0, 30)}...`,
+        description: finalPersonality.length > 40 ? finalPersonality.substring(0, 40) + "..." : finalPersonality,
         systemInstruction,
         model: settings.model, // Default to current global model
         realImage: realImage || undefined,
@@ -646,7 +652,6 @@ ${background.trim() || "暂无背景故事"}
       setBackground("");
       setPersonality("");
       setChatStyle("");
-      setDesc("");
       setRealImage("");
       setChatAvatar("");
       setForceSave(false);
@@ -852,18 +857,6 @@ ${background.trim() || "暂无背景故事"}
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none"
-            />
-          </div>
-
-          {/* Quick Description */}
-          <div className="space-y-1">
-            <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">一句话简介 (Slogan / Bio)</label>
-            <input
-              type="text"
-              placeholder="例如: 常年穿梭于霓虹雨夜中的独行枪手。"
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2 rounded-xl bg-white text-neutral-800 outline-none"
             />
           </div>
 

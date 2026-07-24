@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings } from "lucide-react";
 import { apiChat } from "../lib/api";
 import { Character, Message, LoreEntry, AppSettings, ChatSession } from "../types";
 import ProfileView from "./ProfileView";
@@ -13,7 +13,7 @@ interface ChatAppProps {
   onAddCharacter: (char: Omit<Character, "id" | "createdAt">) => void;
   onUpdateCharacter: (char: Character) => void;
   onDeleteCharacter: (id: string) => void;
-  onUpdateSessionMessages: (characterId: string, messages: Message[], currentOS?: string) => void;
+  onUpdateSessionMessages: (targetId: string, messages: Message[], currentOS?: string, extraFields?: Partial<ChatSession>) => void;
   onClose: () => void;
   onOpenApp?: (appId: string) => void;
   onActiveCharChange?: (charId: string | null) => void;
@@ -157,6 +157,241 @@ export default function ChatApp({
   const [charSys, setCharSys] = useState("");
   const [charError, setCharError] = useState("");
 
+  // Group chat states
+  const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
+  const [groupNameInput, setGroupNameInput] = useState("");
+  const [groupAvatarInput, setGroupAvatarInput] = useState("💬");
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [groupError, setGroupError] = useState("");
+  const [showGroupPlusMenu, setShowGroupPlusMenu] = useState(false);
+  const [showGroupSettingsModal, setShowGroupSettingsModal] = useState(false);
+
+  const getCharacterGroupRoleType = (char: Character) => {
+    const text = `${char.systemInstruction || ""} ${char.description || ""}`.toLowerCase();
+    if (
+      text.includes("活泼") || text.includes("话痨") || text.includes("话多") || 
+      text.includes("唠叨") || text.includes("外向") || text.includes("热情") ||
+      text.includes("lively") || text.includes("talkative") || text.includes("chattery") ||
+      text.includes("energetic")
+    ) {
+      return "talkative";
+    }
+    if (
+      text.includes("高冷") || text.includes("冷漠") || text.includes("高傲") || 
+      text.includes("沉默") || text.includes("话少") || text.includes("安静") ||
+      text.includes("silent") || text.includes("cold") || text.includes("aloof") ||
+      text.includes("quiet") || text.includes("reserved")
+    ) {
+      return "silent";
+    }
+    if (
+      text.includes("温柔") || text.includes("体贴") || text.includes("善良") || 
+      text.includes("倾听") || text.includes("和蔼") || text.includes("gentle") ||
+      text.includes("kind") || text.includes("listener") || text.includes("soft")
+    ) {
+      return "gentle";
+    }
+    return "default";
+  };
+
+  const handleSendGroupMessage = async () => {
+    if (!inputText.trim() || isGenerating || !activeSession || !activeSession.isGroup) return;
+    const userMsgText = inputText.trim();
+    setInputText("");
+
+    const newUserMsg: Message = {
+      id: `msg-${Date.now()}-user`,
+      role: "user",
+      content: userMsgText,
+      timestamp: Date.now(),
+    };
+
+    const updatedMessages = [...(activeSession.messages || []), newUserMsg];
+    onUpdateSessionMessages(activeSession.id, updatedMessages, undefined, {
+      groupName: activeSession.groupName,
+      groupAvatar: activeSession.groupAvatar,
+      memberIds: activeSession.memberIds,
+      syncMemory: activeSession.syncMemory,
+      worldSetting: activeSession.worldSetting,
+      isGroup: true,
+    });
+
+    setIsGenerating(true);
+
+    try {
+      const memberIds = activeSession.memberIds || [];
+      if (memberIds.length === 0) return;
+
+      // Determine who speaks in this round of chat
+      const speakers: string[] = [];
+      memberIds.forEach(mId => {
+        const char = characters.find(c => c.id === mId);
+        if (!char) return;
+        const charType = getCharacterGroupRoleType(char);
+        
+        if (charType === "talkative") {
+          // Talkative characters speak once for sure, and have a 50% chance to speak again (multiple messages in same round)
+          speakers.push(mId);
+          if (Math.random() < 0.5) {
+            speakers.push(mId);
+          }
+        } else if (charType === "silent") {
+          // Silent characters speak less (40% chance of speaking in this round)
+          if (Math.random() < 0.4) {
+            speakers.push(mId);
+          }
+        } else if (charType === "gentle") {
+          // Gentle/listening characters have a moderate frequency (70% chance of speaking) and won't snatch words
+          if (Math.random() < 0.7) {
+            speakers.push(mId);
+          }
+        } else {
+          // Standard / Default characters: 80% chance of speaking
+          if (Math.random() < 0.8) {
+            speakers.push(mId);
+          }
+        }
+      });
+
+      // Force at least one random speaker if everyone is silent/skipped
+      if (speakers.length === 0) {
+        const fallbackId = memberIds[Math.floor(Math.random() * memberIds.length)];
+        speakers.push(fallbackId);
+      }
+
+      // Randomize speaking order every round to prevent mechanical feels
+      let shuffledSpeakers = [...speakers].sort(() => Math.random() - 0.5);
+
+      // Simple check to avoid immediate consecutive duplicate messages from the same speaker
+      for (let i = 0; i < shuffledSpeakers.length - 1; i++) {
+        if (shuffledSpeakers[i] === shuffledSpeakers[i + 1]) {
+          for (let j = i + 2; j < shuffledSpeakers.length; j++) {
+            if (shuffledSpeakers[j] !== shuffledSpeakers[i]) {
+              const temp = shuffledSpeakers[i + 1];
+              shuffledSpeakers[i + 1] = shuffledSpeakers[j];
+              shuffledSpeakers[j] = temp;
+              break;
+            }
+          }
+        }
+      }
+
+      // Limit max replies per round to 4 to make user experience responsive, but fully randomized and conversational
+      const maxReplies = 4;
+      const finalSpeakers = shuffledSpeakers.slice(0, maxReplies);
+
+      let currentMessages = [...updatedMessages];
+
+      for (let i = 0; i < finalSpeakers.length; i++) {
+        const respondingCharId = finalSpeakers[i];
+        const respondingChar = characters.find(c => c.id === respondingCharId);
+        if (!respondingChar) continue;
+
+        // Simulate thinking and typing pause for subsequent speakers to feel natural
+        if (i > 0) {
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+
+        const savedSettings = localStorage.getItem(`char_settings_v1_${respondingCharId}`);
+        let memories: string[] = ["初始记忆：对用户很友好。"];
+        if (savedSettings) {
+          try {
+            const parsed = JSON.parse(savedSettings);
+            memories = parsed.memories || [];
+          } catch (e) {}
+        }
+
+        // Construct System Instruction incorporating World Setting and Character Role/Speaking Habits
+        let systemInstruction = `你正在参与群聊「${activeSession.groupName}」。同群成员有：${characters.filter(c => memberIds.includes(c.id)).map(c => c.name).join('、')}。`;
+        
+        if (activeSession.worldSetting && activeSession.worldSetting.trim()) {
+          systemInstruction += `\n\n【当前群聊的世界设定/叙事背景】：\n${activeSession.worldSetting.trim()}\n\n【注意】：此世界设定只作为你当前在群聊中的身份定位、叙事背景和对话氛围，绝对不能改变或覆盖你原本的性格特征、说话风格和人设偏好。请保持你原本人设的同时，自然地融入并符合这一背景设定与氛围，在发言和互动时予以符合。`;
+        }
+        
+        systemInstruction += `\n\n请保持你的人设，自然地在群聊中回复用户或其他成员。`;
+
+        const charType = getCharacterGroupRoleType(respondingChar);
+        if (charType === "talkative") {
+          systemInstruction += `\n你当前在群聊中是活泼/话痨人设，可以多说一些或多互动，语气可以更热情活泼，展现你的特定发言习惯（如喜欢插话等）。`;
+        } else if (charType === "silent") {
+          systemInstruction += `\n你当前在群聊中是高冷/沉默人设，发言次数较少，请进行非常简短的回应。`;
+        } else if (charType === "gentle") {
+          systemInstruction += `\n你当前在群聊中是温柔/倾听人设，发言频率适中，不会抢话，展现体贴入微的倾听感。`;
+        }
+
+        const cleanCharacter = {
+          id: respondingChar.id,
+          name: respondingChar.name,
+          avatar: respondingChar.avatar,
+          description: respondingChar.description || "一个充满魅力的角色",
+          systemInstruction: systemInstruction,
+          model: respondingChar.model || settings?.model || "gemini-2.5-flash",
+        };
+
+        const requestParams = {
+          messages: currentMessages.map(m => ({
+            role: m.role,
+            content: m.role === 'assistant' && m.senderName ? `[${m.senderName}]: ${m.content}` : m.content
+          })),
+          character: cleanCharacter,
+          settings: {
+            ...settings,
+            model: respondingChar.model || settings?.model || "gemini-2.5-flash",
+          },
+          chatMode: "online",
+          replyLength: charType === "silent" ? "short" : "medium",
+          replyCount: 1,
+          mood: "平静",
+          memories: memories,
+        };
+
+        const data = await apiChat(requestParams);
+        const replyText = data.text || "嗯嗯！";
+
+        const newBotMsg: Message = {
+          id: `msg-${Date.now()}-bot-${respondingCharId}-${i}`,
+          role: "assistant",
+          content: replyText,
+          timestamp: Date.now(),
+          os: data.os || undefined,
+          senderId: respondingChar.id,
+          senderName: respondingChar.name,
+          senderAvatar: respondingChar.chatAvatar || respondingChar.avatar,
+        };
+
+        currentMessages = [...currentMessages, newBotMsg];
+        onUpdateSessionMessages(activeSession.id, currentMessages, undefined, {
+          groupName: activeSession.groupName,
+          groupAvatar: activeSession.groupAvatar,
+          memberIds: activeSession.memberIds,
+          syncMemory: activeSession.syncMemory,
+          worldSetting: activeSession.worldSetting,
+          isGroup: true,
+        });
+
+        if (activeSession.syncMemory !== false) {
+          memberIds.forEach(mId => {
+            try {
+              const key = `char_settings_v1_${mId}`;
+              const mSaved = localStorage.getItem(key);
+              let mData = mSaved ? JSON.parse(mSaved) : {};
+              let mMemories = mData.memories || [];
+              const fact = `[群聊「${activeSession.groupName}」] ${respondingChar.name} 回复了用户：「${replyText.substring(0, 30)}」`;
+              if (!mMemories.includes(fact)) {
+                mData.memories = [...mMemories, fact];
+                localStorage.setItem(key, JSON.stringify(mData));
+              }
+            } catch (e) {}
+          });
+        }
+      }
+    } catch (err: any) {
+      console.error("Group chat AI reply error", err);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   // Messaging thread states
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -249,9 +484,20 @@ export default function ChatApp({
   // Character specific settings (dynamic)
   const [replyLength, setReplyLength] = useState<"short" | "medium" | "detailed">("short");
   const [minReplies, setMinReplies] = useState<number>(1);
-  const [maxReplies, setMaxReplies] = useState<number>(1);
-  const [activeMessaging, setActiveMessaging] = useState<boolean>(true);
+  const [maxReplies, setMaxReplies] = useState<number>(6);
+  const [minRepliesInput, setMinRepliesInput] = useState<string>("1");
+  const [maxRepliesInput, setMaxRepliesInput] = useState<string>("6");
+
+  useEffect(() => {
+    setMinRepliesInput(minReplies.toString());
+  }, [minReplies]);
+
+  useEffect(() => {
+    setMaxRepliesInput(maxReplies.toString());
+  }, [maxReplies]);
+  const [activeMessaging, setActiveMessaging] = useState<boolean>(false);
   const [activeMessagingDelay, setActiveMessagingDelay] = useState<number>(1);
+  const [timePerception, setTimePerception] = useState<boolean>(false);
   const [isBlocked, setIsBlocked] = useState<boolean>(false);
   const [memories, setMemories] = useState<string[]>([]);
   const [newMemoryInput, setNewMemoryInput] = useState<string>("");
@@ -850,7 +1096,14 @@ export default function ChatApp({
 
   // Active session
   const activeSession = activeCharId
-    ? sessions.find((s) => s.characterId === activeCharId) || ({ characterId: activeCharId, messages: [], id: activeCharId, lastActive: Date.now(), currentOS: undefined } as ChatSession)
+    ? sessions.find((s) => s.characterId === activeCharId || s.id === activeCharId) || ({
+        id: activeCharId,
+        characterId: activeCharId.startsWith("group-") ? undefined : activeCharId,
+        isGroup: activeCharId.startsWith("group-"),
+        messages: [],
+        lastActive: Date.now(),
+        currentOS: undefined
+      } as ChatSession)
     : null;
 
   // Load character-specific settings
@@ -891,9 +1144,10 @@ export default function ChatApp({
 
       setReplyLength(parsedSelf.replyLength !== undefined ? parsedSelf.replyLength : "short");
       setMinReplies(parsedSelf.minReplies !== undefined ? parsedSelf.minReplies : 1);
-      setMaxReplies(parsedSelf.maxReplies !== undefined ? parsedSelf.maxReplies : 1);
-      setActiveMessaging(parsedSelf.activeMessaging !== undefined ? parsedSelf.activeMessaging : true);
+      setMaxReplies(parsedSelf.maxReplies !== undefined ? parsedSelf.maxReplies : 6);
+      setActiveMessaging(parsedSelf.activeMessaging !== undefined ? parsedSelf.activeMessaging : false);
       setActiveMessagingDelay(parsedSelf.activeMessagingDelay !== undefined ? parsedSelf.activeMessagingDelay : 1);
+      setTimePerception(parsedSelf.timePerception !== undefined ? parsedSelf.timePerception : false);
       setIsBlocked(parsedSelf.isBlocked !== undefined ? parsedSelf.isBlocked : false);
       setMemories(memoriesToLoad);
     }
@@ -905,6 +1159,7 @@ export default function ChatApp({
     maxReplies: number;
     activeMessaging: boolean;
     activeMessagingDelay: number;
+    timePerception: boolean;
     isBlocked: boolean;
     memories: string[];
   }>) => {
@@ -917,6 +1172,7 @@ export default function ChatApp({
       maxReplies,
       activeMessaging,
       activeMessagingDelay,
+      timePerception,
       isBlocked,
       memories,
       ...updated,
@@ -1281,7 +1537,7 @@ export default function ChatApp({
       if (!saved) return;
       try {
         const parsed = JSON.parse(saved);
-        const savedActiveMessaging = parsed.activeMessaging !== undefined ? parsed.activeMessaging : true;
+        const savedActiveMessaging = parsed.activeMessaging !== undefined ? parsed.activeMessaging : false;
         const savedDelay = parsed.activeMessagingDelay !== undefined ? parsed.activeMessagingDelay : 1;
         
         if (savedActiveMessaging && activeSession.lastActive > 0) {
@@ -1318,7 +1574,7 @@ export default function ChatApp({
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
-            const savedActiveMessaging = parsed.activeMessaging !== undefined ? parsed.activeMessaging : true;
+            const savedActiveMessaging = parsed.activeMessaging !== undefined ? parsed.activeMessaging : false;
             const savedDelay = parsed.activeMessagingDelay !== undefined ? parsed.activeMessagingDelay : 1;
             
             if (savedActiveMessaging && activeSession.lastActive > 0) {
@@ -1838,13 +2094,41 @@ export default function ChatApp({
                     <ChevronLeft className="w-5 h-5" />
                   </button>
                   <span className="font-sans font-bold text-base tracking-wide text-neutral-950">消息 (CHATS)</span>
-                  <button
-                    onClick={() => setIsCreatingChar(true)}
-                    className="p-1 text-black hover:bg-neutral-100 rounded-lg active:scale-95 transition-all"
-                    title="创建自定义角色"
-                  >
-                    <Plus className="w-5 h-5" />
-                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowGroupPlusMenu(!showGroupPlusMenu)}
+                      className="p-1 text-black hover:bg-neutral-100 rounded-lg active:scale-95 transition-all flex items-center"
+                      title="新建"
+                    >
+                      <Plus className="w-5 h-5" />
+                    </button>
+                    {showGroupPlusMenu && (
+                      <div className="absolute right-0 mt-2 w-36 bg-white border border-neutral-200 rounded-xl shadow-lg py-1 z-50 text-xs font-sans">
+                        <button
+                          onClick={() => {
+                            setShowGroupPlusMenu(false);
+                            setGroupNameInput("");
+                            setGroupAvatarInput("💬");
+                            setSelectedMemberIds([]);
+                            setGroupError("");
+                            setShowCreateGroupModal(true);
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-neutral-50 flex items-center gap-2 font-medium text-neutral-800"
+                        >
+                          <Users className="w-3.5 h-3.5" /> 创建群聊
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowGroupPlusMenu(false);
+                            setIsCreatingChar(true);
+                          }}
+                          className="w-full px-3 py-2 text-left hover:bg-neutral-50 flex items-center gap-2 font-medium text-neutral-800 border-t border-neutral-100"
+                        >
+                          <User className="w-3.5 h-3.5" /> 创建单聊角色
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {isCreatingChar ? (
@@ -1925,68 +2209,122 @@ export default function ChatApp({
                 ) : (
                   /* Dialogue list sorted by lastActive */
                   <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {[...characters]
-                      .sort((a, b) => {
-                        const sessA = sessions.find((s) => s.characterId === a.id);
-                        const sessB = sessions.find((s) => s.characterId === b.id);
-                        const timeA = sessA?.lastActive || a.createdAt || 0;
-                        const timeB = sessB?.lastActive || b.createdAt || 0;
-                        return timeB - timeA;
-                      })
-                      .map((char) => {
-                        const session = sessions.find((s) => s.characterId === char.id);
-                        const lastMsg = session?.messages?.[session.messages.length - 1]?.content;
-                        
-                        // Format preview message
-                        const previewText = lastMsg ? (lastMsg.length > 10 ? lastMsg.substring(0, 10) + "..." : lastMsg) : char.description || "暂无消息";
-                        
-                        // Format active timestamp
-                        const displayTime = formatTimestamp(session?.lastActive || char.createdAt || Date.now());
+                    {(() => {
+                      const charItems = characters.map(char => {
+                        const session = sessions.find(s => s.characterId === char.id);
+                        return {
+                          type: 'char' as const,
+                          id: char.id,
+                          name: char.name,
+                          avatar: char.avatar,
+                          chatAvatar: char.chatAvatar,
+                          description: char.description,
+                          lastActive: session?.lastActive || char.createdAt || 0,
+                          session,
+                          char
+                        };
+                      });
 
-                        return (
-                          <div
-                            key={char.id}
-                            onClick={() => handleSelectChar(char.id)}
-                            className="p-4 bg-white border border-neutral-200/60 shadow-sm rounded-2xl flex items-center justify-between gap-3 hover:border-neutral-400 cursor-pointer active:scale-[0.99] transition-all relative"
-                          >
-                            <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                              {/* Avatar with absolute unread dot indicator */}
-                              <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center overflow-hidden text-2xl select-none shadow-inner shrink-0 relative">
-                                {char.chatAvatar ? (
-                                  <img src={char.chatAvatar} alt={char.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                ) : (
-                                  char.avatar
-                                )}
-                                
-                                {unreads[char.id] && (
-                                  <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-red-500 rounded-full border border-white" />
-                                )}
+                      const groupItems = sessions
+                        .filter(s => s.isGroup)
+                        .map(group => {
+                          const lastMsg = group.messages?.[group.messages.length - 1]?.content;
+                          return {
+                            type: 'group' as const,
+                            id: group.id,
+                            name: group.groupName || '群聊',
+                            avatar: group.groupAvatar || '💬',
+                            chatAvatar: undefined,
+                            description: `${group.memberIds?.length || 0}位成员`,
+                            lastActive: group.lastActive || 0,
+                            session: group,
+                            group
+                          };
+                        });
 
-                                {char.isSubAccount && (
-                                  <span className={`absolute bottom-0 right-0 text-[8px] font-bold px-1 py-0.5 rounded border border-white leading-none shadow-sm ${
-                                    char.isBusted 
-                                      ? "bg-red-500 text-white" 
-                                      : "bg-neutral-500 text-white"
-                                  }`}>
-                                    {char.isBusted ? "已揭穿" : "小"}
-                                  </span>
-                                )}
-                              </div>
+                      const allItems = [...charItems, ...groupItems].sort((a, b) => b.lastActive - a.lastActive);
 
-                              {/* Body Info */}
-                              <div className="min-w-0 flex-1">
-                                <div className="flex items-center justify-between">
-                                  <span className="font-sans font-bold text-sm text-neutral-950 truncate max-w-[150px]">{char.name}</span>
-                                  <span className="text-[10px] font-mono text-neutral-400 shrink-0">{displayTime}</span>
+                      return allItems.map(item => {
+                        if (item.type === 'char') {
+                          const { char, session } = item;
+                          const lastMsg = session?.messages?.[session.messages.length - 1]?.content;
+                          const previewText = lastMsg ? (lastMsg.length > 10 ? lastMsg.substring(0, 10) + "..." : lastMsg) : char.description || "暂无消息";
+                          const displayTime = formatTimestamp(session?.lastActive || char.createdAt || Date.now());
+
+                          return (
+                            <div
+                              key={char.id}
+                              onClick={() => handleSelectChar(char.id)}
+                              className="p-4 bg-white border border-neutral-200/60 shadow-sm rounded-2xl flex items-center justify-between gap-3 hover:border-neutral-400 cursor-pointer active:scale-[0.99] transition-all relative"
+                            >
+                              <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center overflow-hidden text-2xl select-none shadow-inner shrink-0 relative">
+                                  {char.chatAvatar ? (
+                                    <img src={char.chatAvatar} alt={char.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  ) : (
+                                    char.avatar
+                                  )}
+                                  {unreads[char.id] && (
+                                    <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-red-500 rounded-full border border-white" />
+                                  )}
+                                  {char.isSubAccount && (
+                                    <span className={`absolute bottom-0 right-0 text-[8px] font-bold px-1 py-0.5 rounded border border-white leading-none shadow-sm ${
+                                      char.isBusted ? "bg-red-500 text-white" : "bg-neutral-500 text-white"
+                                    }`}>
+                                      {char.isBusted ? "已揭穿" : "小"}
+                                    </span>
+                                  )}
                                 </div>
-                                <p className="text-xs text-neutral-400 truncate max-w-[210px] font-sans mt-0.5">
-                                  {previewText}
-                                </p>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-sans font-bold text-sm text-neutral-950 truncate max-w-[150px]">{char.name}</span>
+                                    <span className="text-[10px] font-mono text-neutral-400 shrink-0">{displayTime}</span>
+                                  </div>
+                                  <p className="text-xs text-neutral-400 truncate max-w-[210px] font-sans mt-0.5">{previewText}</p>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        } else {
+                          const { group, session } = item;
+                          const lastMsg = session?.messages?.[session.messages.length - 1]?.content;
+                          const previewText = lastMsg ? (lastMsg.length > 10 ? lastMsg.substring(0, 10) + "..." : lastMsg) : `${group.memberIds?.length || 0}人加入群聊`;
+                          const displayTime = formatTimestamp(group.lastActive || Date.now());
+
+                          return (
+                            <div
+                              key={group.id}
+                              onClick={() => {
+                                setActiveCharId(group.id);
+                                setActiveTab("chat");
+                                setApiError(null);
+                              }}
+                              className="p-4 bg-white border border-neutral-200/60 shadow-sm rounded-2xl flex items-center justify-between gap-3 hover:border-neutral-400 cursor-pointer active:scale-[0.99] transition-all relative"
+                            >
+                              <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center overflow-hidden text-2xl select-none shadow-inner shrink-0 relative">
+                                  {group.groupAvatar?.startsWith('http') || group.groupAvatar?.startsWith('data:') ? (
+                                    <img src={group.groupAvatar} alt={group.groupName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                  ) : (
+                                    group.groupAvatar || '💬'
+                                  )}
+                                  <span className="absolute bottom-0 right-0 text-[8px] font-bold px-1 py-0.5 rounded border border-white bg-neutral-900 text-white leading-none shadow-sm">
+                                    群
+                                  </span>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-sans font-bold text-sm text-neutral-950 truncate max-w-[150px]">{group.groupName}</span>
+                                    <span className="text-[10px] font-mono text-neutral-400 shrink-0">{displayTime}</span>
+                                  </div>
+                                  <p className="text-xs text-neutral-400 truncate max-w-[210px] font-sans mt-0.5">{previewText}</p>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                      });
+                    })()}
                   </div>
                 )}
               </div>
@@ -2453,6 +2791,102 @@ export default function ChatApp({
             </button>
           </div>
 
+        </div>
+      )}
+
+      {/* -------------------- VIEW 2B: GROUP CHAT ROOM -------------------- */}
+      {activeTab === "chat" && activeSession?.isGroup && (
+        <div className="flex-1 flex flex-col h-full bg-white chat-container">
+          {/* Header */}
+          <div className="flex items-center justify-between px-3 py-2.5 border-b border-neutral-100 shrink-0 bg-white z-20">
+            <button
+              onClick={() => {
+                setActiveCharId(null);
+                setActiveTab("library");
+              }}
+              className="p-1 text-neutral-500 hover:text-neutral-900 rounded-lg active:scale-95 transition-all"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-neutral-100 flex items-center justify-center overflow-hidden text-lg shrink-0">
+                {activeSession.groupAvatar?.startsWith('http') || activeSession.groupAvatar?.startsWith('data:') ? (
+                  <img src={activeSession.groupAvatar} alt={activeSession.groupName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  activeSession.groupAvatar || '💬'
+                )}
+              </div>
+              <div className="text-left">
+                <h3 className="font-sans font-bold text-sm text-neutral-950 truncate max-w-[160px]">{activeSession.groupName}</h3>
+                <span className="text-[10px] text-neutral-400 font-mono block">{activeSession.memberIds?.length || 0}位群成员</span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowGroupSettingsModal(true)}
+              className="p-1 text-neutral-600 hover:text-black hover:bg-neutral-100 rounded-lg transition-all"
+              title="群聊设置"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Messages Stream */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-neutral-50/50">
+            {activeSession.messages.map((msg, idx) => {
+              const isUser = msg.role === "user";
+              return (
+                <div key={msg.id || idx} className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+                  {!isUser && (
+                    <div className="w-9 h-9 rounded-xl bg-neutral-200 flex items-center justify-center overflow-hidden text-base shrink-0 select-none shadow-sm mt-0.5">
+                      {msg.senderAvatar ? (
+                        <img src={msg.senderAvatar} alt={msg.senderName || "成员"} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        "🤖"
+                      )}
+                    </div>
+                  )}
+                  <div className={`flex flex-col max-w-[75%] ${isUser ? "items-end" : "items-start"}`}>
+                    {!isUser && (
+                      <span className="text-[11px] font-bold text-neutral-500 mb-1 ml-1 font-sans">{msg.senderName || "群成员"}</span>
+                    )}
+                    <div className={`p-3.5 rounded-2xl text-xs leading-relaxed font-sans shadow-sm ${
+                      isUser
+                        ? "bg-black text-white rounded-tr-xs"
+                        : "bg-white text-neutral-900 border border-neutral-200/60 rounded-tl-xs"
+                    }`}>
+                      <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Input Bar */}
+          <div className="p-3 bg-white border-t border-neutral-100 shrink-0 flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="发送群聊消息..."
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendGroupMessage();
+                }
+              }}
+              className="flex-1 text-xs bg-neutral-100 border border-neutral-200/60 focus:border-neutral-950 px-4 py-3 rounded-2xl outline-none"
+            />
+            <button
+              onClick={handleSendGroupMessage}
+              disabled={isGenerating || !inputText.trim()}
+              className="px-4 py-3 bg-black text-white text-xs font-bold font-mono rounded-2xl hover:bg-neutral-800 disabled:opacity-50 active:scale-95 transition-all shrink-0"
+            >
+              {isGenerating ? "发送中..." : "发送"}
+            </button>
+          </div>
         </div>
       )}
 
@@ -3259,12 +3693,41 @@ export default function ChatApp({
                 <input
                   type="number"
                   min="1"
-                  max="5"
-                  value={minReplies}
+                  max="25"
+                  value={minRepliesInput}
                   onChange={(e) => {
-                    const val = Math.max(1, parseInt(e.target.value) || 1);
-                    setMinReplies(val);
-                    saveSettings({ minReplies: val });
+                    const text = e.target.value;
+                    setMinRepliesInput(text);
+                    if (text === "") return;
+                    const val = parseInt(text);
+                    if (!isNaN(val)) {
+                      const clamped = Math.max(1, Math.min(25, val));
+                      let newMax = maxReplies;
+                      if (clamped > newMax) {
+                        newMax = Math.min(25, clamped + 1);
+                        setMaxReplies(newMax);
+                        setMaxRepliesInput(newMax.toString());
+                      }
+                      setMinReplies(clamped);
+                      saveSettings({ minReplies: clamped, maxReplies: newMax });
+                    }
+                  }}
+                  onBlur={() => {
+                    if (minRepliesInput === "" || isNaN(parseInt(minRepliesInput))) {
+                      setMinRepliesInput(minReplies.toString());
+                    } else {
+                      const val = parseInt(minRepliesInput);
+                      const clamped = Math.max(1, Math.min(25, val));
+                      let newMax = maxReplies;
+                      if (clamped > newMax) {
+                        newMax = Math.min(25, clamped + 1);
+                        setMaxReplies(newMax);
+                        setMaxRepliesInput(newMax.toString());
+                      }
+                      setMinReplies(clamped);
+                      setMinRepliesInput(clamped.toString());
+                      saveSettings({ minReplies: clamped, maxReplies: newMax });
+                    }
                   }}
                   className="w-12 text-center text-xs border border-neutral-200 px-2 py-1.5 rounded-lg bg-neutral-50 focus:bg-white outline-none"
                 />
@@ -3272,12 +3735,41 @@ export default function ChatApp({
                 <input
                   type="number"
                   min="1"
-                  max="5"
-                  value={maxReplies}
+                  max="25"
+                  value={maxRepliesInput}
                   onChange={(e) => {
-                    const val = Math.max(1, parseInt(e.target.value) || 1);
-                    setMaxReplies(val);
-                    saveSettings({ maxReplies: val });
+                    const text = e.target.value;
+                    setMaxRepliesInput(text);
+                    if (text === "") return;
+                    const val = parseInt(text);
+                    if (!isNaN(val)) {
+                      const clamped = Math.max(1, Math.min(25, val));
+                      let newMin = minReplies;
+                      if (clamped < newMin) {
+                        newMin = Math.max(1, clamped - 1);
+                        setMinReplies(newMin);
+                        setMinRepliesInput(newMin.toString());
+                      }
+                      setMaxReplies(clamped);
+                      saveSettings({ minReplies: newMin, maxReplies: clamped });
+                    }
+                  }}
+                  onBlur={() => {
+                    if (maxRepliesInput === "" || isNaN(parseInt(maxRepliesInput))) {
+                      setMaxRepliesInput(maxReplies.toString());
+                    } else {
+                      const val = parseInt(maxRepliesInput);
+                      const clamped = Math.max(1, Math.min(25, val));
+                      let newMin = minReplies;
+                      if (clamped < newMin) {
+                        newMin = Math.max(1, clamped - 1);
+                        setMinReplies(newMin);
+                        setMinRepliesInput(newMin.toString());
+                      }
+                      setMaxReplies(clamped);
+                      setMaxRepliesInput(clamped.toString());
+                      saveSettings({ minReplies: newMin, maxReplies: clamped });
+                    }
                   }}
                   className="w-12 text-center text-xs border border-neutral-200 px-2 py-1.5 rounded-lg bg-neutral-50 focus:bg-white outline-none"
                 />
@@ -3339,9 +3831,7 @@ export default function ChatApp({
                     type="button"
                     onClick={async () => {
                       if (!activeSession || !activeCharId) return;
-                      // Close settings drawer to let user see the chat area
                       setShowSettings(false);
-                      // Direct active message trigger
                       await handleTriggerActiveMessage(activeMessagingDelay);
                     }}
                     className="w-full py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-xl text-xs font-bold active:scale-95 transition-all flex items-center justify-center gap-1.5 border border-neutral-200/50"
@@ -3353,7 +3843,47 @@ export default function ChatApp({
               )}
             </div>
 
-            {/* 4. Block Character */}
+            {/* 4. Time Perception */}
+            <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
+              <div className="space-y-0.5 pr-2">
+                <span className="text-base font-bold text-neutral-900 block font-sans">时间感知</span>
+                <span className="text-[10px] text-neutral-400 font-mono block">TIME PERCEPTION</span>
+                <p className="text-[11px] text-neutral-400 font-sans mt-0.5 leading-relaxed">
+                  开启后，角色能够清楚知道当前时间，并感知用户离开聊天的时间长度，在回复中自然体现。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const updated = !timePerception;
+                  setTimePerception(updated);
+                  saveSettings({ timePerception: updated });
+                }}
+                className={`w-11 h-6 rounded-full p-0.5 transition-colors focus:outline-none shrink-0 ${
+                  timePerception ? "bg-black" : "bg-neutral-300"
+                }`}
+              >
+                <div className={`bg-white w-5 h-5 rounded-full shadow-md transform duration-200 ease-in-out ${
+                  timePerception ? "translate-x-5" : "translate-x-0"
+                }`} />
+              </button>
+            </div>
+
+            {/* 5. Delete All Chat History (Renamed from Reset Conversation) */}
+            <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
+              <div className="space-y-0.5">
+                <span className="text-base font-bold text-neutral-900 block font-sans">删除所有聊天记录</span>
+                <span className="text-[10px] text-neutral-400 font-mono block">DELETE ALL CHAT HISTORY</span>
+              </div>
+              <button
+                onClick={handleResetConversation}
+                className="px-4 py-2 text-xs font-semibold rounded-xl border border-neutral-200/40 text-neutral-500 hover:text-neutral-900 hover:border-neutral-300 transition-colors"
+              >
+                删除记录
+              </button>
+            </div>
+
+            {/* 6. Block Character (Moved to the very bottom) */}
             <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
               <div className="space-y-0.5">
                 <span className="text-base font-bold text-neutral-900 block font-sans">拉黑该角色</span>
@@ -3371,75 +3901,6 @@ export default function ChatApp({
               >
                 {isBlocked ? "解除拉黑" : "拉黑该角色"}
               </button>
-            </div>
-
-            {/* 5. Reset Conversation */}
-            <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
-              <div className="space-y-0.5">
-                <span className="text-base font-bold text-neutral-900 block font-sans">重置对话</span>
-                <span className="text-[10px] text-neutral-400 font-mono block">RESET CONVERSATION</span>
-              </div>
-              <button
-                onClick={handleResetConversation}
-                className="px-4 py-2 text-xs font-semibold rounded-xl border border-neutral-200/40 text-neutral-400 hover:text-neutral-700 transition-colors"
-              >
-                重置对话
-              </button>
-            </div>
-
-            {/* 6. Memory Center */}
-            <div className="border border-neutral-200/50 rounded-2xl p-4 space-y-3 bg-white">
-              <div className="flex justify-between items-center">
-                <div className="space-y-0.5">
-                  <span className="text-base font-bold text-neutral-900 block font-sans">记忆中枢</span>
-                  <span className="text-[10px] text-neutral-400 font-mono block">CHARACTER MEMORIES</span>
-                </div>
-              </div>
-              
-              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto py-1">
-                {memories.length === 0 ? (
-                  <span className="text-xs text-neutral-400 font-sans">目前没有任何记忆点。</span>
-                ) : (
-                  memories.map((mem, idx) => (
-                    <span key={idx} className="inline-flex items-center gap-1.5 px-3 py-1 bg-neutral-100 text-[11px] text-neutral-700 rounded-[20px] font-sans border border-neutral-200/40">
-                      <span>{mem}</span>
-                      <button
-                        onClick={() => {
-                          const updated = memories.filter((_, i) => i !== idx);
-                          setMemories(updated);
-                          saveSettings({ memories: updated });
-                        }}
-                        className="text-neutral-400 hover:text-neutral-900 shrink-0 text-xs font-bold font-mono ml-0.5"
-                      >
-                        ✕
-                      </button>
-                    </span>
-                  ))
-                )}
-              </div>
-              
-              <div className="flex items-center gap-2 pt-1 border-t border-neutral-100">
-                <input
-                  type="text"
-                  placeholder="输入新记忆点... (如: 用户喜欢草莓)"
-                  value={newMemoryInput}
-                  onChange={(e) => setNewMemoryInput(e.target.value)}
-                  className="flex-1 text-[11px] border border-neutral-200 px-3 py-2 rounded-xl bg-neutral-50 focus:bg-white focus:border-neutral-950 outline-none"
-                />
-                <button
-                  onClick={() => {
-                    if (newMemoryInput.trim()) {
-                      const updated = [...memories, newMemoryInput.trim()];
-                      setMemories(updated);
-                      saveSettings({ memories: updated });
-                      setNewMemoryInput("");
-                    }
-                  }}
-                  className="px-3 py-2 text-[11px] font-bold bg-black text-white rounded-xl hover:bg-neutral-800 shrink-0"
-                >
-                  记下
-                </button>
-              </div>
             </div>
 
             {/* 7. Export Conversation */}
@@ -4187,6 +4648,333 @@ export default function ChatApp({
               >
                 关闭并返回聊天
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- MODAL: CREATE GROUP CHAT -------------------- */}
+      {showCreateGroupModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center pb-3 border-b border-neutral-100">
+              <h3 className="font-sans font-bold text-base text-neutral-950">创建群聊 (CREATE GROUP)</h3>
+              <button onClick={() => setShowCreateGroupModal(false)} className="text-neutral-400 hover:text-neutral-700 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {groupError && (
+              <div className="p-3 bg-red-50 text-red-700 text-xs rounded-xl border border-red-100">
+                {groupError}
+              </div>
+            )}
+
+            <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">群聊名称 (Group Name) *</label>
+                <input
+                  type="text"
+                  placeholder="如: 星际茶话会、周末小分队"
+                  value={groupNameInput}
+                  onChange={(e) => setGroupNameInput(e.target.value)}
+                  className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">群聊头像 (Avatar Emoji)</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    placeholder="💬"
+                    value={groupAvatarInput}
+                    onChange={(e) => setGroupAvatarInput(e.target.value)}
+                    className="w-16 text-center text-xl border border-neutral-200 py-2 rounded-xl bg-white focus:border-neutral-950 outline-none"
+                  />
+                  <div className="flex gap-2 flex-wrap">
+                    {['💬', '🌟', '☕', '🚀', '🎮', '🌸', '🐱', '🔥'].map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => setGroupAvatarInput(emoji)}
+                        className={`w-9 h-9 rounded-xl border flex items-center justify-center text-lg ${
+                          groupAvatarInput === emoji ? 'border-black bg-neutral-100' : 'border-neutral-200 hover:bg-neutral-50'
+                        }`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">选择群成员 (至少选择2个角色)</label>
+                  <span className="text-xs font-mono font-bold text-neutral-500">已选: {selectedMemberIds.length}</span>
+                </div>
+                <div className="max-h-52 overflow-y-auto border border-neutral-200 rounded-2xl p-2 space-y-1.5 bg-neutral-50">
+                  {characters.map((char) => {
+                    const isSelected = selectedMemberIds.includes(char.id);
+                    return (
+                      <div
+                        key={char.id}
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedMemberIds(selectedMemberIds.filter(id => id !== char.id));
+                          } else {
+                            setSelectedMemberIds([...selectedMemberIds, char.id]);
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl flex items-center justify-between cursor-pointer transition-all ${
+                          isSelected ? 'bg-black text-white shadow-sm' : 'bg-white hover:bg-neutral-100 border border-neutral-200/60 text-neutral-900'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded-lg bg-neutral-200 flex items-center justify-center text-lg overflow-hidden shrink-0">
+                            {char.chatAvatar ? (
+                              <img src={char.chatAvatar} alt={char.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              char.avatar
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <span className="font-bold text-xs truncate block">{char.name}</span>
+                            <span className={`text-[10px] truncate block ${isSelected ? 'text-neutral-300' : 'text-neutral-400'}`}>
+                              {char.description || "无简介"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className={`w-5 h-5 rounded-full border flex items-center justify-center text-xs ${
+                          isSelected ? 'bg-white text-black border-white font-bold' : 'border-neutral-300 bg-white'
+                        }`}>
+                          {isSelected ? '✓' : ''}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-neutral-100 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCreateGroupModal(false)}
+                className="flex-1 py-2.5 text-xs font-bold text-neutral-600 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!groupNameInput.trim()) {
+                    setGroupError("请输入群聊名称");
+                    return;
+                  }
+                  if (selectedMemberIds.length < 2) {
+                    setGroupError("请至少选择2个角色加入群聊");
+                    return;
+                  }
+                  const newGroupId = `group-${Date.now()}`;
+                  const firstChar = characters.find(c => c.id === selectedMemberIds[0]);
+                  const newGroupSession: ChatSession = {
+                    id: newGroupId,
+                    isGroup: true,
+                    groupName: groupNameInput.trim(),
+                    groupAvatar: groupAvatarInput || "💬",
+                    memberIds: selectedMemberIds,
+                    syncMemory: true,
+                    messages: [
+                      {
+                        id: `msg-${Date.now()}`,
+                        role: "assistant",
+                        content: `欢迎来到「${groupNameInput.trim()}」群聊！大家快来打个招呼吧~`,
+                        timestamp: Date.now(),
+                        senderId: firstChar?.id,
+                        senderName: firstChar?.name || "群成员",
+                        senderAvatar: firstChar?.chatAvatar || firstChar?.avatar || "🤖"
+                      }
+                    ],
+                    lastActive: Date.now()
+                  };
+                  onUpdateSessionMessages(newGroupId, newGroupSession.messages, undefined, {
+                    isGroup: true,
+                    groupName: newGroupSession.groupName,
+                    groupAvatar: newGroupSession.groupAvatar,
+                    memberIds: newGroupSession.memberIds,
+                    syncMemory: true,
+                  });
+                  setActiveCharId(newGroupId);
+                  setActiveTab("chat");
+                  setApiError(null);
+                  setShowCreateGroupModal(false);
+                }}
+                className="flex-1 py-2.5 text-xs font-bold text-white bg-black hover:bg-neutral-800 rounded-xl transition-colors"
+              >
+                立即创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- MODAL: GROUP SETTINGS -------------------- */}
+      {showGroupSettingsModal && activeSession?.isGroup && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center pb-3 border-b border-neutral-100">
+              <h3 className="font-sans font-bold text-base text-neutral-950">群聊设置 (GROUP SETTINGS)</h3>
+              <button onClick={() => setShowGroupSettingsModal(false)} className="text-neutral-400 hover:text-neutral-700 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">群聊名称</label>
+                <input
+                  type="text"
+                  value={activeSession.groupName || ""}
+                  onChange={(e) => {
+                    const newName = e.target.value;
+                    onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
+                      ...activeSession,
+                      groupName: newName,
+                      isGroup: true,
+                    });
+                  }}
+                  className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">群聊头像</label>
+                <input
+                  type="text"
+                  value={activeSession.groupAvatar || "💬"}
+                  onChange={(e) => {
+                    const newAvatar = e.target.value;
+                    onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
+                      ...activeSession,
+                      groupAvatar: newAvatar,
+                      isGroup: true,
+                    });
+                  }}
+                  className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none"
+                />
+              </div>
+
+              {/* World Setting (世界设定) */}
+              <div className="space-y-1.5 border-t border-neutral-100 pt-3">
+                <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">世界设定 (WORLD SETTING)</label>
+                <textarea
+                  rows={4}
+                  placeholder="如：“这是一个梦境空间，角色们知道自己在做梦，但无法主动醒来。”（留空则角色按各自原有人设回复）"
+                  value={activeSession.worldSetting || ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
+                      ...activeSession,
+                      worldSetting: val,
+                      isGroup: true,
+                    });
+                  }}
+                  className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none resize-none font-sans"
+                />
+                
+                <div className="space-y-1">
+                  <span className="text-[9px] font-mono font-bold text-neutral-400 uppercase block">常用设定推荐 (点击快速填入)：</span>
+                  <div className="flex flex-col gap-1.5">
+                    {[
+                      "所有角色都知道自己来自不同的世界，但在这个群聊中他们默认不谈论此事。",
+                      "这是一个梦境空间，角色们知道自己在做梦，但无法主动醒来。",
+                      "这是侦探聚会，所有人都知道正在调查一起案件。"
+                    ].map((presetText) => (
+                      <button
+                        key={presetText}
+                        type="button"
+                        onClick={() => {
+                          onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
+                            ...activeSession,
+                            worldSetting: presetText,
+                            isGroup: true,
+                          });
+                        }}
+                        className="text-left text-[11px] text-neutral-600 hover:text-neutral-900 hover:bg-neutral-50 px-2.5 py-1.5 border border-neutral-200/50 rounded-xl transition-all font-sans active:scale-[0.98]"
+                      >
+                        · {presetText}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Memory Sync Toggle */}
+              <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
+                <div className="space-y-0.5 pr-2">
+                  <span className="text-sm font-bold text-neutral-900 block font-sans">单聊记忆互通</span>
+                  <span className="text-[10px] text-neutral-400 font-mono block">SINGLE-CHAT MEMORY SYNC</span>
+                  <p className="text-[11px] text-neutral-400 font-sans mt-0.5 leading-relaxed">
+                    开启后，群聊消息会自动同步到各成员的单聊记忆中，角色在单聊时也能知道群聊发生过的事。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const currentSync = activeSession.syncMemory !== false;
+                    const nextSync = !currentSync;
+                    onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
+                      ...activeSession,
+                      syncMemory: nextSync,
+                      isGroup: true,
+                    });
+                  }}
+                  className={`w-11 h-6 rounded-full p-0.5 transition-colors focus:outline-none shrink-0 ${
+                    activeSession.syncMemory !== false ? "bg-black" : "bg-neutral-300"
+                  }`}
+                >
+                  <div className={`bg-white w-5 h-5 rounded-full shadow-md transform duration-200 ease-in-out ${
+                    activeSession.syncMemory !== false ? "translate-x-5" : "translate-x-0"
+                  }`} />
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">群成员列表 ({activeSession.memberIds?.length || 0})</label>
+                <div className="border border-neutral-200 rounded-2xl p-2 space-y-1.5 bg-neutral-50 max-h-40 overflow-y-auto">
+                  {characters
+                    .filter(c => activeSession.memberIds?.includes(c.id))
+                    .map(char => (
+                      <div key={char.id} className="p-2 bg-white rounded-xl flex items-center gap-3 border border-neutral-200/40">
+                        <div className="w-7 h-7 rounded-lg bg-neutral-100 flex items-center justify-center text-base overflow-hidden shrink-0">
+                          {char.chatAvatar ? (
+                            <img src={char.chatAvatar} alt={char.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            char.avatar
+                          )}
+                        </div>
+                        <span className="text-xs font-bold text-neutral-900 truncate">{char.name}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const updatedSessions = sessions.filter(s => s.id !== activeSession.id);
+                    localStorage.setItem("mobile_ai_chat_sessions", JSON.stringify(updatedSessions));
+                    setActiveCharId(null);
+                    setShowGroupSettingsModal(false);
+                  }}
+                  className="w-full py-2.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200/50"
+                >
+                  解散 / 退出群聊
+                </button>
+              </div>
             </div>
           </div>
         </div>
