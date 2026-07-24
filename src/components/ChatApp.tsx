@@ -1048,7 +1048,6 @@ export default function ChatApp({
     }
 
     onUpdateSessionMessages(activeCharId, updatedMessages);
-    await handleTriggerAiReply(updatedMessages);
   };
 
   // Trigger AI reply (supporting customMessages, replyLength, replyCount, mood, memories)
@@ -2964,7 +2963,7 @@ export default function ChatApp({
                       className="w-10 h-10 bg-black hover:bg-neutral-800 disabled:bg-neutral-100 disabled:text-neutral-300 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
                       title="生成AI回复 (点击生成一轮回复)"
                     >
-                      <Sparkles className="w-4 h-4 stroke-[1.75] text-amber-300 fill-amber-300 animate-pulse" />
+                      <Heart className="w-4 h-4 stroke-[1.75] text-rose-400 fill-rose-400 animate-pulse" />
                     </button>
                   </div>
                 </form>

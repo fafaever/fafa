@@ -614,7 +614,7 @@ ${background.trim() || "暂无背景故事"}
 - ${finalChatStyle}
 - 保持第一人称视角的沉浸式对话。
 - 适当在动作或神态描述旁添加星号 (*), 例如：*微微一笑* 或 *叹了口气*，以此渲染对话环境。
-- 绝不脱离设定，拒绝扮演旁观 of AI 助手。`;
+- 绝不脱离设定，拒绝扮演旁观者或 AI 助手。`;
 
     try {
       const payload = {
@@ -622,6 +622,7 @@ ${background.trim() || "暂无背景故事"}
         avatar,
         description: desc.trim() || `${finalPersonality.substring(0, 30)}...`,
         systemInstruction,
+        model: settings.model, // Default to current global model
         realImage: realImage || undefined,
         chatAvatar: chatAvatar || undefined,
       };

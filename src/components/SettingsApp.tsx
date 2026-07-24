@@ -263,7 +263,7 @@ export default function SettingsApp({ settings, previewSettings, onPreviewSettin
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-neutral-50 text-neutral-900 select-none animate-slide-up h-full">
+    <div className="flex-1 flex flex-col bg-neutral-50/80 backdrop-blur-md text-neutral-900 select-none animate-slide-up h-full">
       {currentScreen === "main" && (
         <>
           <div className="h-14 flex items-center justify-between px-3 border-b border-neutral-200 bg-white shrink-0">

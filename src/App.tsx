@@ -301,12 +301,22 @@ export default function App() {
 
   // --- ACTIONS: Character Management ---
   const handleAddCharacter = (char: Omit<Character, "id" | "createdAt">) => {
+    const newCharId = `char-custom-${Date.now()}`;
     const newChar: Character = {
       ...char,
-      id: `char-custom-${Date.now()}`,
+      id: newCharId,
       createdAt: Date.now(),
     };
     persistCharacters([...characters, newChar]);
+
+    // Auto-create a session for the new character to avoid "API call failure" due to missing session
+    const newSession: ChatSession = {
+      id: `sess-${Date.now()}`,
+      characterId: newCharId,
+      messages: [],
+      lastActive: Date.now(),
+    };
+    persistSessions([...sessions, newSession]);
   };
 
   const handleUpdateCharacter = (id: string, updated: Partial<Character>) => {
@@ -429,12 +439,12 @@ export default function App() {
       setNotifications(prev => prev.filter(n => n.id !== id));
     }, 5000);
   };
-  const addEssayNotification = (noteId: string) => {
+  const addEssayNotification = (noteId: string, customText?: string) => {
     const id = `essay-notif-${Date.now()}`;
     const newNotif = {
       id,
       noteId,
-      text: "📝 随笔已生成完成",
+      text: customText || "📝 随笔已生成完成",
       timestamp: Date.now(),
     };
     
@@ -472,8 +482,9 @@ export default function App() {
         // Trigger notification
         addEssayNotification(newNote.id);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Background note generation failed", e);
+      addEssayNotification("", `⚠️ 随笔生成失败: ${e.message || "请检查 API 设置"}`);
     } finally {
       setIsGeneratingMap(prev => ({ ...prev, [character.id]: false }));
     }
@@ -629,7 +640,10 @@ export default function App() {
       const requestParams = {
         messages: targetMessages,
         character: cleanCharacter,
-        settings: settings,
+        settings: {
+          ...settings,
+          model: activeChar.model || settings.model
+        },
         matchedLore: matched,
         chatMode: "online",
         replyLength: replyLength,
@@ -1069,6 +1083,14 @@ export default function App() {
       <div 
         id="phone_screen"
         className={`w-full h-full md:h-auto md:max-w-[430px] md:aspect-[9/19.5] rounded-none md:rounded-[40px] shadow-none md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border-0 md:border border-neutral-200/80 flex flex-col relative overflow-hidden ${getThemeClass(previewSettings.globalTheme)} ${getFontClass(previewSettings.globalFont)}`}
+        style={{ 
+          height: "100dvh",
+          backgroundImage: (currentScreen === 'chat' && previewSettings.chatWallpaper) 
+            ? `url(${previewSettings.chatWallpaper})` 
+            : (previewSettings.homeWallpaper ? `url(${previewSettings.homeWallpaper})` : 'none'),
+          backgroundSize: 'cover',
+          backgroundPosition: 'center'
+        }}
       >
         {/* Status Bar */}
         <StatusBar />

@@ -4,6 +4,7 @@ export interface Character {
   avatar: string; // Emoji or image URL
   description: string;
   systemInstruction: string;
+  model?: string; // Specific AI model for this character
   createdAt: number;
   isPreset?: boolean;
   realImage?: string;  // Base64 or Image URL for real appearance
