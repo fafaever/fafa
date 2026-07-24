@@ -198,6 +198,33 @@ export default function CharacterCreatorApp({
     }
   };
 
+  const decodeFileText = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    // Try UTF-8 with fatal check
+    try {
+      const decoder = new TextDecoder("utf-8", { fatal: true });
+      const text = decoder.decode(uint8Array);
+      if (!text.includes("\ufffd")) {
+        return text;
+      }
+    } catch (e) {
+      // Ignore
+    }
+
+    // Try GBK / GB18030 for Chinese text files
+    try {
+      const decoderGBK = new TextDecoder("gb18030");
+      const text = decoderGBK.decode(uint8Array);
+      return text;
+    } catch (e) {
+      // Fallback to standard utf-8
+      const decoderFallback = new TextDecoder("utf-8");
+      return decoderFallback.decode(uint8Array);
+    }
+  };
+
   const processFile = async (file: File, enc: string) => {
     setIsImporting(true);
     setErrorMsg("");
@@ -231,16 +258,10 @@ export default function CharacterCreatorApp({
           throw new Error("无效的 docx 结构，未找到 word/document.xml。");
         }
       } else {
-        const arrayBuffer = await file.arrayBuffer();
         if (enc === "AUTO") {
-          const decoderUTF8 = new TextDecoder("utf-8", { fatal: true });
-          try {
-            decodedText = decoderUTF8.decode(new Uint8Array(arrayBuffer));
-          } catch (e) {
-            const decoderGBK = new TextDecoder("gbk");
-            decodedText = decoderGBK.decode(new Uint8Array(arrayBuffer));
-          }
+          decodedText = await decodeFileText(file);
         } else {
+          const arrayBuffer = await file.arrayBuffer();
           const decoder = new TextDecoder(enc);
           decodedText = decoder.decode(new Uint8Array(arrayBuffer));
         }
@@ -264,7 +285,6 @@ export default function CharacterCreatorApp({
         const trimmed = line.trim();
         if (!trimmed) continue;
 
-        // Optimized name extraction: prioritize specific labels and ignore generic ones early in the document
         if (!parsedName) {
           const nameMatch = trimmed.match(/^(?:姓名|角色名|主姓名|Name)\s*[:：]\s*(.+)$/i);
           if (nameMatch) {
@@ -330,83 +350,53 @@ export default function CharacterCreatorApp({
         parsedPersonality = decodedText.trim();
       }
 
-      console.log("=== [角色导入过程日志] ===");
-      console.log("📄 导入文件名:", fileName);
-      console.log("👤 提取姓名:", parsedName);
-      console.log("📝 提取简介:", parsedDesc);
-      console.log("💭 提取性格特点:", parsedPersonality);
-      console.log("💬 提取聊天风格:", parsedChatStyle);
-      console.log("🏞️ 提取背景设定:", parsedBackground);
-
-      // Validate critical fields: name
-      const missingFields: string[] = [];
-      if (!parsedName) missingFields.push("姓名 (Name)");
-
-      if (missingFields.length > 0) {
-        console.warn("⚠️ [角色导入警告] 数据不完整。 缺失字段:", missingFields.join(", "));
-        
-        // If name is missing, we can use the filename as a fallback
-        if (!parsedName) {
-          parsedName = fileName.replace(/\.[^/.]+$/, "");
-        }
+      if (!parsedName) {
+        parsedName = fileName.replace(/\.[^/.]+$/, "");
       }
 
-      const finalPersonality = parsedPersonality || parsedDesc || "注重角色故事细节与性格魅力的全情设定。";
-      const finalChatStyle = parsedChatStyle || "自然流利的日常交谈口吻。";
+      const finalPersonality = parsedPersonality || parsedDesc || decodedText.trim();
+      const finalChatStyle = parsedChatStyle || "保持自然流畅的第一人称角色口吻，带有情感与心理动作描写。";
       const finalDesc = parsedDesc || (finalPersonality.length > 50 ? finalPersonality.substring(0, 50) + "..." : finalPersonality);
       
       // Update form fields for visual feedback
       setName(parsedName);
       setNickname(parsedNickname);
-      setPersonality(parsedPersonality);
+      setPersonality(finalPersonality);
       setBackground(parsedBackground);
-      setChatStyle(parsedChatStyle);
+      setChatStyle(finalChatStyle);
       setDesc(finalDesc);
 
-      if (parsedName) {
-        const systemInstruction = `你将扮演 ${parsedName}。
-以下是你的设定与背景故事：
-${parsedBackground || "无"}
-
-性格特征：
-${finalPersonality}
-
-聊天风格：
-- ${finalChatStyle}
-- 保持第一人称视角的沉浸式对话。
-- 适当在动作或神态描述旁添加星号 (*), 例如：*微微一笑* 或 *叹了口气*，以此渲染对话环境。
-- 绝不脱离设定，拒绝扮演旁观 of AI 助手。`;
-
-        const payload = {
-          name: parsedName,
-          avatar: "🤖",
-          description: finalDesc || "从文件导入的角色",
-          systemInstruction,
-          model: settings?.model || "gemini-2.5-flash",
-          realImage: undefined,
-          chatAvatar: undefined,
-        };
-
-        console.log("💾 [角色导入保存 Payload]", payload);
-
-        // Save directly to localStorage/state via onAddCharacter
-        onAddCharacter(payload);
-
-        console.log("✅ [角色导入成功] 已成功存入 localStorage 并更新角色列表！");
-        setSuccessMsg("🎉 角色导入并保存成功！");
-        
-        // Instantly switch to character list to show the imported character
-        setTimeout(() => {
-          setSuccessMsg("");
-          setActiveTab("list");
-        }, 1000);
-      } else {
-        setSuccessMsg("📂 已提取部分数据，请补全标红必填项后点击保存。");
+      // If settings has API key, automatically run AI analysis for premium extraction
+      if (settings?.apiKey) {
+        try {
+          const aiRes = await apiAnalyzeCharacterFile({
+            fileText: decodedText,
+            fileName,
+            settings
+          });
+          if (aiRes?.success && aiRes?.data) {
+            const { name: aiName, nickname: aiNick, personality: aiPers, chatStyle: aiChat, background: aiBg, description: aiDesc, avatar: aiAvatar } = aiRes.data;
+            if (aiName) setName(aiName);
+            if (aiNick && aiNick !== "无") setNickname(aiNick);
+            if (aiPers) setPersonality(aiPers);
+            if (aiBg) setBackground(aiBg);
+            if (aiChat) setChatStyle(aiChat);
+            if (aiDesc) setDesc(aiDesc);
+            if (aiAvatar) setAvatar(aiAvatar);
+            setSuccessMsg("✨ 文件读取成功！AI 已智能提炼角色姓名、昵称、性格与说话风格，已填充至表单。请核对后点击下方【保存角色】按钮。");
+            setIsImporting(false);
+            return;
+          }
+        } catch (aiErr) {
+          console.warn("⚠️ [自动 AI 智能提炼失败，已采用本地文本解析]:", aiErr);
+        }
       }
+
+      setSuccessMsg("📂 文件读取并解析成功！已自动填充至表单，请核对后点击下方【保存角色】按钮进行保存。");
 
     } catch (err: any) {
       console.error("❌ [角色导入异常]:", err);
-      setErrorMsg(err.message || "文件解析或导入失败，请重试。");
+      setErrorMsg(err.message || "文件解析失败，请检查文件格式或重试。");
     } finally {
       setIsImporting(false);
     }
@@ -950,7 +940,7 @@ ${background.trim() || "暂无背景故事"}
               }`}
             >
               <UserPlus className="w-4 h-4" />
-              {editingId ? (forceSave ? "⚡ 强制修改保存角色" : "保存并修改角色 (SAVE CHANGES)") : (forceSave ? "⚡ 强制建立保存角色" : "建立并保存角色 (SAVE AGENT)")}
+              {editingId ? (forceSave ? "⚡ 强制修改保存角色" : "保存角色修改 (SAVE CHANGES)") : (forceSave ? "⚡ 强制保存角色" : "保存角色 (SAVE CHARACTER)")}
             </button>
             {editingId && (
               <button
