@@ -85,65 +85,22 @@ const PRESET_CHARACTERS: Character[] = [
 const PRESET_LORE: LoreEntry[] = [];
 
 export default function App() {
-  // Screen routing state
-  const [currentScreen, setCurrentScreen] = useState<string>("home");
-
-  // Dynamic viewport state for mobile fullscreen & dynamic toolbars
-  const [viewportHeight, setViewportHeight] = useState<string>("100dvh");
-
-  useEffect(() => {
-    const handleResize = () => {
-      // Prioritize visualViewport height to accurately adjust for dynamic browser chrome and virtual keyboard
-      const height = window.visualViewport 
-        ? window.visualViewport.height 
-        : window.innerHeight;
-      
-      setViewportHeight(`${height}px`);
-      
-      // Inject CSS variable --vh to expose dynamic viewport height unit
-      document.documentElement.style.setProperty("--vh", `${height / 100}px`);
-    };
-
-    window.addEventListener("resize", handleResize);
-    window.addEventListener("orientationchange", handleResize);
-    document.addEventListener("fullscreenchange", handleResize);
-    document.addEventListener("webkitfullscreenchange", handleResize);
-    
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", handleResize);
-      window.visualViewport.addEventListener("scroll", handleResize);
-    }
-    
-    // Initial calculation
-    handleResize();
-
-    // Secondary delayed check to let DOM layout stabilize
-    const timer = setTimeout(handleResize, 150);
-
-    // Screen orientation lock
-    const orientation = screen.orientation as any;
-    if (orientation && orientation.lock) {
-      try {
-        orientation.lock('portrait').catch((err: any) => {
-          console.warn("Screen orientation lock is not supported or was rejected:", err);
-        });
-      } catch (err) {
-        console.warn("Screen orientation lock is not supported on this device:", err);
+    // Screen routing state
+    const [currentScreen, setCurrentScreen] = useState<string>("home");
+  
+    useEffect(() => {
+      // Screen orientation lock
+      const orientation = screen.orientation as any;
+      if (orientation && orientation.lock) {
+        try {
+          orientation.lock('portrait').catch((err: any) => {
+            console.warn("Screen orientation lock is not supported or was rejected:", err);
+          });
+        } catch (err) {
+          console.warn("Screen orientation lock is not supported on this device:", err);
+        }
       }
-    }
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      window.removeEventListener("orientationchange", handleResize);
-      document.removeEventListener("fullscreenchange", handleResize);
-      document.removeEventListener("webkitfullscreenchange", handleResize);
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener("resize", handleResize);
-        window.visualViewport.removeEventListener("scroll", handleResize);
-      }
-      clearTimeout(timer);
-    };
-  }, []);
+    }, []);
 
   // Recalculate and reset scrolling on screen change
   useEffect(() => {
@@ -155,17 +112,6 @@ export default function App() {
     if (phoneScreen) {
       phoneScreen.scrollTop = 0;
     }
-
-    const handleResize = () => {
-      const height = window.visualViewport 
-        ? window.visualViewport.height 
-        : window.innerHeight;
-      setViewportHeight(`${height}px`);
-      document.documentElement.style.setProperty("--vh", `${height / 100}px`);
-    };
-    handleResize();
-    const timer = setTimeout(handleResize, 100);
-    return () => clearTimeout(timer);
   }, [currentScreen]);
 
   useEffect(() => {
@@ -197,6 +143,7 @@ export default function App() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loreList, setLoreList] = useState<LoreEntry[]>([]);
   const [settings, setSettings] = useState<AppSettings>({ apiUrl: "", apiKey: "", model: "", apiPresets: [], activePresetId: "" });
+  const [previewSettings, setPreviewSettings] = useState<AppSettings>({ apiUrl: "", apiKey: "", model: "", apiPresets: [], activePresetId: "" });
   const [sessions, setSessions] = useState<ChatSession[]>([]);
 
   // Background generation & notification states
@@ -280,13 +227,19 @@ export default function App() {
     if (savedSettings) {
       try {
         const parsed = JSON.parse(savedSettings);
-        setSettings({
+        const s = {
           apiUrl: parsed.apiUrl || "",
           apiKey: parsed.apiKey || "",
           model: parsed.model || "",
           apiPresets: parsed.apiPresets || [],
-          activePresetId: parsed.activePresetId || ""
-        });
+          activePresetId: parsed.activePresetId || "",
+          homeWallpaper: parsed.homeWallpaper || "",
+          chatWallpaper: parsed.chatWallpaper || "",
+          globalFont: parsed.globalFont || "system",
+          globalTheme: parsed.globalTheme || "warm_paper",
+        };
+        setSettings(s);
+        setPreviewSettings(s);
       } catch (e) {
         console.error(e);
       }
@@ -324,6 +277,7 @@ export default function App() {
   // Helper: Persist settings
   const persistSettings = (newSettings: AppSettings) => {
     setSettings(newSettings);
+    setPreviewSettings(newSettings);
     try {
       localStorage.setItem("mobile_ai_settings", JSON.stringify(newSettings));
     } catch (err) {
@@ -851,9 +805,16 @@ export default function App() {
         
         addNotification(characterId, activeChar.name, activeChar.avatar, cleanPreview);
       }
-
-    } catch (err) {
+    } catch (err: any) {
       console.error("Background AI generation error", err);
+      // Show error in chat
+      const errorMsg: Message = {
+        id: `msg-${Date.now()}-error`,
+        role: "assistant",
+        content: `⚠️ [系统提示] AI 回复失败: ${err.message || "未知错误"}。请检查网络或 API 设置。`,
+        timestamp: Date.now(),
+      };
+      handleUpdateSessionMessages(characterId, [...targetMessages, errorMsg]);
     } finally {
       setIsGeneratingMap(prev => ({ ...prev, [characterId]: false }));
       localStorage.removeItem(`mobile_ai_bg_generating_${characterId}`);
@@ -884,12 +845,7 @@ export default function App() {
           const now = Date.now();
           if (now - lastGen >= intervalHours * 3600 * 1000) {
             try {
-              const response = await fetch("/api/generate-note", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ character: char, settings })
-              });
-              const data = await response.json();
+              const data = await apiGenerateNote({ character: char, settings });
               if (data.text) {
                 const savedNotes = localStorage.getItem(`mobile_ai_notes_${char.id}`);
                 const notes = savedNotes ? JSON.parse(savedNotes) : [];
@@ -972,8 +928,13 @@ export default function App() {
         return (
           <SettingsApp
             settings={settings}
+            previewSettings={previewSettings}
+            onPreviewSettings={setPreviewSettings}
             onSaveSettings={handleUpdateSettings}
-            onClose={() => setCurrentScreen("home")}
+            onClose={() => {
+              setPreviewSettings(settings); // Revert preview on close
+              setCurrentScreen("home");
+            }}
           />
         );
       case "diary":
@@ -1060,7 +1021,7 @@ export default function App() {
   return (
     <div 
       className="w-full bg-neutral-100 flex flex-col md:flex-row items-center justify-center p-0 md:p-8 font-sans gap-8 select-none overflow-hidden"
-      style={{ height: viewportHeight }}
+      style={{ height: '100dvh' }}
     >
       
       {/* LEFT SIDE: Decorative Desk Dashboard (Desktop Only) */}
@@ -1107,7 +1068,7 @@ export default function App() {
       {/* CENTER: Simulated Smartphone Screen Container */}
       <div 
         id="phone_screen"
-        className={`w-full h-full md:h-auto md:max-w-[430px] md:aspect-[9/19.5] rounded-none md:rounded-[40px] shadow-none md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border-0 md:border border-neutral-200/80 flex flex-col relative overflow-hidden ${getThemeClass(settings.globalTheme)} ${getFontClass(settings.globalFont)}`}
+        className={`w-full h-full md:h-auto md:max-w-[430px] md:aspect-[9/19.5] rounded-none md:rounded-[40px] shadow-none md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border-0 md:border border-neutral-200/80 flex flex-col relative overflow-hidden ${getThemeClass(previewSettings.globalTheme)} ${getFontClass(previewSettings.globalFont)}`}
       >
         {/* Status Bar */}
         <StatusBar />

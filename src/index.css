@@ -8,6 +8,35 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+html, body, #root {
+  height: 100dvh !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+
+.chat-input-area {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  background: #FFFFFF;
+  border-top: 1px solid #EFECE8;
+}
+
 /* Portrait lock helper CSS */
 @media screen and (orientation: landscape) {
   body {

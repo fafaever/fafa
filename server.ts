@@ -97,7 +97,7 @@ app.post("/api/gemini", async (req, res) => {
     }));
 
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-1.5-flash",
       contents: contents.length > 0 ? contents : [{ role: "user", parts: [{ text: "Hello" }] }],
       config: {
         systemInstruction: sysMsg?.content || undefined,

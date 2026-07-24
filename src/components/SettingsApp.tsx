@@ -7,13 +7,15 @@ import { AppSettings, ApiPreset, FontOption, ThemeOption } from "../types";
 
 interface SettingsAppProps {
   settings: AppSettings;
+  previewSettings: AppSettings;
+  onPreviewSettings: (settings: AppSettings) => void;
   onSaveSettings: (settings: AppSettings) => void;
   onClose: () => void;
 }
 
 type ScreenType = "main" | "api" | "data" | "interface";
 
-export default function SettingsApp({ settings, onSaveSettings, onClose }: SettingsAppProps) {
+export default function SettingsApp({ settings, previewSettings, onPreviewSettings, onSaveSettings, onClose }: SettingsAppProps) {
   const [currentScreen, setCurrentScreen] = useState<ScreenType>("main");
   
   // API Settings State
@@ -32,11 +34,6 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
 
-  // Interface Settings State (Local to component until saved)
-  const [homeWallpaper, setHomeWallpaper] = useState(settings.homeWallpaper || "");
-  const [chatWallpaper, setChatWallpaper] = useState(settings.chatWallpaper || "");
-  const [globalFont, setGlobalFont] = useState<FontOption>(settings.globalFont || "system");
-  const [globalTheme, setGlobalTheme] = useState<ThemeOption>(settings.globalTheme || "warm_paper");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
   const compressAndCropImage = (file: File): Promise<string> => {
@@ -79,9 +76,9 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
       try {
         const base64 = await compressAndCropImage(file);
         if (type === 'home') {
-          setHomeWallpaper(base64);
+          onPreviewSettings({ ...previewSettings, homeWallpaper: base64 });
         } else {
-          setChatWallpaper(base64);
+          onPreviewSettings({ ...previewSettings, chatWallpaper: base64 });
         }
       } catch (err) {
         alert("图片处理失败");
@@ -91,16 +88,25 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
 
   const handleResetWallpaper = (type: 'home' | 'chat') => {
     if (type === 'home') {
-      setHomeWallpaper("");
+      onPreviewSettings({ ...previewSettings, homeWallpaper: "" });
     } else {
-      setChatWallpaper("");
+      onPreviewSettings({ ...previewSettings, chatWallpaper: "" });
     }
   };
 
   const handleSaveInterfaceSettings = () => {
-    onSaveSettings({ ...settings, homeWallpaper, chatWallpaper, globalFont, globalTheme });
+    onSaveSettings(previewSettings);
     setShowConfirmModal(false);
-    alert("设置已保存");
+    setSaveMessage("设置已保存");
+    setTimeout(() => setSaveMessage(""), 2000);
+  };
+
+  const handleBackToMain = () => {
+    if (currentScreen === "interface") {
+      // Revert preview if not saved
+      onPreviewSettings(settings);
+    }
+    setCurrentScreen("main");
   };
 
   // Data Management State
@@ -318,7 +324,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
         <>
           <div className="h-14 flex items-center justify-between px-3 border-b border-neutral-200 bg-white shrink-0">
             <button 
-              onClick={() => setCurrentScreen("main")}
+              onClick={handleBackToMain}
               className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-50 rounded-lg active:scale-95 transition-all"
             >
               <ChevronLeft className="w-5 h-5" />
@@ -336,7 +342,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-neutral-700 font-medium">
                   <span>主界面一（主页）壁纸</span>
-                  {homeWallpaper && (
+                  {previewSettings.homeWallpaper && (
                     <button 
                       onClick={() => handleResetWallpaper('home')}
                       className="text-red-500 hover:underline text-[11px]"
@@ -347,8 +353,8 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="w-14 h-14 rounded-xl border border-neutral-200 overflow-hidden bg-neutral-100 flex items-center justify-center shrink-0">
-                    {homeWallpaper ? (
-                      <img src={homeWallpaper} alt="Home Wallpaper" className="w-full h-full object-cover" />
+                    {previewSettings.homeWallpaper ? (
+                      <img src={previewSettings.homeWallpaper} alt="Home Wallpaper" className="w-full h-full object-cover" />
                     ) : (
                       <span className="text-[10px] text-neutral-400">默认</span>
                     )}
@@ -364,7 +370,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
               <div className="space-y-2 pt-2 border-t border-neutral-100">
                 <div className="flex items-center justify-between text-xs text-neutral-700 font-medium">
                   <span>主界面二（聊天页）壁纸</span>
-                  {chatWallpaper && (
+                  {previewSettings.chatWallpaper && (
                     <button 
                       onClick={() => handleResetWallpaper('chat')}
                       className="text-red-500 hover:underline text-[11px]"
@@ -375,8 +381,8 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="w-14 h-14 rounded-xl border border-neutral-200 overflow-hidden bg-neutral-100 flex items-center justify-center shrink-0">
-                    {chatWallpaper ? (
-                      <img src={chatWallpaper} alt="Chat Wallpaper" className="w-full h-full object-cover" />
+                    {previewSettings.chatWallpaper ? (
+                      <img src={previewSettings.chatWallpaper} alt="Chat Wallpaper" className="w-full h-full object-cover" />
                     ) : (
                       <span className="text-[10px] text-neutral-400">默认</span>
                     )}
@@ -401,15 +407,15 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                 ].map((f) => (
                   <button
                     key={f.id}
-                    onClick={() => setGlobalFont(f.id as FontOption)}
+                    onClick={() => onPreviewSettings({ ...previewSettings, globalFont: f.id as FontOption })}
                     className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
-                      globalFont === f.id
+                      previewSettings.globalFont === f.id
                         ? 'border-black bg-black text-white'
                         : 'border-neutral-200 bg-neutral-50 hover:border-neutral-300 text-neutral-800'
                     }`}
                   >
                     <div className="text-xs font-bold mb-0.5">{f.label}</div>
-                    <div className={`text-[10px] ${globalFont === f.id ? 'text-neutral-300' : 'text-neutral-500'}`}>{f.desc}</div>
+                    <div className={`text-[10px] ${previewSettings.globalFont === f.id ? 'text-neutral-300' : 'text-neutral-500'}`}>{f.desc}</div>
                   </button>
                 ))}
               </div>
@@ -426,13 +432,13 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                 ].map((t) => (
                   <button
                     key={t.id}
-                    onClick={() => setGlobalTheme(t.id as ThemeOption)}
+                    onClick={() => onPreviewSettings({ ...previewSettings, globalTheme: t.id as ThemeOption })}
                     className={`p-3 rounded-xl border text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2 ${t.bg} ${
-                      globalTheme === t.id ? 'ring-2 ring-black ring-offset-2' : 'opacity-80 hover:opacity-100'
+                      previewSettings.globalTheme === t.id ? 'ring-2 ring-black ring-offset-2' : 'opacity-80 hover:opacity-100'
                     }`}
                   >
                     <div className="w-6 h-6 rounded-full border border-current flex items-center justify-center">
-                      {globalTheme === t.id && <Check className="w-3.5 h-3.5" />}
+                      {previewSettings.globalTheme === t.id && <Check className="w-3.5 h-3.5" />}
                     </div>
                     <span className="text-xs font-bold">{t.label}</span>
                   </button>
@@ -464,7 +470,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
         <>
           <div className="h-14 flex items-center justify-between px-3 border-b border-neutral-200 bg-white shrink-0">
             <button 
-              onClick={() => setCurrentScreen("main")}
+              onClick={handleBackToMain}
               className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-50 rounded-lg active:scale-95 transition-all"
             >
               <ChevronLeft className="w-5 h-5" />
@@ -665,7 +671,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
         <>
           <div className="h-14 flex items-center justify-between px-3 border-b border-neutral-200 bg-white shrink-0">
             <button 
-              onClick={() => setCurrentScreen("main")}
+              onClick={handleBackToMain}
               className="p-1.5 text-neutral-500 hover:text-neutral-900 hover:bg-neutral-50 rounded-lg active:scale-95 transition-all"
             >
               <ChevronLeft className="w-5 h-5" />

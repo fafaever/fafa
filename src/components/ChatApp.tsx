@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar } from "lucide-react";
 import { apiChat } from "../lib/api";
 import { Character, Message, LoreEntry, AppSettings, ChatSession } from "../types";
 import ProfileView from "./ProfileView";
@@ -162,33 +162,10 @@ export default function ChatApp({
   const [isGenerating, setIsGenerating] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [chatMode, setChatMode] = useState<"online" | "offline">("online");
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
-    if (typeof window !== "undefined" && window.visualViewport) {
-      const handleResize = () => {
-        const viewport = window.visualViewport;
-        if (viewport) {
-          // Robust calculation for keyboard height using offsetTop and height
-          // This measures the distance from the bottom of the visual viewport to the bottom of the window
-          const offsetBottom = window.innerHeight - (viewport.offsetTop + viewport.height);
-          setKeyboardHeight(Math.max(0, offsetBottom));
-
-          // Prevent the browser from scrolling the page when the keyboard pops up
-          if (offsetBottom > 0) {
-            window.scrollTo(0, 0);
-            document.body.scrollTop = 0;
-          }
-        }
-      };
-      window.visualViewport.addEventListener("resize", handleResize);
-      window.visualViewport.addEventListener("scroll", handleResize);
-      handleResize();
-      return () => {
-        window.visualViewport?.removeEventListener("resize", handleResize);
-        window.visualViewport?.removeEventListener("scroll", handleResize);
-      };
-    }
+    // Force 100dvh for mobile browser height consistency
+    document.documentElement.style.height = '100dvh';
   }, []);
 
   // New features states
@@ -283,6 +260,7 @@ export default function ChatApp({
   const [topUpAmountInput, setTopUpAmountInput] = useState("");
   const [topUpNoteInput, setTopUpNoteInput] = useState("");
 
+  // Top-up wallet logic
   const handleTopUp = () => {
     const amtNum = Number(topUpAmountInput);
     if (!topUpAmountInput || isNaN(amtNum) || amtNum <= 0) return;
@@ -306,6 +284,36 @@ export default function ChatApp({
     setShowTopUpModal(false);
     setTopUpAmountInput("");
     setTopUpNoteInput("");
+  };
+
+  // Helper to trigger specific AI actions like photo or invitation
+  const handleTriggerAiAction = async (type: "photo" | "invitation") => {
+    if (isGenerating || !activeCharId || !activeSession) return;
+    
+    const userPrompt = type === "photo" ? "（你给我发张照片吧）" : "（我想约你出来见个面）";
+    const systemPrompt = type === "photo" 
+      ? "【系统提示：请立刻给用户分享一张符合当前场景和人设的照片，使用 [图片：描述内容] 格式，语气要契合人设。】" 
+      : "【系统提示：请立刻向用户发起线下见面邀请，使用 [OFFLINE_INVITATION]邀请话语|pending 格式，邀请话语要由你亲口说出，极其契合人设。】";
+
+    const newUserMsg: Message = {
+      id: `msg-${Date.now()}-user`,
+      role: "user",
+      content: userPrompt,
+      timestamp: Date.now(),
+    };
+
+    const updatedMessages = [...activeSession.messages, newUserMsg];
+    onUpdateSessionMessages(activeCharId, updatedMessages);
+
+    // Now trigger AI with hidden instruction
+    const hiddenPromptMsg: Message = {
+      id: `msg-${Date.now()}-system`,
+      role: "user",
+      content: systemPrompt,
+      timestamp: Date.now() + 1,
+    };
+
+    handleTriggerAiReply([...updatedMessages, hiddenPromptMsg]);
   };
 
   const handleConfirmTransfer = () => {
@@ -2373,7 +2381,7 @@ export default function ChatApp({
 
       {/* -------------------- VIEW 2: ACTIVE CHAT ROOM -------------------- */}
       {activeTab === "chat" && activeChar && activeSession && (
-        <div className="flex-1 flex flex-col h-full bg-white">
+        <div className="flex-1 flex flex-col h-full bg-white chat-container">
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2.5 border-b border-neutral-100 shrink-0 bg-white z-20">
             <button
@@ -2459,9 +2467,8 @@ export default function ChatApp({
 
           {/* Messages Scroll Area */}
           <div 
-            className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 bg-neutral-50/50 transition-all duration-150"
+            className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 bg-neutral-50/50 transition-all duration-150 chat-messages"
             style={{ 
-              paddingBottom: keyboardHeight > 0 ? `${keyboardHeight + 84}px` : "100px",
               scrollBehavior: "smooth"
             }}
           >
@@ -2748,7 +2755,7 @@ export default function ChatApp({
           )}
 
           {/* Message input bar or Blocked display */}
-          <div className="shrink-0 bg-white z-20 border-t border-neutral-100">
+          <div className="shrink-0 bg-white z-20">
             {isBlocked ? (
               <div className="p-4 bg-neutral-50 flex flex-col items-center justify-center space-y-2 shrink-0 select-none animate-fade-in">
                 <div className="flex items-center gap-2 w-full">
@@ -2887,18 +2894,43 @@ export default function ChatApp({
                         </div>
                         <span className="text-[11px] font-sans text-neutral-600">红包</span>
                       </button>
+
+                      {/* 6. 发照片 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionPanel(false);
+                          handleTriggerAiAction("photo");
+                        }}
+                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-blue-50 group-hover:bg-blue-600 group-hover:text-white text-blue-600 flex items-center justify-center transition-all shadow-sm">
+                          <Image className="w-5 h-5" />
+                        </div>
+                        <span className="text-[11px] font-sans text-neutral-600">发照片</span>
+                      </button>
+
+                      {/* 7. 发邀请 */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowActionPanel(false);
+                          handleTriggerAiAction("invitation");
+                        }}
+                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
+                      >
+                        <div className="w-11 h-11 rounded-full bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white text-emerald-600 flex items-center justify-center transition-all shadow-sm">
+                          <Calendar className="w-5 h-5" />
+                        </div>
+                        <span className="text-[11px] font-sans text-neutral-600">发邀请</span>
+                      </button>
                     </div>
                   </div>
                 )}
 
                 <form 
                   onSubmit={handleSendMessage} 
-                  className="fixed left-0 right-0 p-3 bg-white z-50 transition-all duration-150 border-t border-neutral-100 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]"
-                  style={{ 
-                    bottom: `${keyboardHeight}px`,
-                    // Add extra 4px spacing as requested when keyboard is up
-                    marginBottom: keyboardHeight > 0 ? '4px' : '0px'
-                  }}
+                  className="chat-input-area border-t border-neutral-100 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]"
                 >
                   <div className="flex items-center gap-2">
                     <button
