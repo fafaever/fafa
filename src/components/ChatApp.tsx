@@ -165,15 +165,19 @@ export default function ChatApp({
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.visualViewport) {
+    if (typeof window !== "undefined" && window.visualViewport) {
       const handleResize = () => {
         const viewport = window.visualViewport;
         if (viewport) {
-          setKeyboardHeight(Math.max(0, window.innerHeight - viewport.height));
+          // Improved calculation for keyboard height
+          // Using offsetTop can help on some iOS versions where the viewport is shifted
+          const height = window.innerHeight - viewport.height;
+          setKeyboardHeight(Math.max(0, height));
         }
       };
       window.visualViewport.addEventListener("resize", handleResize);
       window.visualViewport.addEventListener("scroll", handleResize);
+      handleResize();
       return () => {
         window.visualViewport?.removeEventListener("resize", handleResize);
         window.visualViewport?.removeEventListener("scroll", handleResize);
@@ -2429,7 +2433,10 @@ export default function ChatApp({
           )}
 
           {/* Messages Scroll Area */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 bg-neutral-50/50 pb-24">
+          <div 
+            className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 bg-neutral-50/50 transition-all duration-150"
+            style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight + 80}px` : "96px" }}
+          >
             {activeSession.messages.length === 0 ? (
               <div className="py-20 text-center space-y-3">
                 <div className="w-14 h-14 rounded-full bg-white border border-neutral-200/60 shadow-sm flex items-center justify-center mx-auto overflow-hidden text-3xl shrink-0">
@@ -2858,8 +2865,8 @@ export default function ChatApp({
 
                 <form 
                   onSubmit={handleSendMessage} 
-                  className="fixed bottom-0 left-0 right-0 p-3 bg-white z-50 transition-all duration-150 border-t border-neutral-100"
-                  style={{ bottom: `${keyboardHeight}px` }}
+                  className="fixed bottom-0 left-0 right-0 p-3 bg-white z-50 transition-transform duration-150 border-t border-neutral-100"
+                  style={{ transform: `translateY(-${keyboardHeight}px)` }}
                 >
                   <div className="flex items-center gap-2">
                     <button

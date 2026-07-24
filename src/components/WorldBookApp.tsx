@@ -566,25 +566,25 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
               />
             </div>
 
-            {/* Action buttons */}
-            <div className="flex gap-2 pt-2">
+            {/* Action buttons (Sticky at bottom) */}
+            <div className="sticky bottom-0 bg-neutral-50 pt-4 pb-2 mt-4 flex gap-2 border-t border-neutral-200/50 z-10">
               <button
                 type="submit"
-                className="flex-1 text-xs font-mono font-bold tracking-widest text-white bg-black hover:bg-neutral-800 py-3 rounded-xl transition-colors"
+                className="flex-1 text-xs font-mono font-bold tracking-widest text-white bg-black hover:bg-neutral-800 py-3 rounded-xl transition-colors shadow-sm"
               >
                 {editingId ? "保存修改 (SAVE)" : "创建条目 (CREATE)"}
               </button>
               <button
                 type="button"
                 onClick={handleSaveLoreDirectly}
-                className="px-5 text-xs font-mono font-bold tracking-widest text-black bg-white border border-neutral-300 hover:bg-neutral-50 rounded-xl transition-colors cursor-pointer"
+                className="px-5 text-xs font-mono font-bold tracking-widest text-black bg-white border border-neutral-300 hover:bg-neutral-50 rounded-xl transition-colors cursor-pointer shadow-sm"
               >
                 保存
               </button>
               <button
                 type="button"
                 onClick={handleCancel}
-                className="px-5 text-xs font-mono font-bold tracking-widest text-neutral-600 bg-white border border-neutral-200 hover:bg-neutral-50 rounded-xl transition-colors"
+                className="px-5 text-xs font-mono font-bold tracking-widest text-neutral-600 bg-white border border-neutral-200 hover:bg-neutral-50 rounded-xl transition-colors shadow-sm"
               >
                 取消
               </button>

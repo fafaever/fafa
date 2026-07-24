@@ -689,7 +689,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                 className="w-full bg-white border border-neutral-200 hover:border-neutral-300 text-neutral-800 font-bold text-sm py-3.5 rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm"
               >
                 <Upload className="w-4 h-4" />
-                导出数据
+                导出为 JSON
               </button>
               
               <button
@@ -697,7 +697,7 @@ export default function SettingsApp({ settings, onSaveSettings, onClose }: Setti
                 className="w-full bg-white border border-neutral-200 hover:border-neutral-300 text-neutral-800 font-bold text-sm py-3.5 rounded-xl active:scale-[0.98] transition-all flex items-center justify-center gap-2 shadow-sm"
               >
                 <Download className="w-4 h-4" />
-                导入数据
+                导入 JSON 恢复数据
               </button>
 
               <button

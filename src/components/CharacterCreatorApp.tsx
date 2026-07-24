@@ -354,15 +354,41 @@ export default function CharacterCreatorApp({
       console.log("🏞️ 提取背景设定:", parsedBackground);
 
       // Validate critical fields: name and age
-      if (!parsedName || !parsedAge) {
-        console.warn("❌ [角色导入失败] 关键数据不完整。 姓名:", parsedName, ", 年龄:", parsedAge);
-        throw new Error("角色数据不完整，请检查文件内容");
+      const missingFields: string[] = [];
+      if (!parsedName) missingFields.push("姓名 (Name)");
+      if (!parsedAge) missingFields.push("年龄 (Age)");
+
+      if (missingFields.length > 0) {
+        console.warn("⚠️ [角色导入警告] 数据不完整。 缺失字段:", missingFields.join(", "));
+        
+        // If name is missing, we can use the filename as a fallback
+        if (!parsedName) {
+          parsedName = fileName.replace(/\.[^/.]+$/, "");
+        }
+        
+        // If age is missing, we don't throw error immediately, instead we allow the user to see what's extracted
+        // and fill in the rest. 
+        if (!parsedAge) {
+          setErrorMsg(`角色数据不完全，缺失字段: ${missingFields.join(", ")}。请在下方手动补充。`);
+          // We don't throw here anymore, we let it proceed to fill whatever it found.
+        }
       }
 
       const finalPersonality = parsedPersonality || parsedDesc || "注重角色故事细节与性格魅力的全情设定。";
       const finalChatStyle = parsedChatStyle || "自然流利的日常交谈口吻。";
       const finalDesc = parsedDesc || (finalPersonality.length > 50 ? finalPersonality.substring(0, 50) + "..." : finalPersonality);
-      const systemInstruction = `你将扮演 ${parsedName} (年龄: ${parsedAge})。
+      
+      // Update form fields for visual feedback
+      setName(parsedName);
+      setNickname(parsedNickname);
+      setAge(parsedAge);
+      setPersonality(parsedPersonality);
+      setBackground(parsedBackground);
+      setChatStyle(parsedChatStyle);
+      setDesc(finalDesc);
+
+      if (parsedName && parsedAge) {
+        const systemInstruction = `你将扮演 ${parsedName} (年龄: ${parsedAge})。
 以下是你的设定与背景故事：
 ${parsedBackground || "无"}
 
@@ -375,37 +401,31 @@ ${finalPersonality}
 - 适当在动作或神态描述旁添加星号 (*), 例如：*微微一笑* 或 *叹了口气*，以此渲染对话环境。
 - 绝不脱离设定，拒绝扮演旁观 of AI 助手。`;
 
-      const payload = {
-        name: parsedName,
-        avatar: "🤖",
-        description: finalDesc,
-        systemInstruction,
-        realImage: undefined,
-        chatAvatar: undefined,
-      };
+        const payload = {
+          name: parsedName,
+          avatar: "🤖",
+          description: finalDesc,
+          systemInstruction,
+          realImage: undefined,
+          chatAvatar: undefined,
+        };
 
-      console.log("💾 [角色导入保存 Payload]", payload);
+        console.log("💾 [角色导入保存 Payload]", payload);
 
-      // Save directly to localStorage/state via onAddCharacter
-      onAddCharacter(payload);
+        // Save directly to localStorage/state via onAddCharacter
+        onAddCharacter(payload);
 
-      console.log("✅ [角色导入成功] 已成功存入 localStorage 并更新角色列表！");
-      setSuccessMsg("🎉 角色导入并保存成功！");
-      
-      // Update form fields for visual feedback
-      setName(parsedName);
-      setNickname(parsedNickname);
-      setAge(parsedAge);
-      setPersonality(parsedPersonality);
-      setBackground(parsedBackground);
-      setChatStyle(parsedChatStyle);
-      setDesc(finalDesc);
-
-      // Instantly switch to character list to show the imported character
-      setTimeout(() => {
-        setSuccessMsg("");
-        setActiveTab("list");
-      }, 1000);
+        console.log("✅ [角色导入成功] 已成功存入 localStorage 并更新角色列表！");
+        setSuccessMsg("🎉 角色导入并保存成功！");
+        
+        // Instantly switch to character list to show the imported character
+        setTimeout(() => {
+          setSuccessMsg("");
+          setActiveTab("list");
+        }, 1000);
+      } else {
+        setSuccessMsg("📂 已提取部分数据，请补全标红必填项后点击保存。");
+      }
 
     } catch (err: any) {
       console.error("❌ [角色导入异常]:", err);

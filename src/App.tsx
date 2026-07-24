@@ -196,6 +196,15 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [currentScreen]);
 
+  useEffect(() => {
+    // Force portrait orientation if supported
+    if (window.screen && (window.screen as any).orientation && (window.screen as any).orientation.lock) {
+      (window.screen as any).orientation.lock("portrait").catch(() => {
+        // Ignore errors (e.g. if the browser doesn''t support locking or requires full screen)
+      });
+    }
+  }, []);
+
   // Core Data States
   const [characters, setCharacters] = useState<Character[]>([]);
   const [loreList, setLoreList] = useState<LoreEntry[]>([]);

@@ -1,6 +1,0 @@
-{
-  "name": "仿制手机AI聊天",
-  "description": "黑白简约风格的仿手机AI聊天应用，包含AI聊天、世界书（设定集）和API设置功能。",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
