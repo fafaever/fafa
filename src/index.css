@@ -8,6 +8,13 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Portrait lock helper CSS */
+@media screen and (orientation: landscape) {
+  body {
+    transform: rotate(0deg);
+  }
+}
+
 @layer base {
   html, body, #root {
     height: 100dvh;

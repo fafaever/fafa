@@ -169,10 +169,16 @@ export default function ChatApp({
       const handleResize = () => {
         const viewport = window.visualViewport;
         if (viewport) {
-          // Calculation for keyboard height
-          // On mobile, the visual viewport height decreases when keyboard appears
-          const height = window.innerHeight - viewport.height;
-          setKeyboardHeight(Math.max(0, height));
+          // Robust calculation for keyboard height using offsetTop and height
+          // This measures the distance from the bottom of the visual viewport to the bottom of the window
+          const offsetBottom = window.innerHeight - (viewport.offsetTop + viewport.height);
+          setKeyboardHeight(Math.max(0, offsetBottom));
+
+          // Prevent the browser from scrolling the page when the keyboard pops up
+          if (offsetBottom > 0) {
+            window.scrollTo(0, 0);
+            document.body.scrollTop = 0;
+          }
         }
       };
       window.visualViewport.addEventListener("resize", handleResize);
@@ -2905,7 +2911,7 @@ export default function ChatApp({
                     </button>
                     <input
                       type="text"
-                      placeholder={isGenerating ? "生成中..." : "输入消息... (支持 *动作描写*)"}
+                      placeholder={isGenerating ? "生成中..." : "输入消息..."}
                       value={inputText}
                       onChange={(e) => setInputText(e.target.value)}
                       disabled={isGenerating}
