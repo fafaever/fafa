@@ -6,7 +6,7 @@ import {
   ShieldCheck, Clock, Send, CornerDownRight, ThumbsUp, ThumbsDown
 } from "lucide-react";
 import { Character, AppSettings } from "../types";
-import { callLLM } from "../lib/api";
+import { callLLM, getThreeDataSourcesPrompt } from "../lib/api";
 import NotesApp from "./NotesApp";
 import { ConfirmModal } from "./ConfirmModal";
 
@@ -16,6 +16,7 @@ interface PhoneCheckAppProps {
   onClose: () => void;
   onGenerateNote?: (character: Character, settings: AppSettings) => Promise<void>;
   isGeneratingMap?: Record<string, boolean>;
+  loreList?: any[];
 }
 
 interface MemoItem {
@@ -49,7 +50,7 @@ interface NpcContact {
   messages: NpcMessage[];
 }
 
-export default function PhoneCheckApp({ characters, settings, onClose, onGenerateNote, isGeneratingMap }: PhoneCheckAppProps) {
+export default function PhoneCheckApp({ characters, settings, onClose, onGenerateNote, isGeneratingMap, loreList = [] }: PhoneCheckAppProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
   
@@ -83,7 +84,13 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
 
   const selectedChar = characters.find(c => c.id === selectedCharId);
 
-  // Load data when selected character changes
+  const getCharacterLores = () => {
+    if (!selectedChar) return [];
+    const activeLore = (loreList || []).filter((l: any) => l.enabled !== false);
+    return activeLore.filter((l: any) => !l.characterIds || l.characterIds.length === 0 || l.characterIds.includes(selectedChar.id));
+  };
+
+  // Load data when selected character changes (Default to empty [] if no saved data)
   useEffect(() => {
     if (!selectedCharId) {
       setMemos([]);
@@ -100,13 +107,11 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
       if (savedMemos) {
         setMemos(JSON.parse(savedMemos));
       } else {
-        // Init default memos if empty
-        const initialMemos = getFallbackMemos(selectedChar?.name || "角色");
-        setMemos(initialMemos);
-        localStorage.setItem(`mobile_ai_phone_memos_${selectedCharId}`, JSON.stringify(initialMemos));
+        setMemos([]);
       }
     } catch (e) {
       console.error(e);
+      setMemos([]);
     }
 
     // 2. Load Searches
@@ -115,12 +120,11 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
       if (savedSearches) {
         setSearchHistory(JSON.parse(savedSearches));
       } else {
-        const initialSearches = getFallbackSearches(selectedChar?.name || "角色");
-        setSearchHistory(initialSearches);
-        localStorage.setItem(`mobile_ai_phone_searches_${selectedCharId}`, JSON.stringify(initialSearches));
+        setSearchHistory([]);
       }
     } catch (e) {
       console.error(e);
+      setSearchHistory([]);
     }
 
     // 3. Load Contacts & NPC chats
@@ -129,12 +133,11 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
       if (savedContacts) {
         setContacts(JSON.parse(savedContacts));
       } else {
-        const initialNpcs = getFallbackNpcs(selectedChar?.name || "角色");
-        setContacts(initialNpcs);
-        localStorage.setItem(`mobile_ai_phone_contacts_${selectedCharId}`, JSON.stringify(initialNpcs));
+        setContacts([]);
       }
     } catch (e) {
       console.error(e);
+      setContacts([]);
     }
   }, [selectedCharId]);
 
@@ -191,12 +194,12 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
 
     setIsGeneratingMemos(true);
     try {
-      const prompt = `请根据角色【${selectedChar.name}】的设定：
-【人设与背景】：${selectedChar.systemInstruction || selectedChar.description || "日常角色"}
-生成 5 条该角色的最新手机备忘录。
+      const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
+      const prompt = `${dataSourceContext}
+请根据以上角色的完整人设、记忆与世界书设定，生成 5 条该角色的最新手机备忘录。
 【硬性规则】：
 1. 包含 2-3 条『要做的事』（isCompleted: false）和 2-3 条『已做的事』（isCompleted: true）。
-2. 内容必须紧密结合该角色的日常行程和身份人设，严禁凭空捏造与角色无关的事实。
+2. 内容必须紧密结合该角色的日常行程、性格和当前状态，严禁凭空捏造与角色无关的事实。
 3. 每条备忘录下方必须附带一条简短的角色内心感想（15字以内，真情实感或调侃）。
 4. 格式必须是严格 JSON 数组，包含 key: content, isCompleted, reflection:
 [
@@ -230,12 +233,8 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
         throw new Error("格式解析失败");
       }
     } catch (e) {
-      // Fallback
-      const fallback = getFallbackMemos(selectedChar.name);
-      setMemos(fallback);
-      localStorage.setItem(`mobile_ai_phone_memos_${selectedChar.id}`, JSON.stringify(fallback));
-      localStorage.setItem(`mobile_ai_phone_memo_last_gen_${selectedChar.id}`, Date.now().toString());
-      showToast("备忘录已刷新");
+      console.error(e);
+      showToast("备忘录生成失败，请检查API配置或稍后重试");
     } finally {
       setIsGeneratingMemos(false);
     }
@@ -256,9 +255,9 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     setIsGeneratingSearch(true);
 
     try {
-      const prompt = `请根据角色【${selectedChar.name}】的设定：
-【人设】：${selectedChar.systemInstruction || selectedChar.description || "常用用户"}
-生成 6-8 条最新的浏览器无痕搜索历史词条及内心想法。
+      const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
+      const prompt = `${dataSourceContext}
+请根据以上角色的完整人设、记忆与世界书设定，生成 6-8 条最新的浏览器无痕搜索历史词条及内心想法。
 【规则】：
 1. 搜索词条要贴合角色近期关注的事物、生活琐事或隐藏小心思。
 2. 每条附带该角色搜索此词条时的【内心真实想法】（15字以内，可爱/真实/严谨）。
@@ -297,13 +296,8 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
         throw new Error("解析失败");
       }
     } catch (e) {
-      // Fallback batch
-      const newBatch = getFallbackSearches(selectedChar.name);
-      const combined = [...newBatch, ...searchHistory];
-      const trimmed = combined.slice(0, 20);
-      setSearchHistory(trimmed);
-      localStorage.setItem(`mobile_ai_phone_searches_${selectedChar.id}`, JSON.stringify(trimmed));
-      showToast("生成新搜索记录");
+      console.error(e);
+      showToast("搜索历史生成失败，请检查API配置或稍后重试");
     } finally {
       setIsGeneratingSearch(false);
     }
@@ -325,9 +319,9 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     setIsGeneratingNpcs(true);
 
     try {
-      const prompt = `请根据角色【${selectedChar.name}】的人设：
-${selectedChar.systemInstruction || selectedChar.description || "普通角色"}
-自动生成 3-5 个与该角色相关的 NPC 联系人以及他们各自的 2-3 条对话。
+      const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
+      const prompt = `${dataSourceContext}
+请根据以上角色的完整人设、记忆与世界书设定，自动生成 3-5 个与该角色相关的 NPC 联系人以及他们各自的 2-3 条对话。
 【规则】：
 1. 根据角色人设生成对应的社交圈关系（如同学、朋友、导师、店主、邻居等）。
 2. 每个 NPC 包含 2-3 条与角色的真实社交对话。
@@ -353,7 +347,7 @@ ${selectedChar.systemInstruction || selectedChar.description || "普通角色"}
       if (jsonMatch) jsonStr = jsonMatch[0];
 
       const parsed = JSON.parse(jsonStr);
-      if (Array.isArray(parsed) && parsed.length >= 3) {
+      if (Array.isArray(parsed) && parsed.length >= 1) {
         const createdNpcs: NpcContact[] = parsed.map((item: any, idx: number) => ({
           id: `npc-${Date.now()}-${idx}`,
           name: item.name || `朋友${idx + 1}`,
@@ -374,10 +368,8 @@ ${selectedChar.systemInstruction || selectedChar.description || "普通角色"}
         throw new Error("格式不匹配");
       }
     } catch (e) {
-      const fallback = getFallbackNpcs(selectedChar.name);
-      setContacts(fallback);
-      localStorage.setItem(`mobile_ai_phone_contacts_${selectedChar.id}`, JSON.stringify(fallback));
-      showToast("NPC 联系人已就绪");
+      console.error(e);
+      showToast("NPC 联系人生成失败，请检查API配置或稍后重试");
     } finally {
       setIsGeneratingNpcs(false);
     }

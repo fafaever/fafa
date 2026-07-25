@@ -28,6 +28,7 @@ interface ForumComment {
   floor: number;
   likes?: number;
   dislikes?: number;
+  isLiked?: boolean;
   isRecalled?: boolean;
   replyTo?: {
     floor: number;
@@ -48,6 +49,7 @@ interface ForumPost {
   timestamp: number;
   likes: number;
   dislikes?: number;
+  isLiked?: boolean;
   comments: ForumComment[];
 }
 
@@ -766,7 +768,10 @@ ${boardRequirementNotice}
     if (e) e.stopPropagation();
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
-        const updated = { ...p, likes: (p.likes || 0) + 1 };
+        const isLiked = !p.isLiked;
+        const currentLikes = p.likes || 0;
+        const newLikes = isLiked ? currentLikes + 1 : Math.max(0, currentLikes - 1);
+        const updated = { ...p, likes: newLikes, isLiked };
         if (selectedPost && selectedPost.id === postId) {
           setSelectedPost(updated);
         }
@@ -811,7 +816,10 @@ ${boardRequirementNotice}
     if (!selectedPost) return;
     const updatedComments = selectedPost.comments.map(c => {
       if (c.id === commentId) {
-        return { ...c, likes: (c.likes || 0) + 1 };
+        const isLiked = !c.isLiked;
+        const currentLikes = c.likes || 0;
+        const newLikes = isLiked ? currentLikes + 1 : Math.max(0, currentLikes - 1);
+        return { ...c, likes: newLikes, isLiked };
       }
       return c;
     });
@@ -1168,8 +1176,8 @@ ${boardRequirementNotice}
     }
   }, [privateMessages, isContactTyping, activePrivateContact]);
 
-  // Send Private Message
-  const handleSendPrivateMessage = async () => {
+  // Send User Private Message (only appends user message, does not trigger AI reply)
+  const handleSendUserPrivateMessage = () => {
     if (!activePrivateContact || !privateInputText.trim() || isContactTyping) return;
 
     const userMsgText = privateInputText.trim();
@@ -1189,16 +1197,31 @@ ${boardRequirementNotice}
 
     // Update lastMsg in privateContacts list
     setPrivateContacts(prev => prev.map(c => c.id === activePrivateContact.id ? { ...c, lastMsg: userMsgText, lastTime: Date.now() } : c));
+  };
+
+  // Trigger AI Reply (reads context of the conversation and replies sequentially sentence by sentence)
+  const handleTriggerAiReply = async () => {
+    if (!activePrivateContact || isContactTyping) return;
 
     setIsContactTyping(true);
+    const key = `mobile_ai_forum_dm_msgs_${activePrivateContact.id}`;
 
     try {
+      // 1. Context extraction: read last 15 messages for rich context
+      const recentMsgs = privateMessages.slice(-15);
+      const historyContext = recentMsgs.length > 0
+        ? `【当前私聊上下文历史记录（请务必连贯地接续该对话，保持话题一致，避免答非所问）：】\n${recentMsgs.map(m => `${m.sender === 'user' ? '用户' : activePrivateContact.name}: ${m.text}`).join("\n")}`
+        : "【无此前对话历史，这是一个新对话，你可以先热情地打个招呼或发起一个话题】";
+
       let replyText = "";
       if (activePrivateContact.character) {
         const char = activePrivateContact.character;
-        const prompt = `你在论坛私信中收到了用户的单独私信：“${userMsgText}”。
-你的论坛网名是“${activePrivateContact.name}”，原本身份是角色：${char.name}（${char.description}）。
-请以符合你性格和论坛私聊的调性，回复用户（30-100字）。请直接输出回复正文，不要包含Markdown语法。`;
+        const prompt = `你正在与用户进行论坛私聊。
+你的论坛网名是“${activePrivateContact.name}”，真实身份是：${char.name}（${char.description}）。
+
+${historyContext}
+
+请以符合你性格和论坛私聊的调性，回复该对话（回复内容应该是一句或几句自然连贯的话，30-100字，以描述或聊天为主）。请直接输出回复正文，不要包含Markdown语法或任何包裹字符。`;
 
         const response = await apiChat({
           messages: [{ role: "user", content: prompt }],
@@ -1210,8 +1233,11 @@ ${boardRequirementNotice}
         replyText = (response.text || "").trim();
       } else {
         const prompt = `你是网络论坛网民“${activePrivateContact.name}”。
-收到了论坛网友的私信：“${userMsgText}”。
-请以符合你网名特点的幽默接地气口吻进行简短私信回复（30-80字）。请直接输出回复正文，不要包含Markdown语法。`;
+你正在与一个论坛网友进行私聊。
+
+${historyContext}
+
+请以符合你网名特点的幽默、接地气的网友口吻，回复该对话（30-80字）。请直接输出回复正文，不要包含Markdown语法或任何包裹字符。`;
 
         const response = await apiChat({
           messages: [{ role: "user", content: prompt }],
@@ -1222,22 +1248,61 @@ ${boardRequirementNotice}
       }
 
       if (replyText) {
-        const replyMsg: PrivateMessage = {
-          id: `contact-${Date.now()}`,
-          sender: 'contact',
-          text: replyText,
-          timestamp: Date.now()
+        // 2. Sentences splitting: split the paragraph by punctuation (。, ！, ？, ., !, ?)
+        const splitIntoSentences = (text: string): string[] => {
+          if (!text) return [];
+          const parts = text.split(/([。！？\n!?.])/);
+          const result: string[] = [];
+          let current = "";
+          for (let i = 0; i < parts.length; i++) {
+            const p = parts[i];
+            if (!p) continue;
+            if (/[。！？\n!?.]/.test(p)) {
+              current += p;
+              const trimmed = current.trim();
+              if (trimmed) {
+                result.push(trimmed);
+              }
+              current = "";
+            } else {
+              current += p;
+            }
+          }
+          if (current.trim()) {
+            result.push(current.trim());
+          }
+          return result.filter(s => s.trim().length > 0);
         };
-        setPrivateMessages(prev => {
-          const finalMsgs = [...prev, replyMsg];
-          localStorage.setItem(key, JSON.stringify(finalMsgs));
-          return finalMsgs;
-        });
 
-        setPrivateContacts(prev => prev.map(c => c.id === activePrivateContact.id ? { ...c, lastMsg: replyText, lastTime: Date.now() } : c));
+        const sentences = splitIntoSentences(replyText);
+
+        // 3. Sequential transmission with typing simulation
+        for (let i = 0; i < sentences.length; i++) {
+          const sentence = sentences[i];
+          setIsContactTyping(true);
+
+          // Simulation delay based on string length (80ms per char, min 800ms, max 2000ms)
+          const typingTime = Math.max(800, Math.min(2000, sentence.length * 80));
+          await new Promise(resolve => setTimeout(resolve, typingTime));
+
+          const replyMsg: PrivateMessage = {
+            id: `contact-${Date.now()}-${i}`,
+            sender: 'contact',
+            text: sentence,
+            timestamp: Date.now()
+          };
+
+          setPrivateMessages(prev => {
+            const finalMsgs = [...prev, replyMsg];
+            localStorage.setItem(key, JSON.stringify(finalMsgs));
+            return finalMsgs;
+          });
+
+          setPrivateContacts(prev => prev.map(c => c.id === activePrivateContact.id ? { ...c, lastMsg: sentence, lastTime: Date.now() } : c));
+        }
       }
     } catch (e) {
-      console.error("Private chat error:", e);
+      console.error("Private chat reply error:", e);
     } finally {
       setIsContactTyping(false);
     }
@@ -1302,10 +1367,10 @@ ${boardRequirementNotice}
                 <div className="flex items-center gap-4">
                   <button 
                     onClick={(e) => handleLikePost(selectedPost.id, e)} 
-                    className="flex items-center gap-1 hover:text-black font-medium transition-colors"
-                    title="点赞"
+                    className={`flex items-center gap-1 font-medium transition-colors ${selectedPost.isLiked ? 'text-neutral-900 font-bold' : 'hover:text-black'}`}
+                    title={selectedPost.isLiked ? "取消点赞" : "点赞"}
                   >
-                    <ThumbsUp className="w-4 h-4" />
+                    <ThumbsUp className={`w-4 h-4 ${selectedPost.isLiked ? 'fill-neutral-900 text-neutral-900' : ''}`} />
                     <span>{selectedPost.likes || 0}</span>
                   </button>
                   <button 
@@ -1426,10 +1491,10 @@ ${boardRequirementNotice}
                         <div className="flex items-center gap-3">
                           <button 
                             onClick={() => handleLikeComment(c.id)}
-                            className="flex items-center gap-1 text-neutral-400 hover:text-black font-medium transition-colors"
-                            title="点赞评论"
+                            className={`flex items-center gap-1 font-medium transition-colors ${c.isLiked ? 'text-neutral-900 font-bold' : 'text-neutral-400 hover:text-black'}`}
+                            title={c.isLiked ? "取消点赞" : "点赞评论"}
                           >
-                            <ThumbsUp className="w-3.5 h-3.5" />
+                            <ThumbsUp className={`w-3.5 h-3.5 ${c.isLiked ? 'fill-neutral-900 text-neutral-900' : ''}`} />
                             <span>{c.likes || 0}</span>
                           </button>
                           <button 
@@ -1592,7 +1657,17 @@ ${boardRequirementNotice}
               {activeBoardId && (
                 <div className="flex-1 flex flex-col overflow-hidden h-full">
                   <div className="px-4 py-3 flex items-center justify-between bg-white border-b border-neutral-100 shrink-0">
-                    <span className="font-bold text-sm text-neutral-900">{boards.find(b => b.id === activeBoardId)?.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-neutral-900">{boards.find(b => b.id === activeBoardId)?.name}</span>
+                      <button 
+                        onClick={() => handleOpenGenModal(activeBoardId)}
+                        className="text-xs font-bold bg-neutral-900 hover:bg-black text-white px-2.5 py-1 rounded-full flex items-center gap-1 transition-all shadow-xs"
+                        title="AI 生成帖子"
+                      >
+                        <Sparkles className="w-3 h-3 text-white" />
+                        <span>AI 生成</span>
+                      </button>
+                    </div>
                     <button onClick={() => openEditBoardModal(boards.find(b => b.id === activeBoardId) || null)} className="text-xs font-bold text-neutral-500 hover:text-black">
                       编辑
                     </button>
@@ -1627,10 +1702,20 @@ ${boardRequirementNotice}
                         </p>
                         <div className="flex items-center justify-between text-[11px] text-neutral-400 pt-2 border-t border-neutral-50">
                           <span>{formatTime(post.timestamp)}</span>
-                          <span className="flex items-center gap-1 text-neutral-500 font-medium">
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            {post.comments.length}
-                          </span>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={(e) => handleLikePost(post.id, e)}
+                              className={`flex items-center gap-1 font-medium transition-colors ${post.isLiked ? 'text-neutral-900 font-bold' : 'text-neutral-500 hover:text-black'}`}
+                              title={post.isLiked ? "取消点赞" : "点赞"}
+                            >
+                              <ThumbsUp className={`w-3.5 h-3.5 ${post.isLiked ? 'fill-neutral-900 text-neutral-900' : ''}`} />
+                              <span>{post.likes || 0}</span>
+                            </button>
+                            <span className="flex items-center gap-1 text-neutral-500 font-medium">
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              {post.comments.length}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1732,17 +1817,29 @@ ${boardRequirementNotice}
                       type="text"
                       value={privateInputText}
                       onChange={(e) => setPrivateInputText(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleSendPrivateMessage(); }}
+                      onKeyDown={(e) => { 
+                        if (e.key === 'Enter') {
+                          handleSendUserPrivateMessage(); 
+                        } 
+                      }}
                       placeholder={`私信 ${activePrivateContact.name}...`}
                       className="flex-1 bg-neutral-100 rounded-full px-4 py-2.5 text-xs outline-none text-neutral-900 border border-neutral-200/60 focus:border-neutral-800"
                     />
                     <button 
-                      onClick={handleSendPrivateMessage}
+                      onClick={handleSendUserPrivateMessage}
                       disabled={!privateInputText.trim() || isContactTyping}
-                      className="bg-black text-white px-4 py-2.5 rounded-full text-xs font-bold disabled:opacity-40 active:scale-95 transition-all shrink-0 flex items-center gap-1"
+                      className="bg-black text-white p-2.5 rounded-full text-xs font-bold disabled:opacity-40 active:scale-95 transition-all shrink-0 flex items-center justify-center w-9 h-9"
+                      title="发送消息"
                     >
                       <Send className="w-3.5 h-3.5" />
-                      发送
+                    </button>
+                    <button 
+                      onClick={handleTriggerAiReply}
+                      disabled={isContactTyping}
+                      className="bg-rose-50 hover:bg-rose-100 text-rose-600 p-2.5 rounded-full text-xs font-bold disabled:opacity-40 active:scale-95 transition-all shrink-0 flex items-center justify-center w-9 h-9 border border-rose-100"
+                      title="触发 AI 回复"
+                    >
+                      <HeartIcon className="w-3.5 h-3.5 fill-rose-600" />
                     </button>
                   </div>
                 </div>

@@ -1159,6 +1159,7 @@ export default function App() {
             onClose={() => setCurrentScreen("home")}
             onGenerateNote={generateNoteBackground}
             isGeneratingMap={isGeneratingMap}
+            loreList={loreList}
           />
         );
       case "gamelist":

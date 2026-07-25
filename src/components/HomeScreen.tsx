@@ -157,6 +157,9 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
   const lastSession = sessions && sessions.length > 0
     ? [...sessions].sort((a, b) => b.lastActive - a.lastActive)[0]
     : null;
+  const targetChar = lastSession 
+    ? characters.find(c => c.id === lastSession.characterId) || defaultCharacter 
+    : defaultCharacter;
   const timeSinceLast = lastSession ? Math.round((Date.now() - lastSession.lastActive) / 60000) : null;
   
   // Random status for demo
@@ -287,31 +290,32 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
 
         <div className="flex-1 flex flex-col justify-start gap-4 pt-3 pb-4 min-h-0">
           {/* NEW: Start Chat Card */}
-          {defaultCharacter && (
+          {targetChar && (
             <button
               onClick={() => {
                   if (lastSession) {
                     localStorage.setItem("active_char_id", lastSession.characterId);
+                  } else if (targetChar) {
+                    localStorage.setItem("active_char_id", targetChar.id);
                   }
                   onOpenApp("chat");
               }}
               className="w-full h-[88px] bg-white border border-neutral-200 shadow-sm rounded-[20px] flex items-center justify-between px-4 active:scale-98 transition-transform duration-150 shrink-0"
             >
               <div className="flex items-center gap-3">
-                {defaultCharacter.chatAvatar ? (
-                  <img src={defaultCharacter.chatAvatar} alt={defaultCharacter.name} className="w-13 h-13 rounded-full object-cover" referrerPolicy="no-referrer" />
+                {targetChar.chatAvatar ? (
+                  <img src={targetChar.chatAvatar} alt={targetChar.name} className="w-13 h-13 rounded-full object-cover" referrerPolicy="no-referrer" />
                 ) : (
                   <div className="w-13 h-13 rounded-full bg-neutral-200 flex items-center justify-center text-2xl">
-                    {defaultCharacter.avatar || "👤"}
+                    {targetChar.avatar || "👤"}
                   </div>
                 )}
                 <div className="flex flex-col items-start overflow-hidden">
-                    <div className="flex items-baseline gap-2">
-                        <span className="text-base font-bold text-neutral-900">{defaultCharacter.name}</span>
-                        <span className="text-[11px] text-neutral-400 font-medium">
-                          {status}
-                        </span>
-                    </div>
+                  <div className="flex items-baseline">
+                    <span className="text-lg font-bold text-neutral-900" style={{ fontFamily: "'Playfair Display', serif" }}>
+                      {targetChar.name}
+                    </span>
+                  </div>
                   <span className="text-[13px] text-[#A8A39A] font-sans mt-0.5 w-full truncate">
                     {lastSession && lastSession.messages.length > 0 
                       ? (lastSession.messages[lastSession.messages.length - 1].content.length > 18 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2 } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2, CheckSquare } from "lucide-react";
 import { apiChat } from "../lib/api";
 import { Character, Message, LoreEntry, AppSettings, ChatSession, UserPersona, MomentPost, MomentComment } from "../types";
 import ProfileView from "./ProfileView";
@@ -111,6 +111,81 @@ export default function ChatApp({
   const [activeTab, setActiveTab] = useState<"chat" | "library">("library");
   const [activeCharId, setActiveCharId] = useState<string | null>(null);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+
+  // Multi-select message states
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState<boolean>(false);
+  const [selectedMsgIds, setSelectedMsgIds] = useState<string[]>([]);
+
+  // Fullscreen & visualViewport keyboard adaptation
+  const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement || document.documentElement.classList.contains("is-fullscreen"));
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const handleFsChange = () => {
+      const isFs = !!document.fullscreenElement || document.documentElement.classList.contains("is-fullscreen");
+      setIsFullscreen(isFs);
+      if (!isFs) {
+        setKeyboardHeight(0);
+      }
+    };
+    document.addEventListener("fullscreenchange", handleFsChange);
+    document.addEventListener("webkitfullscreenchange", handleFsChange);
+    
+    const observer = new MutationObserver(() => {
+      const isFs = document.documentElement.classList.contains("is-fullscreen") || !!document.fullscreenElement;
+      setIsFullscreen(isFs);
+      if (!isFs) setKeyboardHeight(0);
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFsChange);
+      document.removeEventListener("webkitfullscreenchange", handleFsChange);
+      observer.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (!window.visualViewport) return;
+      const isFs = document.documentElement.classList.contains("is-fullscreen") || !!document.fullscreenElement;
+      if (!isFs) {
+        // 非全屏模式下，键盘弹出时不改变输入框位置
+        setKeyboardHeight(0);
+        return;
+      }
+      // 全屏模式下，使用 window.visualViewport 获取键盘高度
+      const diff = window.innerHeight - window.visualViewport.height;
+      if (diff > 100) {
+        setKeyboardHeight(diff);
+      } else {
+        setKeyboardHeight(0);
+      }
+    };
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", handleResize);
+      window.visualViewport.addEventListener("scroll", handleResize);
+      handleResize();
+    }
+    return () => {
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", handleResize);
+        window.visualViewport.removeEventListener("scroll", handleResize);
+      }
+    };
+  }, [isFullscreen]);
+
+  const inputAreaStyle = isFullscreen && keyboardHeight > 0 ? {
+    position: "absolute" as const,
+    bottom: `${keyboardHeight + 4}px`,
+    left: 0,
+    right: 0,
+    zIndex: 30,
+  } : {
+    position: "relative" as const,
+    bottom: "0px"
+  };
 
   // -------------------- BOTTOM TAB STATES --------------------
   const [mainTab, setMainTab] = useState<"chat" | "contacts" | "moments" | "me">("chat");
@@ -3756,7 +3831,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               </div>
             )}
 
-          </div>
+          
 
           {/* Fixed Bottom Tab Navigation Bar */}
           <div className="shrink-0 bg-white border-t border-neutral-100 px-6 py-2 flex items-center justify-between shadow-sm">
@@ -3821,11 +3896,12 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             </button>
           </div>
 
+          </div>
         </div>
       )}
 
       {/* -------------------- VIEW 2B: GROUP CHAT ROOM -------------------- */}
-      {activeTab === "chat" && activeSession?.isGroup && (
+      {activeCharId !== null && activeSession?.isGroup && (
         <div className="flex-1 flex flex-col h-full bg-white chat-container">
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2.5 border-b border-neutral-100 shrink-0 bg-white z-20">
@@ -3979,6 +4055,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
           <form 
             onSubmit={(e) => { e.preventDefault(); handleSendGroupMessage(); }} 
             className="chat-input-area border-t border-neutral-100 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]"
+            style={inputAreaStyle}
           >
             <div className="flex items-center gap-2">
               <button
@@ -4023,7 +4100,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
       )}
 
       {/* -------------------- VIEW 2: ACTIVE CHAT ROOM -------------------- */}
-      {activeTab === "chat" && activeChar && activeSession && (
+      {activeCharId !== null && activeSession && !activeSession.isGroup && (
         <div className="flex-1 flex flex-col h-full bg-white chat-container">
           {/* Header */}
           <div className="flex items-center justify-between px-3 py-2.5 border-b border-neutral-100 shrink-0 bg-white z-20">
@@ -4315,51 +4392,89 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       }
 
                       return (
-                        <div key={segIdx} className={`flex items-start gap-[10px] ${isBot ? "justify-start" : "justify-end"} animate-fade-in w-full`}>
-                          {/* Avatar on Left for Bot */}
-                          {isBot && botAvatarNode}
-
-                          {/* Message Container */}
-                          <div className={`flex flex-col gap-1 max-w-[82%] ${isBot ? "items-start" : "items-end"}`}>
-                            {/* Message Bubble with longpress, mouse, doubleclick and context menu listeners */}
-                            <div
-                              onMouseDown={() => handleMouseDown(msg)}
-                              onMouseUp={handleMouseUp}
-                              onTouchStart={() => handleTouchStart(msg)}
-                              onTouchEnd={handleTouchEnd}
-                              onContextMenu={(e) => handleContextMenu(e, msg)}
-                              onDoubleClick={() => handleDoubleClick(msg)}
-                              className={`px-4 py-3 rounded-2xl text-xs leading-relaxed font-sans shadow-sm select-text cursor-pointer active:scale-[0.99] transition-all relative ${
-                                isBot
-                                  ? "bg-white text-neutral-900 border border-neutral-200 rounded-tl-none hover:border-neutral-300"
-                                  : "bg-black text-white rounded-tr-none hover:bg-neutral-900"
+                        <div key={segIdx} className={`flex items-center gap-2 ${isBot ? "justify-start" : "justify-end"} animate-fade-in w-full`}>
+                          {/* Multi-select Checkbox */}
+                          {isMultiSelectMode && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedMsgIds(prev => 
+                                  prev.includes(msg.id) ? prev.filter(id => id !== msg.id) : [...prev, msg.id]
+                                );
+                              }}
+                              className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 transition-all ${
+                                selectedMsgIds.includes(msg.id) 
+                                  ? "bg-black border-black text-white" 
+                                  : "border-neutral-300 bg-white"
                               }`}
-                              title="长按、右键或双击此消息可唤出操作菜单"
                             >
-                              {/* Quoted item block (inside bubble) */}
-                              {msg.quotedMsg && segIdx === 0 && (
-                                <div className="mb-1.5 p-2 bg-neutral-100/80 border-l-2 border-neutral-400 rounded text-[10px] text-neutral-600 font-sans truncate max-w-full">
-                                  <span className="font-bold block text-[9px] uppercase tracking-wider text-neutral-400 mb-0.5">
-                                    引用:
-                                  </span>
-                                  {msg.quotedMsg.content}
-                                </div>
-                              )}
+                              {selectedMsgIds.includes(msg.id) && <Check className="w-3 h-3 stroke-[2.5]" />}
+                            </button>
+                          )}
 
-                              {renderMessageContent(seg.text, msg)}
+                          <div className={`flex items-start gap-[10px] ${isBot ? "justify-start" : "justify-end"} flex-1`}>
+                            {/* Avatar on Left for Bot */}
+                            {isBot && botAvatarNode}
+
+                            {/* Message Container */}
+                            <div className={`flex flex-col gap-1 max-w-[82%] ${isBot ? "items-start" : "items-end"}`}>
+                              {/* Message Bubble with longpress, mouse, doubleclick and context menu listeners */}
+                              <div
+                                onMouseDown={() => {
+                                  if (isMultiSelectMode) {
+                                    setSelectedMsgIds(prev => prev.includes(msg.id) ? prev.filter(id => id !== msg.id) : [...prev, msg.id]);
+                                  } else {
+                                    handleMouseDown(msg);
+                                  }
+                                }}
+                                onMouseUp={handleMouseUp}
+                                onTouchStart={() => {
+                                  if (!isMultiSelectMode) handleTouchStart(msg);
+                                }}
+                                onTouchEnd={handleTouchEnd}
+                                onContextMenu={(e) => {
+                                  if (isMultiSelectMode) {
+                                    e.preventDefault();
+                                  } else {
+                                    handleContextMenu(e, msg);
+                                  }
+                                }}
+                                onDoubleClick={() => {
+                                  if (!isMultiSelectMode) handleDoubleClick(msg);
+                                }}
+                                className={`px-4 py-3 rounded-2xl text-xs leading-relaxed font-sans shadow-sm select-text cursor-pointer active:scale-[0.99] transition-all relative ${
+                                  isBot
+                                    ? "bg-white text-neutral-900 border border-neutral-200 rounded-tl-none hover:border-neutral-300"
+                                    : "bg-black text-white rounded-tr-none hover:bg-neutral-900"
+                                }`}
+                                title="长按、右键或双击此消息可唤出操作菜单"
+                              >
+                                {/* Quoted item block (inside bubble) */}
+                                {msg.quotedMsg && segIdx === 0 && (
+                                  <div className="mb-1.5 p-2 bg-neutral-100/80 border-l-2 border-neutral-400 rounded text-[10px] text-neutral-600 font-sans truncate max-w-full">
+                                    <span className="font-bold block text-[9px] uppercase tracking-wider text-neutral-400 mb-0.5">
+                                      引用:
+                                    </span>
+                                    {msg.quotedMsg.content}
+                                  </div>
+                                )}
+
+                                {renderMessageContent(seg.text, msg)}
+                              </div>
+
+                              {/* Meta info / matched lore tags */}
+                              <div className="flex items-center gap-1.5 px-1">
+                                {isBot && activeChar?.isBlocked && activeChar.blockedAt && msg.timestamp >= activeChar.blockedAt && <span className="text-[10px] text-black font-bold">!</span>}
+                                <span className="text-[8px] font-mono text-neutral-400">
+                                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
                             </div>
 
-                            {/* Meta info / matched lore tags */}
-                            <div className="flex items-center gap-1.5 px-1">
-                              {isBot && activeChar?.isBlocked && activeChar.blockedAt && msg.timestamp >= activeChar.blockedAt && <span className="text-[10px] text-black font-bold">!</span>}
-                              <span className="text-[8px] font-mono text-neutral-400">
-                                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
+                            {/* Avatar on Right for User */}
+                            {!isBot && userAvatarNode}
                           </div>
-
-                          {/* Avatar on Right for User */}
-                          {!isBot && userAvatarNode}
                         </div>
                       );
                     })}
@@ -4398,6 +4513,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
             <div ref={messagesEndRef} />
           </div>
+          
 
           {/* Quoted Message thumbnail preview above input area */}
           {quotedMsgState && (
@@ -4611,49 +4727,107 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   </div>
                 )}
 
-                <form 
-                  onSubmit={handleSendMessage} 
-                  className="chat-input-area border-t border-neutral-100 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]"
-                >
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowActionPanel(!showActionPanel)}
-                      className="w-9 h-9 bg-neutral-800 hover:bg-black text-white rounded-full flex items-center justify-center active:scale-95 transition-all shrink-0 font-bold text-lg shadow-sm"
-                      title="功能面板"
-                    >
-                      +
-                    </button>
-                    <input
-                      type="text"
-                      placeholder={isGenerating ? "生成中..." : "输入消息..."}
-                      value={inputText}
-                      onChange={(e) => setInputText(e.target.value)}
-                      onFocus={() => setTimeout(scrollToBottom, 200)}
-                      disabled={isGenerating}
-                      className="flex-1 text-xs border border-neutral-200 hover:border-neutral-300 focus:border-neutral-950 px-3.5 py-2.5 rounded-xl bg-neutral-50 focus:bg-white outline-none transition-all"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!inputText.trim() || isGenerating}
-                      className="w-10 h-10 bg-neutral-100 hover:bg-neutral-200 disabled:bg-neutral-50 disabled:text-neutral-300 text-neutral-800 rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
-                      title="发送用户消息 (仅发送，不生成AI回复)"
-                    >
-                      <Send className="w-4 h-4 stroke-[1.75]" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleTriggerAiReply()}
-                      disabled={isGenerating}
-                      className="w-10 h-10 bg-black hover:bg-neutral-800 disabled:bg-neutral-100 disabled:text-neutral-300 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
-                      title="生成AI回复 (点击生成一轮回复)"
-                    >
-                      <div className="w-5 h-5 rounded-full border-[2px] border-white bg-white flex items-center justify-center shadow-sm">
-                        <Heart className="w-3 h-3 text-black stroke-[2] fill-none" />
-                      </div>
-                    </button>
+                {/* Multi-select Bottom Bar */}
+                {isMultiSelectMode ? (
+                  <div className="bg-white border-t border-neutral-200 p-4 shadow-2xl z-40 flex items-center justify-between animate-slide-up shrink-0">
+                    <span className="text-xs font-bold text-neutral-800">
+                      已选择 <span className="text-black font-extrabold">{selectedMsgIds.length}</span> 条消息
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsMultiSelectMode(false);
+                          setSelectedMsgIds([]);
+                        }}
+                        className="px-4 py-2 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-bold rounded-xl transition-all"
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (selectedMsgIds.length === 0) {
+                            alert("请先勾选要删除的消息");
+                            return;
+                          }
+                          setConfirmDialog({
+                            title: "删除消息",
+                            message: `确定要删除选中的 ${selectedMsgIds.length} 条消息吗？`,
+                            onConfirm: () => {
+                              if (activeSession) {
+                                const updated = activeSession.messages.filter(m => !selectedMsgIds.includes(m.id));
+                                if (activeSession.isGroup) {
+                                  onUpdateSessionMessages(activeSession.id, updated, undefined, {
+                                    groupName: activeSession.groupName,
+                                    groupAvatar: activeSession.groupAvatar,
+                                    memberIds: activeSession.memberIds,
+                                    syncMemory: activeSession.syncMemory,
+                                    worldSetting: activeSession.worldSetting,
+                                    isGroup: true,
+                                  });
+                                } else {
+                                  onUpdateSessionMessages(activeCharId!, updated);
+                                }
+                              }
+                              setIsMultiSelectMode(false);
+                              setSelectedMsgIds([]);
+                              setConfirmDialog(null);
+                            }
+                          });
+                        }}
+                        className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm"
+                      >
+                        删除 ({selectedMsgIds.length})
+                      </button>
+                    </div>
                   </div>
-                </form>
+                ) : (
+                  <form 
+                    onSubmit={handleSendMessage} 
+                    className="chat-input-area border-t border-neutral-100 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]"
+                    style={inputAreaStyle}
+                  >
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowActionPanel(!showActionPanel)}
+                        className="w-9 h-9 bg-neutral-800 hover:bg-black text-white rounded-full flex items-center justify-center active:scale-95 transition-all shrink-0 font-bold text-lg shadow-sm"
+                        title="功能面板"
+                      >
+                        +
+                      </button>
+                      <input
+                        type="text"
+                        placeholder={isGenerating ? "生成中..." : "输入消息..."}
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
+                        onFocus={() => setTimeout(scrollToBottom, 200)}
+                        disabled={isGenerating}
+                        className="flex-1 text-xs border border-neutral-200 hover:border-neutral-300 focus:border-neutral-950 px-3.5 py-2.5 rounded-xl bg-neutral-50 focus:bg-white outline-none transition-all"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!inputText.trim() || isGenerating}
+                        className="w-10 h-10 bg-neutral-100 hover:bg-neutral-200 disabled:bg-neutral-50 disabled:text-neutral-300 text-neutral-800 rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
+                        title="发送用户消息 (仅发送，不生成AI回复)"
+                      >
+                        <Send className="w-4 h-4 stroke-[1.75]" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleTriggerAiReply()}
+                        disabled={isGenerating}
+                        className="w-10 h-10 bg-black hover:bg-neutral-800 disabled:bg-neutral-100 disabled:text-neutral-300 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
+                        title="生成AI回复 (点击生成一轮回复)"
+                      >
+                        <div className="w-5 h-5 rounded-full border-[2px] border-white bg-white flex items-center justify-center shadow-sm">
+                          <Heart className="w-3 h-3 text-black stroke-[2] fill-none" />
+                        </div>
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
             )}
           </div>
@@ -5131,8 +5305,23 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               <p className="text-xs text-neutral-500 font-sans truncate">"{activeMessage.content}"</p>
             </div>
 
-            {/* Grid container with 5/4 columns for actions */}
-            <div className={`grid gap-2 pt-2 ${activeMessage.role === "user" ? "grid-cols-5" : "grid-cols-4"}`}>
+            {/* Grid container with actions */}
+            <div className={`grid gap-2 pt-2 ${activeMessage.role === "user" ? "grid-cols-6" : "grid-cols-5"}`}>
+              
+              {/* Action: Multi-select */}
+              <button
+                onClick={() => {
+                  setIsMultiSelectMode(true);
+                  setSelectedMsgIds(activeMessage ? [activeMessage.id] : []);
+                  setShowBottomSheet(false);
+                }}
+                className="flex flex-col items-center gap-1.5 group focus:outline-none"
+              >
+                <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
+                  <CheckSquare className="w-4.5 h-4.5 stroke-[1.5]" />
+                </div>
+                <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">多选</span>
+              </button>
               
               {/* Action 1: Delete */}
               <button
