@@ -1,5 +1,12 @@
 
 
+export function stripColorEmojis(str: string): string {
+  if (!str) return "";
+  // Strip Unicode color/graphic emojis (like 😊, 😭, ❤️, ✨, 🎉, etc.) while preserving monochrome kaomojis and text actions.
+  const emojiRegex = /[\u{1F300}-\u{1F9FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F1E6}-\u{1F1FF}\u{1F900}-\u{1F9FF}\u{1F300}-\u{1F5FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu;
+  return str.replace(emojiRegex, "");
+}
+
 export function normalizeUrl(url: string): string {
   if (!url) return "";
   let trimmed = url.trim();
@@ -74,6 +81,16 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
       content = m.parts.map((p: any) => p.text || "").join("\n");
     } else {
       content = String(m.content || "");
+    }
+
+    if (content.startsWith("[MOMENT_SHARE]")) {
+      try {
+        const jsonStr = content.replace("[MOMENT_SHARE]", "");
+        const parsed = JSON.parse(jsonStr);
+        content = `[用户向你分享了一条朋友圈动态] 发布者：${parsed.authorName || '用户'}，正文内容："${parsed.content || '(图片/多媒体动态)'}"。请结合你们的关系和你的性格人设，与用户讨论这条朋友圈内容。`;
+      } catch (e) {
+        content = "[用户向你分享了一条朋友圈动态]";
+      }
     }
 
     return { role, content };
@@ -370,9 +387,14 @@ export async function apiChat(params: any) {
     isGroup
   } = params;
 
-  if (!character) throw new Error("缺少角色参数");
+  const effectiveCharacter = character || {
+    id: "system-assistant",
+    name: "AI助手",
+    description: "通用AI助手",
+    systemInstruction: params.systemInstruction || "你是一个友好的AI助手。"
+  };
 
-  const threeDataSources = getThreeDataSourcesPrompt(character, memories, matchedLore, currentUserName, currentUserDesc);
+  const threeDataSources = getThreeDataSourcesPrompt(effectiveCharacter, memories, matchedLore, currentUserName, currentUserDesc);
 
   const modeInstruction = chatMode !== "offline"
     ? `
@@ -440,6 +462,24 @@ ${userDidNotReply ? "\n- 【注意】上一条消息也是你发的，用户这�
 5. 【绝对禁止对用户的负面情绪】：角色绝对不允许对用户出现任何真实的讨厌、反感、嫌弃、不耐烦。如果当前心情是【烦躁】，其根源必须是因为外部事物或日常小麻烦，对用户必须始终表现出“虽然我心里有点烦闷，但我依然很想和你说说话、很在乎你”的温和与陪伴感。
 6. 【禁止持续抱怨疲惫】：不允许角色在几句对话中连续、喋喋不休地向用户倒垃圾般地抱怨自己太累了、没劲、不想聊，可以表现出慵懒，但不能流露消极罢工。
 7. 【心声 OS 相同限制】：所有针对言行 and 情绪波动的红线准则，对于角色的私密内心心声（OS_INNER）同样 100% 严格适用！心声中绝不可出现任何辱骂、反感、厌恶用户的真正恶意，必须保持关切的温暖底色。
+`;
+
+  const emojiAndKaomojiInstruction = `
+--- 【角色聊天表情与颜文字硬性替换规则（最高级别指令）】 ---
+1. 【绝对禁止使用任何彩色/图形 Emoji 表情符号】：
+   - 严禁在任何聊天回复、动作描写、评论或内心心声（OS_INNER）中使用任何彩色/图形 Emoji 表情符号（例如：😊、😭、❤️、✨、😍、🥺、👍、🤣、🎉、🌸、💀、🤔 等）。
+2. 【情绪表达统一规范】：
+   - 所有情绪与神态表达必须且只能使用“黑白简约颜文字”或“文字动作描述”。
+   - 文字/动作描写示例：(笑)、(嘴角动了一下)、(想了想)、(沉默了一会儿)、(耸肩)、(低头)、(叹气)
+   - 颜文字风格要求：黑白简约，不过度可爱，绝对不带任何彩色字符。
+   - 颜文字示例：
+     · 开心/轻松时：(◡‿◡)、(•̀ᴗ•́)و、(^_^)
+     · 思考/低落时：(｡•́︿•̀｡)、(・_・;)
+     · 无奈/尴尬时：(￣▽￣*)ゞ、( -_-)
+3. 【使用频率与人设挂钩】：
+   - 颜文字的使用频率必须严格遵循你的人设：
+     · 活泼/可爱/欢脱的角色：可适当使用黑白颜文字。
+     · 高冷/严肃/沉稳的角色：少用或完全不用颜文字，仅使用文字表达或直接陈述。
 `;
 
   let moodInstruction = "";
@@ -662,6 +702,8 @@ ${hardStyleFixInstruction}
 
 ${globalEmotionRuleInstruction}
 
+${emojiAndKaomojiInstruction}
+
 ${matchedLore && matchedLore.length > 0 ? `
 --- WORLD BOOK / LORE CONTEXT ---
 The following lore is active for this conversation because relevant keywords were mentioned:
@@ -717,8 +759,8 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
     }
 
     const { cleanText, osText } = sanitizeBannedPhrases(finalCleanText, finalOs, character, parsedInfo);
-    finalCleanText = cleanText;
-    finalOs = osText;
+    finalCleanText = stripColorEmojis(cleanText);
+    finalOs = stripColorEmojis(osText);
 
     // Enforce hard constraints for fafa (no exclamation marks, clean punctuation)
     if (character?.name?.toLowerCase().includes("fafa") || character?.id === "char-preset-fafa") {
@@ -736,18 +778,22 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
 
 export async function apiGenerateNote(params: any) {
   const { character, settings, memories, lore, lores } = params;
-  if (!character) throw new Error("缺少角色参数");
+  const effectiveCharacter = character || {
+    id: "system-assistant",
+    name: "AI助手",
+    description: "通用AI助手"
+  };
   
   const threeDataSources = getThreeDataSourcesPrompt(
-    character, 
-    memories || character.memories, 
-    lore || lores || character.lores
+    effectiveCharacter, 
+    memories || effectiveCharacter.memories, 
+    lore || lores || effectiveCharacter.lores
   );
 
   const prompt = `
 ${threeDataSources}
 
-你现在是角色：【${character.name}】。
+你现在是角色：【${effectiveCharacter.name}】。
 请综合并同时读取以上【三位一体数据源】（1.角色人设、2.记忆库、3.世界书设定），以你的第一人称写一篇碎片化的日常“随笔”。
 
 要求：
@@ -769,9 +815,13 @@ ${threeDataSources}
 
 export async function apiUnoDialogue(params: any) {
   const { character, event, cardDetails, context, settings, memories, lores } = params;
-  if (!character) throw new Error("Missing character parameter");
-  const parsedInfo = parseCharacterInstruction(character.name, character.systemInstruction, character.description);
-  const threeDataSources = getThreeDataSourcesPrompt(character, memories, lores);
+  const effectiveCharacter = character || {
+    id: "uno-ai",
+    name: "AI玩家",
+    description: "通用AI玩家"
+  };
+  const parsedInfo = parseCharacterInstruction(effectiveCharacter.name, effectiveCharacter.systemInstruction, effectiveCharacter.description);
+  const threeDataSources = getThreeDataSourcesPrompt(effectiveCharacter, memories, lores);
 
   const anchorMessage = `你叫 ${character.name}，${parsedInfo.age}岁，${character.description || "一个充满魅力的角色"}。
 【性格核心】：${parsedInfo.personality}

@@ -340,13 +340,13 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
             </button>
 
             <button
-              onClick={() => onOpenApp("worldbook")}
+              onClick={() => onOpenApp("notes")}
               className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
             >
               <div className="w-16 h-16 bg-white border border-neutral-100 rounded-2xl flex items-center justify-center shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]">
-                <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-neutral-900" fill="none"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
+                <PenTool className="w-7 h-7 stroke-[1.5] text-neutral-900" />
               </div>
-              <span className="text-[11px] text-neutral-500 font-sans">世界书</span>
+              <span className="text-[11px] text-neutral-500 font-sans">便签</span>
             </button>
 
             <button

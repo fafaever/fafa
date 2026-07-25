@@ -249,7 +249,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
   });
 
   return (
-    <div className="flex-1 flex flex-col bg-white text-neutral-900 select-none animate-slide-up">
+    <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden bg-white text-neutral-900 select-none animate-slide-up">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 shrink-0">
         <button 
@@ -270,7 +270,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
 
       {isAdding ? (
         /* Form: Add Lore Entry */
-        <div className="flex-1 flex flex-col bg-neutral-50 animate-fade-in overflow-y-auto">
+        <div className="flex-1 flex flex-col bg-neutral-50 animate-fade-in overflow-y-auto min-h-0 pb-12">
           <form onSubmit={handleCreate} className="p-5 space-y-4">
             <div className="flex justify-between items-center pb-2 border-b border-neutral-200">
               <span className="text-xs font-sans font-bold tracking-wider text-neutral-700">
@@ -593,7 +593,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
         </div>
       ) : (
         /* Main View: List of Lore Entries */
-        <div className="flex-1 flex flex-col min-h-0 bg-white">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-white">
           {/* Search bar */}
           <div className="px-4 py-2 bg-neutral-50 border-b border-neutral-100 flex items-center gap-2 shrink-0">
             <div className="relative flex-1">
@@ -673,7 +673,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
           </div>
 
           {/* Lore Items List */}
-          <div className="flex-1 overflow-y-auto divide-y divide-neutral-100 min-h-0">
+          <div className="flex-1 overflow-y-auto divide-y divide-neutral-100 min-h-0 pb-16">
             {filteredList.length === 0 ? (
               <div className="py-16 text-center space-y-2">
                 <BookOpen className="w-8 h-8 text-neutral-200 mx-auto stroke-[1.5]" />

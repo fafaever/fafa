@@ -64,6 +64,7 @@ export function MemoryManager({ character, settings, sessions }: MemoryManagerPr
 ${dialogueText}`;
 
       const response = await apiChat({
+        character: character || { id: "memory-assistant", name: "记忆助手", description: "记忆提取专家" },
         messages: [{ role: "user", content: prompt }],
         settings,
         systemInstruction: "你是一个专业的记忆提取专家，擅长从对话中提炼关键事实。"
@@ -121,6 +122,7 @@ ${dialogueText}`;
 ${combinedText}`;
 
       const response = await apiChat({
+        character: character || { id: "memory-assistant", name: "记忆助手", description: "记忆压缩专家" },
         messages: [{ role: "user", content: prompt }],
         settings,
         systemInstruction: "你是一个记忆压缩专家，擅长在保持信息完整的前提下极致浓缩文字。"

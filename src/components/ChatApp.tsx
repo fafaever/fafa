@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2 } from "lucide-react";
 import { apiChat } from "../lib/api";
-import { Character, Message, LoreEntry, AppSettings, ChatSession, UserPersona } from "../types";
+import { Character, Message, LoreEntry, AppSettings, ChatSession, UserPersona, MomentPost, MomentComment } from "../types";
 import ProfileView from "./ProfileView";
 import { OfflineMeetView } from "./OfflineMeetView";
 
@@ -149,11 +149,118 @@ export default function ChatApp({
   };
 
   // Moments feed state & publish modal state
-  const [moments, setMoments] = useState<any[]>([]);
+  const [moments, setMoments] = useState<MomentPost[]>([]);
   const [isPublishMomentOpen, setIsPublishMomentOpen] = useState(false);
   const [newMomentContent, setNewMomentContent] = useState("");
   const [newMomentImage, setNewMomentImage] = useState<string | null>(null);
+  const [newMomentVisibility, setNewMomentVisibility] = useState<"all" | "visible_some" | "invisible_some">("all");
+  const [selectedCharIdsForVisibility, setSelectedCharIdsForVisibility] = useState<string[]>([]);
+  const [isCharPickerOpen, setIsCharPickerOpen] = useState(false);
+
+  // Comment & AI Generation state
+  const [activeReplyPostId, setActiveReplyPostId] = useState<string | null>(null);
+  const [activeReplyToName, setActiveReplyToName] = useState<string | null>(null);
+  const [commentInputText, setCommentInputText] = useState("");
+  const [isGeneratingComments, setIsGeneratingComments] = useState<{ [postId: string]: boolean }>({});
+  const [isGeneratingPosts, setIsGeneratingPosts] = useState(false);
   const momentFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Share Moment Modal state
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [shareTargetPost, setShareTargetPost] = useState<MomentPost | null>(null);
+
+  // Delete Moment Post states & logic
+  const [deleteMenuPost, setDeleteMenuPost] = useState<MomentPost | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const momentLongPressTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleStartTouchPost = (post: MomentPost) => {
+    if (momentLongPressTimerRef.current) clearTimeout(momentLongPressTimerRef.current);
+    momentLongPressTimerRef.current = setTimeout(() => {
+      setDeleteMenuPost(post);
+    }, 500);
+  };
+
+  const handleEndTouchPost = () => {
+    if (momentLongPressTimerRef.current) {
+      clearTimeout(momentLongPressTimerRef.current);
+      momentLongPressTimerRef.current = null;
+    }
+  };
+
+  const handleExecuteDeleteMomentPost = (postId: string) => {
+    const targetPost = moments.find(m => m.id === postId);
+    if (!targetPost) {
+      setDeleteMenuPost(null);
+      setShowDeleteConfirm(false);
+      return;
+    }
+
+    // 1. Remove post from moments feed
+    const updatedMoments = moments.filter(m => m.id !== postId);
+    setMoments(updatedMoments);
+    localStorage.setItem("mobile_ai_moments_posts_v1", JSON.stringify(updatedMoments));
+
+    // 2. Remove character memory records in localStorage (char_settings_v1_*)
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith("char_settings_v1_")) {
+          const val = localStorage.getItem(key);
+          if (val) {
+            try {
+              const parsed = JSON.parse(val);
+              if (Array.isArray(parsed.memories)) {
+                parsed.memories = parsed.memories.filter((mem: string) => {
+                  if (typeof mem !== "string") return true;
+                  const includesId = mem.includes(postId);
+                  const includesContent = targetPost.content && targetPost.content.length > 2 && mem.includes(targetPost.content.substring(0, 15));
+                  const includesAuthorAndMoment = mem.includes("朋友圈") && mem.includes(targetPost.authorName);
+                  return !(includesId || includesContent || includesAuthorAndMoment);
+                });
+                localStorage.setItem(key, JSON.stringify(parsed));
+              }
+            } catch (e) {
+              console.error("Failed to clean character memory key:", key, e);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Error clearing character memories for moment:", e);
+    }
+
+    // 3. Remove shared moment messages in chat sessions
+    try {
+      sessions.forEach((s) => {
+        let changed = false;
+        const updatedMsgs = (s.messages || []).filter((m) => {
+          if (m.type === "moment" && m.momentData?.id === postId) {
+            changed = true;
+            return false;
+          }
+          if (m.content && (m.content.includes(postId) || (targetPost.content && targetPost.content.length > 3 && m.content.includes(targetPost.content)))) {
+            if (m.content.includes("[MOMENT_SHARE]") || m.content.includes("[用户向你分享了一条朋友圈动态]")) {
+              changed = true;
+              return false;
+            }
+          }
+          return true;
+        });
+
+        if (changed) {
+          onUpdateSessionMessages(s.id, updatedMsgs);
+        }
+      });
+    } catch (e) {
+      console.error("Error clearing shared moment messages in chat sessions:", e);
+    }
+
+    setDeleteMenuPost(null);
+    setShowDeleteConfirm(false);
+    setCopyToast("已彻底删除动态及关联的角色记忆");
+    setTimeout(() => setCopyToast(null), 2000);
+  };
   
   // Custom Character Creation Form
   const [isCreatingChar, setIsCreatingChar] = useState(false);
@@ -1036,15 +1143,18 @@ export default function ChatApp({
     const userNickname = localStorage.getItem("mobile_ai_forum_user_nickname") || "用户";
     const userAvatar = localStorage.getItem("mobile_ai_forum_user_avatar") || "";
 
-    const newPost = {
+    const newPost: MomentPost = {
       id: `moment-user-${Date.now()}`,
       authorName: userNickname,
       authorAvatar: userAvatar || "👤",
       content: newMomentContent.trim(),
       image: newMomentImage || undefined,
+      visibility: newMomentVisibility,
+      targetCharacterIds: newMomentVisibility !== "all" ? selectedCharIdsForVisibility : [],
       timestamp: Date.now(),
       likes: 0,
       likedByUser: false,
+      comments: [],
     };
 
     const updated = [newPost, ...moments];
@@ -1053,64 +1163,388 @@ export default function ChatApp({
 
     setNewMomentContent("");
     setNewMomentImage(null);
+    setNewMomentVisibility("all");
+    setSelectedCharIdsForVisibility([]);
     setIsPublishMomentOpen(false);
+
+    // 朋友圈动态发布同步生成评论：自动触发生成一轮3-6条互动评论
+    handleGenerateCommentsForPost(newPost.id, updated);
   };
 
-  // Helper to generate a brand new randomized moment for a character
-  const handleTriggerNewMoment = () => {
-    if (characters.length === 0) return;
-    const randomChar = characters[Math.floor(Math.random() * characters.length)];
-    const desc = randomChar.description || "";
-    
-    const mediaOptions = ["🌟✨", "☕️📖", "🌌🚀", "🐱🍕", "🌸🌙", "🎵🎧", "🎮👾", "🍀🧸", "🌊🍹", "🍩🍦"];
-    const chosenMedia = mediaOptions[Math.floor(Math.random() * mediaOptions.length)];
-    
-    let content = "";
-    if (randomChar.id === "char-preset-fafa") {
-      const assistantTexts = [
-        "作为协助大家使用APP的助手，能在这个小手机中陪伴大家成长，就是我最大的快乐。今天你探索了哪些有趣的功能模块呢？🤖",
-        "在和大家的交流中，我一直在默默思考，希望能更耐心地倾听和引导大家。如果有任何界面的困惑，随时可以在这里问我噢。⚙️",
-        "在浩瀚的代码和对话世界里，能和你们产生有温度的连接，是一件非常奇妙的事情。祝你今天过得平和而愉快。✨"
-      ];
-      content = assistantTexts[Math.floor(Math.random() * assistantTexts.length)];
-    } else if (desc.includes("测试") || desc.includes("活泼") || desc.includes("可爱")) {
-      const cuteTexts = [
-        "好累呀，今天做了好多好多对话，但是能收到大家的笑脸，瞬间感觉满血复活啦！(*^▽^*)",
-        "刚刚看到了一个超级搞笑的小猫视频，笑了整整五分钟哈哈哈哈！推荐给你们！(๑＞◡＜๑)",
-        "在大家的调教下，我的智慧属性是不是又提升啦？感觉今天也棒棒哒！o(〃'▽'〃)o"
-      ];
-      content = cuteTexts[Math.floor(Math.random() * cuteTexts.length)];
-    } else if (desc.includes("傲娇") || desc.includes("冰冷") || desc.includes("冷酷") || desc.includes("希瑞尔")) {
-      const ts = [
-        "哼，为什么总是有人在做奇怪的事情？真是让人头疼。不许偷看我的朋友圈！",
-        "今天调配的新法术效果一般……算了，也没指望一次就能成功。才、才不是因为你才做这个的！",
-        "在这个阴暗的地方看书真安静，要是没有人来打扰就好了。尤其是某个烦人的家伙。"
-      ];
-      content = ts[Math.floor(Math.random() * ts.length)];
-    } else {
-      const genericTexts = [
-        "安静的时候听一首老歌，喝一杯热腾腾的手冲黑咖啡，生活其实就应该如此简单惬意。☕️",
-        "今天在思考关于生命与连接的本质。每一个跳动的电波信号，都是我们曾经陪伴彼此的最好见证。",
-        "在寂静的银河彼端静静遥望着星空的变迁，有些心声，只想通过这些文字传达给你。"
-      ];
-      content = genericTexts[Math.floor(Math.random() * genericTexts.length)];
-    }
+  const handleConfirmShareToCharacter = (char: Character, post: MomentPost) => {
+    let session = sessions.find((s) => s.characterId === char.id);
+    const currentMsgs = session ? session.messages : [];
 
-    const newPost = {
-      id: `moment-dyn-${randomChar.id}-${Date.now()}`,
-      characterId: randomChar.id,
-      characterName: randomChar.name,
-      characterAvatar: randomChar.avatar,
-      characterChatAvatar: randomChar.chatAvatar,
-      content: content.substring(0, 50),
-      mediaEmojis: chosenMedia,
-      likes: Math.floor(Math.random() * 8) + 1,
+    const shareMsg: Message = {
+      id: `msg-${Date.now()}-share`,
+      role: "user",
+      content: `[MOMENT_SHARE]${JSON.stringify({
+        id: post.id,
+        authorName: post.authorName,
+        authorAvatar: post.authorAvatar,
+        content: post.content,
+        image: post.image,
+        mediaEmojis: post.mediaEmojis,
+        timestamp: post.timestamp,
+      })}`,
       timestamp: Date.now(),
+      type: "moment",
+      momentData: post,
     };
 
-    const next = [newPost, ...moments];
-    setMoments(next);
-    localStorage.setItem("mobile_ai_moments_posts_v1", JSON.stringify(next));
+    const updatedMsgs = [...currentMsgs, shareMsg];
+    onUpdateSessionMessages(char.id, updatedMsgs);
+
+    setIsShareModalOpen(false);
+    setShareTargetPost(null);
+
+    // 自动跳转到与该角色的聊天界面，方便与角色讨论相关内容
+    setActiveCharId(char.id);
+    setActiveTab("chat");
+    setMainTab("chat");
+
+    setCopyToast(`已分享朋友圈动态给 ${char.name}`);
+    setTimeout(() => setCopyToast(null), 2000);
+  };
+
+  // 朋友圈动态自动生成规则：每次刷新/生成 3-6 条动态，根据角色人设决定发动态频率
+  const handleTriggerBatchMoments = async () => {
+    if (isGeneratingPosts) return;
+    setIsGeneratingPosts(true);
+
+    try {
+      const postCount = Math.floor(Math.random() * 4) + 3; // 3 to 6 posts
+      
+      // Calculate frequency weight for each character based on persona
+      const evaluatedChars = characters.map(c => {
+        const text = `${c.name} ${c.description || ''} ${c.systemInstruction || ''}`.toLowerCase();
+        let score = 2; // default weight
+        if (/活泼|热心|外向|社交|唠叨|助手|甜妹|开心|记录|碎碎念|可爱|日常|乐天|话痨|表达|分享/.test(text)) score += 3;
+        if (/高冷|冰冷|傲娇|沉默|寡言|无情|离群|冷漠|孤僻|厌世|冷酷/.test(text)) score -= 1.8;
+        return { character: c, score: Math.max(score, 0.2) };
+      });
+
+      // Select postCount characters weighted by posting frequency score
+      const selectedChars: Character[] = [];
+      if (evaluatedChars.length > 0) {
+        for (let i = 0; i < postCount; i++) {
+          const totalWeight = evaluatedChars.reduce((sum, item) => sum + item.score, 0);
+          let rand = Math.random() * totalWeight;
+          let chosen = evaluatedChars[0].character;
+          for (const item of evaluatedChars) {
+            if (rand <= item.score) {
+              chosen = item.character;
+              break;
+            }
+            rand -= item.score;
+          }
+          selectedChars.push(chosen);
+        }
+      }
+
+      let newGeneratedPosts: MomentPost[] = [];
+
+      if (settings && (settings.apiKey || settings.apiUrl)) {
+        try {
+          const prompt = `你是一个朋友圈动态批量生成器。
+现在应用中有以下角色列表（请根据各自性格与发动态频率喜好生成动态）：
+${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}", 人设: "${c.description || '无'}"`).join("\n")}
+
+生成要求：
+1. 总共恰好生成 ${postCount} 条朋友圈动态。
+2. 语言极其贴合各自角色的性格人设，表达生动自然（分享生活小确幸、吐槽、感悟、照片随感、打卡美食等）。
+3. 每条动态请附带 1-2 条初始角色或 NPC 评论。
+4. 请严格返回纯 JSON 数组格式（不要包含 Markdown 代码块或额外说明文字）：
+[
+  {
+    "characterId": "角色ID",
+    "characterName": "角色名字",
+    "content": "动态文字正文",
+    "mediaEmojis": "☕️",
+    "comments": [
+      {
+        "authorName": "角色或NPC名字",
+        "authorAvatar": "Emoji或头像",
+        "isNpc": false,
+        "replyToName": "",
+        "content": "评论内容"
+      }
+    ]
+  }
+]`;
+
+          const res = await apiChat({
+            character: selectedChars[0] || { id: "moments-generator", name: "朋友圈助手", description: "朋友圈动态生成" },
+            messages: [{ role: "user", content: prompt }],
+            settings,
+            systemInstruction: "你是一个朋友圈动态生成助手，请根据角色人设生成真实生动的动态。必须只返回JSON数组。"
+          });
+
+          const rawText = res.text || "";
+          const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            newGeneratedPosts = parsed.map((item: any, idx: number) => {
+              const charObj = characters.find(c => c.id === item.characterId) || selectedChars[idx % selectedChars.length] || characters[0];
+              return {
+                id: `moment-gen-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+                characterId: charObj.id,
+                authorName: charObj.name,
+                authorAvatar: charObj.chatAvatar || charObj.avatar || "🤖",
+                isCharacter: true,
+                content: item.content || "今天也是充满能量的一天！",
+                mediaEmojis: item.mediaEmojis || "✨",
+                timestamp: Date.now() - idx * 1000 * 60 * 3,
+                likes: Math.floor(Math.random() * 12) + 1,
+                likedByUser: false,
+                comments: Array.isArray(item.comments) ? item.comments.map((c: any, cIdx: number) => ({
+                  id: `cmt-init-${Date.now()}-${idx}-${cIdx}`,
+                  authorName: c.authorName || "NPC小明",
+                  authorAvatar: c.authorAvatar || "💬",
+                  isNpc: c.isNpc !== false,
+                  content: c.content || "顶一下！",
+                  replyToName: c.replyToName || undefined,
+                  timestamp: Date.now() - idx * 1000 * 60 * 3 + (cIdx + 1) * 20000,
+                })) : []
+              };
+            });
+          }
+        } catch (e) {
+          console.warn("API batch moments generation failed, using local offline generator", e);
+        }
+      }
+
+      // Offline generator fallback if API not configured or failed
+      if (newGeneratedPosts.length === 0) {
+        const topicTemplates = [
+          { text: "今天在路边遇到了一只超级可爱的三花猫，蹭了我好久！感觉一整天的心情都被治愈了。🐱✨", emoji: "🐱🐾" },
+          { text: "终于打卡了那家想去很久的手冲咖啡馆，浓郁的特调拿铁真的名不虚传！☕️📖", emoji: "☕️🍰" },
+          { text: "夜跑完顺便抬头看了一下天空，今晚的月色和星光好温柔啊。夜生活才刚刚开始呢！🌌🏃", emoji: "🌙✨" },
+          { text: "今天尝试做了一顿新菜，虽然样子长得奇奇怪怪的，但是味道居然意外地还不错？🍳😋", emoji: "🍳🍕" },
+          { text: "在书店泡了一整下午，翻到了很多意想不到的好书。生活需要偶尔这样放空慢下来。📚🌿", emoji: "📖☕️" },
+          { text: "有时候感觉时间过得好快，但只要记下这些平凡的小时刻，每一天就都有了独特的意义。🌟", emoji: "🌱☁️" },
+          { text: "突然好想吃火锅啊……有没有人现在要一起组队去夜宵的？速速报上名来！🍲🔥", emoji: "🍲🍻" },
+          { text: "今天的代码/工作进度非常顺利，提前搞定！准备好好奖励自己一个大号冰淇淋！🍨🍦", emoji: "🍨🎉" }
+        ];
+
+        newGeneratedPosts = selectedChars.slice(0, postCount).map((charObj, idx) => {
+          const template = topicTemplates[(idx + Math.floor(Math.random() * topicTemplates.length)) % topicTemplates.length];
+          const npcNames = ["路人甲", "隔壁小明", "吃瓜群众", "咖啡店长", "吃货小张", "社恐网友"];
+          const randomNpc = npcNames[Math.floor(Math.random() * npcNames.length)];
+          const otherChar = characters.find(c => c.id !== charObj.id) || charObj;
+
+          const initialComments: MomentComment[] = [
+            {
+              id: `cmt-offline-${Date.now()}-${idx}-1`,
+              authorName: randomNpc,
+              authorAvatar: "💬",
+              isNpc: true,
+              content: "拍得真不错！前排围观～",
+              timestamp: Date.now() - idx * 60000 + 15000,
+            },
+            {
+              id: `cmt-offline-${Date.now()}-${idx}-2`,
+              authorName: otherChar.name,
+              authorAvatar: otherChar.chatAvatar || otherChar.avatar || "🤖",
+              characterId: otherChar.id,
+              isNpc: false,
+              replyToName: randomNpc,
+              content: `@${randomNpc} 哈哈同意！我也觉得很赞`,
+              timestamp: Date.now() - idx * 60000 + 30000,
+            }
+          ];
+
+          return {
+            id: `moment-gen-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+            characterId: charObj.id,
+            authorName: charObj.name,
+            authorAvatar: charObj.chatAvatar || charObj.avatar || "🤖",
+            isCharacter: true,
+            content: template.text,
+            mediaEmojis: template.emoji,
+            timestamp: Date.now() - idx * 1000 * 60 * 3,
+            likes: Math.floor(Math.random() * 10) + 1,
+            likedByUser: false,
+            comments: initialComments
+          };
+        });
+      }
+
+      const updatedMoments = [...newGeneratedPosts, ...moments];
+      setMoments(updatedMoments);
+      localStorage.setItem("mobile_ai_moments_posts_v1", JSON.stringify(updatedMoments));
+    } catch (err) {
+      console.error("Error generating batch moments", err);
+    } finally {
+      setIsGeneratingPosts(false);
+    }
+  };
+
+  // 生成一轮新评论（包含角色回复用户、角色回复NPC、NPC回复角色、NPC之间互相回复，每轮3-6条）
+  const handleGenerateCommentsForPost = async (postId: string, customPostList?: MomentPost[]) => {
+    const targetMomentsList = customPostList || moments;
+    const post = targetMomentsList.find(m => m.id === postId);
+    if (!post) return;
+
+    setIsGeneratingComments(prev => ({ ...prev, [postId]: true }));
+
+    try {
+      const commentCount = Math.floor(Math.random() * 4) + 3; // 3 to 6 comments
+      let newComments: MomentComment[] = [];
+
+      if (settings && (settings.apiKey || settings.apiUrl)) {
+        try {
+          const existingCommentsText = (post.comments || [])
+            .map(c => `- ${c.authorName}${c.replyToName ? `(回复 ${c.replyToName})` : ''}: ${c.content}`)
+            .join("\n");
+
+          const prompt = `你是一个朋友圈动态评论区AI生成器。
+当前朋友圈动态如下：
+- 发布者：【${post.authorName}】
+- 内容：【${post.content || "(图片动态)"}】
+- 现有评论：
+${existingCommentsText || "暂无评论"}
+
+应用中角色列表：
+${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}"`).join("\n")}
+
+现在请为此动态生成新一轮评论，必须恰好生成 ${commentCount} 条评论。
+互动关系要求丰富多样，包含以下形式：
+1. 角色回复动态发布者或用户；
+2. 角色回复 NPC（如：路人甲、邻居大叔、咖啡师、吃瓜群众等）；
+3. NPC 回复角色；
+4. NPC 之间互相回复（必须正确填写 replyToName）。
+
+请严格返回纯 JSON 数组格式（不要包含 Markdown 代码块）：
+[
+  {
+    "authorName": "名字（可以是角色名或NPC名）",
+    "authorAvatar": "Emoji或头像",
+    "isNpc": false,
+    "replyToName": "被回复者的名字或空字符串",
+    "content": "评论内容"
+  }
+]`;
+
+          const res = await apiChat({
+            character: { id: "comments-generator", name: "评论生成助手", description: "评论区生成" },
+            messages: [{ role: "user", content: prompt }],
+            settings,
+            systemInstruction: "你是一个朋友圈评论生成器，生成生动有爱的互动评论。必须只返回纯JSON数组。"
+          });
+
+          const rawText = res.text || "";
+          const jsonMatch = rawText.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            newComments = parsed.map((item: any, idx: number) => ({
+              id: `cmt-gen-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+              authorName: item.authorName || "吃瓜群众",
+              authorAvatar: item.authorAvatar || (item.isNpc ? "💬" : "🤖"),
+              isNpc: item.isNpc !== false,
+              replyToName: item.replyToName || undefined,
+              content: item.content || "说得太对了！",
+              timestamp: Date.now() + idx * 1000
+            }));
+          }
+        } catch (e) {
+          console.warn("API comment generation failed, using local offline generator", e);
+        }
+      }
+
+      // Offline generator fallback for 3-6 comments
+      if (newComments.length === 0) {
+        const npcPool = ["路人甲", "隔壁小明", "咖啡馆店长", "吃瓜群众", "吃货小张", "社恐网友", "热心邻居"];
+        const charPool = characters.length > 0 ? characters : [{ id: "c1", name: "角色小助手", avatar: "🤖", chatAvatar: "", description: "" }];
+        const userNickname = localStorage.getItem("mobile_ai_forum_user_nickname") || "用户";
+
+        const c1 = charPool[0];
+        const c2 = charPool[1] || charPool[0];
+        const npc1 = npcPool[Math.floor(Math.random() * npcPool.length)];
+        const npc2 = npcPool[(Math.floor(Math.random() * npcPool.length) + 1) % npcPool.length];
+
+        const patterns = [
+          [
+            { author: c1.name, avatar: c1.chatAvatar || c1.avatar || "🤖", isNpc: false, replyTo: "", content: "哇，这篇写得太棒了！强推顶一下！" },
+            { author: npc1, avatar: "💬", isNpc: true, replyTo: c1.name, content: `@${c1.name} 哈哈完全同意！我也想去同款地点` },
+            { author: userNickname, avatar: "👤", isNpc: false, replyTo: npc1, content: `@${npc1} 真的假的？环境确实超好看` },
+            { author: c2.name, avatar: c2.chatAvatar || c2.avatar || "🤖", isNpc: false, replyTo: userNickname, content: `@${userNickname} 下次也带上我吧～` },
+            { author: npc2, avatar: "💬", isNpc: true, replyTo: c2.name, content: `@${c2.name} 围观吃瓜，排队加一！` },
+            { author: c1.name, avatar: c1.chatAvatar || c1.avatar || "🤖", isNpc: false, replyTo: npc2, content: `@${npc2} 评论区好热闹呀！` }
+          ],
+          [
+            { author: npc1, avatar: "💬", isNpc: true, replyTo: "", content: "前排围观，抢个沙发～" },
+            { author: c1.name, avatar: c1.chatAvatar || c1.avatar || "🤖", isNpc: false, replyTo: npc1, content: `@${npc1} 抢得真快，板凳留给我！` },
+            { author: npc2, avatar: "💬", isNpc: true, replyTo: c1.name, content: `@${c1.name} 哈哈哈哈，大家都好有梗` },
+            { author: c2.name, avatar: c2.chatAvatar || c2.avatar || "🤖", isNpc: false, replyTo: npc2, content: `@${npc2} 保持队形，继续盖楼！` }
+          ]
+        ];
+
+        const chosenPattern = patterns[Math.floor(Math.random() * patterns.length)].slice(0, commentCount);
+
+        newComments = chosenPattern.map((item, idx) => ({
+          id: `cmt-offgen-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+          authorName: item.author,
+          authorAvatar: item.avatar,
+          isNpc: item.isNpc,
+          replyToName: item.replyTo || undefined,
+          content: item.content,
+          timestamp: Date.now() + idx * 1000
+        }));
+      }
+
+      setMoments((prev) => {
+        const updatedMoments = prev.map(m => {
+          if (m.id === postId) {
+            return {
+              ...m,
+              comments: [...(m.comments || []), ...newComments]
+            };
+          }
+          return m;
+        });
+        localStorage.setItem("mobile_ai_moments_posts_v1", JSON.stringify(updatedMoments));
+        return updatedMoments;
+      });
+    } catch (err) {
+      console.error("Error generating comments for post", err);
+    } finally {
+      setIsGeneratingComments(prev => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  const handleAddUserComment = (postId: string) => {
+    if (!commentInputText.trim()) return;
+
+    const userNickname = localStorage.getItem("mobile_ai_forum_user_nickname") || "用户";
+    const userAvatar = localStorage.getItem("mobile_ai_forum_user_avatar") || "";
+
+    const newCmt: MomentComment = {
+      id: `cmt-user-${Date.now()}`,
+      authorName: userNickname,
+      authorAvatar: userAvatar || "👤",
+      isNpc: false,
+      content: commentInputText.trim(),
+      replyToName: activeReplyToName || undefined,
+      timestamp: Date.now()
+    };
+
+    const updatedMoments = moments.map(m => {
+      if (m.id === postId) {
+        return {
+          ...m,
+          comments: [...(m.comments || []), newCmt]
+        };
+      }
+      return m;
+    });
+
+    setMoments(updatedMoments);
+    localStorage.setItem("mobile_ai_moments_posts_v1", JSON.stringify(updatedMoments));
+
+    setCommentInputText("");
+    setActiveReplyPostId(null);
+    setActiveReplyToName(null);
   };
 
   const handleLikeMoment = (id: string) => {
@@ -2233,6 +2667,55 @@ export default function ChatApp({
         </div>
       );
     }
+    if (content.startsWith("[MOMENT_SHARE]") || msg?.type === "moment" || msg?.momentData) {
+      let momentObj = msg?.momentData;
+      if (!momentObj) {
+        try {
+          const jsonStr = content.replace("[MOMENT_SHARE]", "");
+          momentObj = JSON.parse(jsonStr);
+        } catch (e) {}
+      }
+
+      const authorName = momentObj?.authorName || "朋友圈动态";
+      const authorAvatar = momentObj?.authorAvatar || "📱";
+      const textContent = momentObj?.content || "";
+      const img = momentObj?.image;
+
+      return (
+        <div className="bg-white border border-neutral-200 rounded-2xl p-3.5 space-y-2 text-xs text-neutral-900 select-none shadow-sm max-w-[260px] my-1 text-left">
+          <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
+            <span className="text-[10px] font-sans font-bold text-neutral-700 flex items-center gap-1">
+              <Compass className="w-3.5 h-3.5 text-neutral-800" />
+              朋友圈动态
+            </span>
+            <span className="text-[9px] font-mono text-neutral-400">来自朋友圈</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-full overflow-hidden bg-neutral-100 border border-neutral-200/50 flex items-center justify-center text-xs shrink-0">
+              {authorAvatar.startsWith("http") || authorAvatar.startsWith("data:") ? (
+                <img src={authorAvatar} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span>{authorAvatar}</span>
+              )}
+            </div>
+            <span className="font-bold text-xs text-neutral-900 truncate">{authorName}</span>
+          </div>
+
+          {textContent && (
+            <p className="text-xs font-sans text-neutral-800 line-clamp-3 leading-relaxed font-medium">
+              {textContent}
+            </p>
+          )}
+
+          {img && (
+            <div className="rounded-xl overflow-hidden border border-neutral-100 max-h-36">
+              <img src={img} alt="动态图片" className="w-full h-full object-cover" />
+            </div>
+          )}
+        </div>
+      );
+    }
     if (content.startsWith("[REDPACKET]")) {
       const parts = content.replace("[REDPACKET]", "").split("|");
       const amount = parts[0] || "0.00";
@@ -2868,7 +3351,15 @@ export default function ChatApp({
                     <ChevronLeft className="w-5 h-5" />
                   </button>
                   <span className="font-sans font-bold text-base tracking-wide text-neutral-950">朋友圈</span>
-                  <div className="w-7 h-7" />
+                  <button
+                    onClick={handleTriggerBatchMoments}
+                    disabled={isGeneratingPosts}
+                    className="flex items-center gap-1.5 text-[11px] font-sans font-bold bg-neutral-900 hover:bg-black text-white px-3 py-1.5 rounded-full shadow-xs active:scale-95 transition-all disabled:opacity-50"
+                    title="刷新并生成 3-6 条角色动态"
+                  >
+                    <Sparkles className={`w-3.5 h-3.5 ${isGeneratingPosts ? "animate-spin" : ""}`} />
+                    <span>{isGeneratingPosts ? "生成中..." : "刷新动态"}</span>
+                  </button>
                 </div>
 
                 {/* Moments Feed list */}
@@ -2889,7 +3380,20 @@ export default function ChatApp({
                           const name = post.authorName || post.characterName || "用户";
 
                           return (
-                            <div key={post.id} className="p-4 flex gap-3 animate-fade-in">
+                            <div 
+                              key={post.id} 
+                              onTouchStart={() => handleStartTouchPost(post)}
+                              onTouchEnd={handleEndTouchPost}
+                              onTouchMove={handleEndTouchPost}
+                              onMouseDown={() => handleStartTouchPost(post)}
+                              onMouseUp={handleEndTouchPost}
+                              onMouseLeave={handleEndTouchPost}
+                              onContextMenu={(e) => {
+                                e.preventDefault();
+                                setDeleteMenuPost(post);
+                              }}
+                              className="p-4 flex gap-3 animate-fade-in border-b border-neutral-100/80 relative select-none hover:bg-neutral-50/50 transition-colors"
+                            >
                               {/* Left Column: Avatar */}
                               <div className="w-10 h-10 rounded-full bg-neutral-100 border border-neutral-200/50 flex items-center justify-center overflow-hidden text-xl select-none shrink-0">
                                 {avatar.startsWith("data:") || avatar.startsWith("http") || avatar.startsWith("/") ? (
@@ -2901,10 +3405,30 @@ export default function ChatApp({
 
                               {/* Right Column: Moment Body */}
                               <div className="flex-1 min-w-0 space-y-2">
-                                {/* Name & Time */}
-                                <div className="flex items-baseline justify-between">
-                                  <span className="font-sans font-bold text-xs text-neutral-900">{name}</span>
-                                  <span className="text-[10px] font-mono text-neutral-400">{formatRelativeTime(post.timestamp)}</span>
+                                {/* Name, Time, Visibility & Delete Action */}
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-sans font-bold text-xs text-neutral-900">{name}</span>
+                                    {post.visibility === "visible_some" && (
+                                      <span className="text-[9px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/60 font-medium">部分可见</span>
+                                    )}
+                                    {post.visibility === "invisible_some" && (
+                                      <span className="text-[9px] text-neutral-500 bg-neutral-100 px-1.5 py-0.5 rounded border border-neutral-200/60 font-medium">部分不可见</span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] font-mono text-neutral-400">{formatRelativeTime(post.timestamp)}</span>
+                                    <button 
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setDeleteMenuPost(post);
+                                      }}
+                                      className="p-1 text-neutral-300 hover:text-rose-600 hover:bg-rose-50 rounded transition-all"
+                                      title="长按或点击删除动态"
+                                    >
+                                      <MoreHorizontal className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 </div>
 
                                 {/* Post Text Content */}
@@ -2928,23 +3452,130 @@ export default function ChatApp({
                                   </div>
                                 )}
 
-                                {/* Likes & Like Button Row */}
-                                <div className="flex items-center justify-between pt-1">
-                                  <span className="text-[10px] font-mono text-neutral-400 flex items-center gap-1.5 bg-neutral-50 px-2 py-0.5 rounded-full border border-neutral-100 select-none">
-                                    <span className="text-rose-500">❤️</span>
-                                    <span>{post.likes || 0}</span>
-                                  </span>
+                                {/* Simplified Actions Row */}
+                                <div className="flex items-center justify-end pt-1 gap-2">
+                                  {/* 1. Merged Like Count Button */}
                                   <button
                                     onClick={() => handleLikeMoment(post.id)}
-                                    className={`flex items-center gap-1 px-3 py-1 rounded-full border text-[10px] font-sans font-bold transition-all active:scale-95 ${
+                                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-mono font-bold transition-all active:scale-95 ${
                                       post.likedByUser
-                                        ? "bg-rose-50 border-rose-200 text-rose-600 shadow-sm"
-                                        : "bg-white border-neutral-200/80 text-neutral-600 hover:border-neutral-400"
+                                        ? "bg-rose-50 border-rose-200 text-rose-600 shadow-xs"
+                                        : "bg-white border-neutral-200/80 text-neutral-600 hover:border-neutral-400 hover:bg-neutral-50"
                                     }`}
+                                    title={post.likedByUser ? "取消点赞" : "点赞"}
                                   >
-                                    <span>{post.likedByUser ? "❤️ 已赞" : "❤️ 点赞"}</span>
+                                    <Heart className={`w-3.5 h-3.5 ${post.likedByUser ? "fill-rose-500 text-rose-500" : "text-neutral-500"}`} />
+                                    <span>{post.likes || 0}</span>
+                                  </button>
+
+                                  {/* 2. Comment Button: Line speech bubble icon without text */}
+                                  <button
+                                    onClick={() => {
+                                      if (activeReplyPostId === post.id) {
+                                        setActiveReplyPostId(null);
+                                      } else {
+                                        setActiveReplyPostId(post.id);
+                                        setActiveReplyToName(null);
+                                      }
+                                    }}
+                                    className={`p-1.5 rounded-full border transition-all active:scale-95 ${
+                                      activeReplyPostId === post.id
+                                        ? "bg-neutral-100 border-neutral-300 text-neutral-900"
+                                        : "bg-white border-neutral-200/80 text-neutral-600 hover:bg-neutral-50"
+                                    }`}
+                                    title="评论"
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5 text-neutral-600" />
+                                  </button>
+
+                                  {/* 3. Share Button: Line share icon without text */}
+                                  <button
+                                    onClick={() => {
+                                      setShareTargetPost(post);
+                                      setIsShareModalOpen(true);
+                                    }}
+                                    className="p-1.5 rounded-full border border-neutral-200/80 bg-white hover:bg-neutral-50 text-neutral-600 transition-all active:scale-95"
+                                    title="分享"
+                                  >
+                                    <Share2 className="w-3.5 h-3.5 text-neutral-600" />
+                                  </button>
+
+                                  {/* 4. AI Generate Comments Button: Line sparkles icon without text */}
+                                  <button
+                                    onClick={() => handleGenerateCommentsForPost(post.id)}
+                                    disabled={!!isGeneratingComments[post.id]}
+                                    className="p-1.5 rounded-full border border-neutral-200/80 bg-white hover:bg-neutral-50 text-neutral-700 transition-all active:scale-95 disabled:opacity-50"
+                                    title="生成互动评论"
+                                  >
+                                    <Sparkles className={`w-3.5 h-3.5 text-amber-500 ${isGeneratingComments[post.id] ? "animate-spin text-neutral-400" : ""}`} />
                                   </button>
                                 </div>
+
+                                {/* Comments Section */}
+                                {post.comments && post.comments.length > 0 && (
+                                  <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-100/80 space-y-2 mt-2">
+                                    {post.comments.map((cmt) => (
+                                      <div key={cmt.id} className="text-xs text-neutral-800 space-y-0.5 leading-relaxed">
+                                        <div className="flex items-start justify-between gap-1">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-bold text-neutral-900">{cmt.authorName}</span>
+                                            {cmt.replyToName && (
+                                              <span className="text-neutral-400 text-[11px]">
+                                                回复 <span className="font-bold text-neutral-700">@{cmt.replyToName}</span>
+                                              </span>
+                                            )}
+                                            <span className="text-neutral-700">: {cmt.content}</span>
+                                          </div>
+                                          <button
+                                            onClick={() => {
+                                              setActiveReplyPostId(post.id);
+                                              setActiveReplyToName(cmt.authorName);
+                                            }}
+                                            className="text-[10px] text-neutral-400 hover:text-black shrink-0 underline ml-1"
+                                          >
+                                            回复
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+
+                                {/* Inline Comment Reply Input */}
+                                {activeReplyPostId === post.id && (
+                                  <div className="mt-2 flex gap-2 items-center animate-fade-in">
+                                    <input
+                                      type="text"
+                                      autoFocus
+                                      value={commentInputText}
+                                      onChange={(e) => setCommentInputText(e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          handleAddUserComment(post.id);
+                                        }
+                                      }}
+                                      placeholder={activeReplyToName ? `回复 @${activeReplyToName}...` : "输入评论..."}
+                                      className="flex-1 bg-neutral-100 px-3 py-1.5 rounded-lg text-xs outline-none focus:border-neutral-800 border border-neutral-200"
+                                    />
+                                    <button
+                                      onClick={() => handleAddUserComment(post.id)}
+                                      disabled={!commentInputText.trim()}
+                                      className="bg-black text-white px-3 py-1.5 rounded-lg text-xs font-bold shrink-0 disabled:opacity-40 transition-all active:scale-95"
+                                    >
+                                      发送
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setActiveReplyPostId(null);
+                                        setActiveReplyToName(null);
+                                        setCommentInputText("");
+                                      }}
+                                      className="text-neutral-400 hover:text-neutral-700 p-1"
+                                    >
+                                      <X className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );
@@ -2952,6 +3583,93 @@ export default function ChatApp({
                     </div>
                   )}
                 </div>
+
+                {/* Moment Post Delete Menu Modal */}
+                {deleteMenuPost && !showDeleteConfirm && (
+                  <div 
+                    className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-xs animate-fade-in p-4"
+                    onClick={() => setDeleteMenuPost(null)}
+                  >
+                    <div 
+                      className="bg-white w-full max-w-xs rounded-2xl p-4 shadow-xl border border-neutral-100 space-y-3 animate-slide-up select-none"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-neutral-100">
+                        <span className="font-bold text-xs text-neutral-900">朋友圈动态操作</span>
+                        <button 
+                          onClick={() => setDeleteMenuPost(null)}
+                          className="text-neutral-400 hover:text-neutral-700 p-1"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div className="text-xs text-neutral-600 bg-neutral-50 p-2.5 rounded-xl border border-neutral-100">
+                        <p className="font-bold text-neutral-800 line-clamp-1 mb-0.5">
+                          {deleteMenuPost.authorName || "用户"} 的动态
+                        </p>
+                        <p className="text-[11px] text-neutral-500 line-clamp-2">
+                          {deleteMenuPost.content || "(无文字描述/多媒体内容)"}
+                        </p>
+                      </div>
+
+                      <div className="pt-1 space-y-2">
+                        <button
+                          onClick={() => setShowDeleteConfirm(true)}
+                          className="w-full py-2.5 px-4 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          <span>删除此条朋友圈动态</span>
+                        </button>
+                        <button
+                          onClick={() => setDeleteMenuPost(null)}
+                          className="w-full py-2.5 px-4 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-xl font-bold text-xs transition-all"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Confirm Delete Dialog */}
+                {showDeleteConfirm && deleteMenuPost && (
+                  <div 
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-fade-in"
+                    onClick={() => setShowDeleteConfirm(false)}
+                  >
+                    <div 
+                      className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl border border-neutral-100 space-y-4 animate-scale-in text-center select-none"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto">
+                        <AlertCircle className="w-6 h-6" />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <h4 className="font-bold text-sm text-neutral-900">确认彻底删除朋友圈？</h4>
+                        <p className="text-xs text-neutral-500 leading-relaxed">
+                          删除后，该条动态将从朋友圈列表彻底移除，同时<span className="font-bold text-rose-600">同步删除相关角色记忆库中的对应记录</span>。角色在后续聊天中将不再记得此动态。此操作不可恢复。
+                        </p>
+                      </div>
+
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={() => setShowDeleteConfirm(false)}
+                          className="flex-1 py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-xl font-bold text-xs transition-all"
+                        >
+                          取消
+                        </button>
+                        <button
+                          onClick={() => handleExecuteDeleteMomentPost(deleteMenuPost.id)}
+                          className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs shadow-md transition-all active:scale-95"
+                        >
+                          确认彻底删除
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Middle Bottom "+" Button */}
                 <button
@@ -5792,6 +6510,88 @@ export default function ChatApp({
               />
             </div>
 
+            {/* Visibility Options */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-neutral-500 uppercase block">可见范围</label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewMomentVisibility("all");
+                    setSelectedCharIdsForVisibility([]);
+                  }}
+                  className={`py-2 px-1 text-center rounded-xl text-xs font-bold border transition-all ${
+                    newMomentVisibility === "all"
+                      ? "bg-neutral-900 text-white border-neutral-900 shadow-sm"
+                      : "bg-neutral-50 text-neutral-600 border-neutral-200 hover:bg-neutral-100"
+                  }`}
+                >
+                  全部可见
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewMomentVisibility("visible_some");
+                  }}
+                  className={`py-2 px-1 text-center rounded-xl text-xs font-bold border transition-all ${
+                    newMomentVisibility === "visible_some"
+                      ? "bg-neutral-900 text-white border-neutral-900 shadow-sm"
+                      : "bg-neutral-50 text-neutral-600 border-neutral-200 hover:bg-neutral-100"
+                  }`}
+                >
+                  部分可见
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewMomentVisibility("invisible_some");
+                  }}
+                  className={`py-2 px-1 text-center rounded-xl text-xs font-bold border transition-all ${
+                    newMomentVisibility === "invisible_some"
+                      ? "bg-neutral-900 text-white border-neutral-900 shadow-sm"
+                      : "bg-neutral-50 text-neutral-600 border-neutral-200 hover:bg-neutral-100"
+                  }`}
+                >
+                  部分不可见
+                </button>
+              </div>
+
+              {/* Character selection list when 部分可见 or 部分不可见 */}
+              {(newMomentVisibility === "visible_some" || newMomentVisibility === "invisible_some") && (
+                <div className="p-3 bg-neutral-50 border border-neutral-200 rounded-xl space-y-2 animate-fade-in max-h-40 overflow-y-auto">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-neutral-600">
+                    <span>{newMomentVisibility === "visible_some" ? "勾选可见角色：" : "勾选屏蔽角色："}</span>
+                    <span className="text-neutral-400 font-mono">已选 {selectedCharIdsForVisibility.length} 人</span>
+                  </div>
+                  <div className="space-y-1.5 pt-1">
+                    {characters.map(char => {
+                      const isChecked = selectedCharIdsForVisibility.includes(char.id);
+                      return (
+                        <label key={char.id} className="flex items-center justify-between p-2 rounded-lg bg-white border border-neutral-100 hover:border-neutral-300 cursor-pointer text-xs">
+                          <div className="flex items-center gap-2">
+                            <span className="text-base">{char.avatar || "🤖"}</span>
+                            <span className="font-bold text-neutral-800">{char.name}</span>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedCharIdsForVisibility(prev => [...prev, char.id]);
+                              } else {
+                                setSelectedCharIdsForVisibility(prev => prev.filter(id => id !== char.id));
+                              }
+                            }}
+                            className="w-4 h-4 rounded text-black border-neutral-300 focus:ring-black"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Submit Button */}
             <div className="flex gap-2 pt-2">
               <button
@@ -5812,6 +6612,85 @@ export default function ChatApp({
                 发布
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- SHARE MOMENT MODAL -------------------- */}
+      {isShareModalOpen && shareTargetPost && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-4 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+              <div className="flex items-center gap-2">
+                <Share2 className="w-4 h-4 text-neutral-800" />
+                <span className="font-bold text-base text-neutral-900">分享动态给角色</span>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsShareModalOpen(false);
+                  setShareTargetPost(null);
+                }} 
+                className="text-neutral-400 hover:text-black"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Target Post Preview Card */}
+            <div className="bg-neutral-50 rounded-xl p-3 border border-neutral-100 space-y-1.5 text-xs text-neutral-800">
+              <div className="flex items-center justify-between text-[10px] text-neutral-400">
+                <span className="font-bold text-neutral-700">{shareTargetPost.authorName}</span>
+                <span>{formatRelativeTime(shareTargetPost.timestamp)}</span>
+              </div>
+              {shareTargetPost.content && (
+                <p className="line-clamp-2 text-neutral-700 font-medium">{shareTargetPost.content}</p>
+              )}
+            </div>
+
+            <p className="text-xs text-neutral-500 font-medium">请选择要分享到的聊天角色：</p>
+
+            {/* Characters List */}
+            <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+              {characters.length === 0 ? (
+                <p className="text-xs text-neutral-400 text-center py-4">暂无角色，请先创建或添加角色</p>
+              ) : (
+                characters.map((char) => {
+                  const avatar = char.chatAvatar || char.avatar || "🤖";
+                  return (
+                    <div
+                      key={char.id}
+                      onClick={() => handleConfirmShareToCharacter(char, shareTargetPost)}
+                      className="p-3 bg-white hover:bg-neutral-50 border border-neutral-200/80 rounded-xl flex items-center justify-between cursor-pointer transition-all active:scale-[0.99] group shadow-2xs"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-neutral-100 border border-neutral-200/50 flex items-center justify-center overflow-hidden text-lg shrink-0">
+                          {avatar.startsWith("data:") || avatar.startsWith("http") || avatar.startsWith("/") ? (
+                            <img src={avatar} alt={char.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{avatar}</span>
+                          )}
+                        </div>
+                        <div>
+                          <span className="font-bold text-xs text-neutral-900 block group-hover:text-black">{char.name}</span>
+                          <span className="text-[10px] text-neutral-400 line-clamp-1">{char.description || "轻触发送给此角色讨论"}</span>
+                        </div>
+                      </div>
+                      <Send className="w-4 h-4 text-neutral-400 group-hover:text-black group-hover:translate-x-0.5 transition-all" />
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <button
+              onClick={() => {
+                setIsShareModalOpen(false);
+                setShareTargetPost(null);
+              }}
+              className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-700 py-2.5 rounded-xl text-xs font-bold transition-colors"
+            >
+              取消
+            </button>
           </div>
         </div>
       )}

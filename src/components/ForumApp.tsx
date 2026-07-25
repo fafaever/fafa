@@ -127,6 +127,84 @@ const getBlackWhiteLineAvatar = (seed: string) => {
   return `data:image/svg+xml;base64,${btoa(svgs[index])}`;
 };
 
+// Helper to detect horror / supernatural boards
+const isHorrorBoard = (board?: Board | null): boolean => {
+  if (!board) return false;
+  const name = board.name || "";
+  const desc = board.description || "";
+  const kw = board.keywords || "";
+  return board.icon === 'skull' || 
+    board.id === 'board-2' ||
+    name.includes("恐怖") || name.includes("灵异") || name.includes("怪谈") || name.includes("悬疑") || name.includes("鬼") ||
+    desc.includes("恐怖") || desc.includes("灵异") || desc.includes("悬疑") ||
+    kw.includes("恐怖") || kw.includes("灵异") || kw.includes("悬疑");
+};
+
+// Helper to validate horror / supernatural content keywords
+const isContentHorrorThemed = (content: string): boolean => {
+  if (!content) return false;
+  const horrorKeywords = [
+    "鬼", "灵异", "诡异", "恐怖", "影子", "死", "尸", "阴风", "血", "梦魇", "荒郊", 
+    "废弃", "诅咒", "都市传说", "怪异", "脚步声", "噩梦", "镜子", "压床", "老宅", 
+    "邪门", "招魂", "纸钱", "寒意", "不祥", "背脊发凉", "幻觉", "邪灵", "地缚灵", 
+    "红衣服", "坟", "太平间", "停尸间", "祭祀", "怪谈", "不解之谜", "中邪", "阴森",
+    "索命", "怨灵", "幽灵", "惊悚", "毛骨悚然", "噩兆"
+  ];
+  
+  const forbiddenPureRomance = [
+    "爱的人要离开", "离开我了", "分手", "失恋", "我不爱你", "爱上你", "白月光", 
+    "纸短情长", "谈恋爱", "撕心裂肺的爱", "感情伤痛", "他不要我了", "她不要我了"
+  ];
+  
+  const hasHorrorKw = horrorKeywords.some(kw => content.includes(kw));
+  const hasForbiddenRomance = forbiddenPureRomance.some(kw => content.includes(kw));
+
+  return hasHorrorKw && !hasForbiddenRomance;
+};
+
+// Initial Default Posts adhering to the rules
+const INITIAL_DEMO_POSTS: ForumPost[] = [
+  {
+    id: 'demo-post-1',
+    boardId: 'board-2',
+    authorId: 'npc-4',
+    authorName: '夜猫子阿怪',
+    authorAvatar: getBlackWhiteLineAvatar('npc-bear-line'),
+    title: '匿名帖子',
+    tag: '灵异经历',
+    timestamp: Date.now() - 3600000 * 24,
+    likes: 18,
+    dislikes: 0,
+    content: '家人们，你们敢信？我至今想起三年前在大三暑假租老房子的那会，后背还是直冒凉气！那是2023年7月的某个暴雨夜，在老城区一栋七层没电梯的老楼顶层。那天凌晨两点多，我正戴着耳机在书桌前拼命赶论文呢，突然听到客厅卫生间传来一阵特别清晰又慢吞吞的“嗒、嗒、嗒”滴水声。我当时心里还嘀咕是不是水龙头没拧紧，就起身推开卫生间门。结果打开灯一看，地面干干爽爽的，水龙头一滴水都没掉！我当时真的懵了，以为是自己熬夜听错了，正准备转身回屋呢。结果你们猜最后怎么了？我顺眼扫了一下背后的镜子，当时整个人直接麻了——镜子里居然隐隐约约飘着个黑影，紧贴着我的后脖颈吹了一口刺骨的冷气！我脑子瞬间一片空白，连惨叫都卡在喉咙里了。第二天天一亮我就连夜收拾东西退租跑路，后来我才知道那老楼之前出过事……至今我一个人住都得开着灯！',
+    comments: [
+      {
+        id: 'demo-comment-1',
+        authorId: 'npc-2',
+        authorName: '路过的社畜',
+        authorAvatar: getBlackWhiteLineAvatar('npc-dog-line'),
+        content: '看完脊背发凉！老楼顶层确实邪门，我当时看你写的也跟着心跳加速了。',
+        timestamp: Date.now() - 3600000 * 20,
+        floor: 1,
+        likes: 5
+      }
+    ]
+  },
+  {
+    id: 'demo-post-2',
+    boardId: 'board-1',
+    authorId: 'npc-1',
+    authorName: '吃瓜第一线',
+    authorAvatar: getBlackWhiteLineAvatar('npc-cat-line'),
+    title: '匿名帖子',
+    tag: '日常交流',
+    timestamp: Date.now() - 3600000 * 12,
+    likes: 12,
+    dislikes: 0,
+    content: '家人们，昨晚和刚认识不久的女友在海边散步聊天，真的被治愈到了！我们俩是上个月社团活动认识的，上周五晚上在海边吹晚风，不知不觉就聊到了深夜。我跟她坦白了我性格里特别缺乏安全感、有时候爱胡思乱想的小脾气，她也跟我倾诉了最近工作上的各种压力。你们敢信？我们居然坐在沙滩上足足聊了三个多小时！中间聊到一些敏感话题时，我当时心里其实挺紧张的，生怕气氛变尴尬，结果她特别温柔地回应了我。后来我才知道，原来她之前也一直在担心我不够信任她。这次聊完感觉我们俩彻底拉近了距离，直接打破了心防。虽然相处也有磨合，但这种真诚沟通的感觉真的太棒了，忍不住发个帖和大家分享一下！',
+    comments: []
+  }
+];
+
 // Helper to collect all currently used nicknames across the forum
 const getAllUsedNicknames = (posts: ForumPost[] = [], privateContacts: PrivateContact[] = [], currentUserNickname?: string): Set<string> => {
   const set = new Set<string>();
@@ -314,8 +392,17 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
     const savedPosts = localStorage.getItem("mobile_ai_forum_posts");
     if (savedPosts) {
       try {
-        setPosts(JSON.parse(savedPosts));
-      } catch (e) {}
+        const parsed = JSON.parse(savedPosts);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setPosts(parsed);
+        } else {
+          setPosts(INITIAL_DEMO_POSTS);
+        }
+      } catch (e) {
+        setPosts(INITIAL_DEMO_POSTS);
+      }
+    } else {
+      setPosts(INITIAL_DEMO_POSTS);
     }
     const savedBoards = localStorage.getItem("mobile_ai_forum_boards");
     if (savedBoards) {
@@ -508,6 +595,7 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
     const board = boards.find(b => b.id === boardId) || boards[0];
     const selectedLores = loreList.filter(l => loreIds.includes(l.id));
     const loreContent = selectedLores.map(l => `【${l.title}】:\n${l.content}`).join("\n\n");
+    const isHorror = isHorrorBoard(board);
     
     try {
       const generatedPosts: ForumPost[] = [];
@@ -534,47 +622,106 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
           authorAvatar = getBlackWhiteLineAvatar(npc.avatarSeed);
         }
 
-        const prompt = activeChar ? `你是角色：${activeChar.name}。简介：${activeChar.description}。
+        let validParsed: any = null;
+        let attempts = 0;
+
+        while (!validParsed && attempts < 3) {
+          attempts++;
+
+          let boardRequirementNotice = "";
+          if (isHorror) {
+            boardRequirementNotice = `
+--- 【恐怖/灵异板块特别硬性规则（最高优先级）】 ---
+1. 本板块必须是【真实恐怖或灵异相关题材】，包括但不限于：
+   · 亲身经历的灵异事件
+   · 都市传说改编
+   · 恐怖故事创作
+   · 诡异梦境记录
+   · 民间恐怖传闻
+2. 【绝对禁止】：严禁生成任何情感类、恋爱类、心理感伤类内容（例如“爱的人要离开我了”、“失恋悲伤”等绝不算恐怖，绝对禁止！）。
+3. 必须包含具体的场景描写和细节（如时间、地点、阴暗环境、诡异声音、触觉与视觉细节），营造真实让人毛骨悚然但极具社交媒体分享感的恐怖氛围。
+4. 请在生成前判断审查，确保内容 100% 属于恐怖/灵异主题，并在 JSON 中输出 "isHorrorTheme": true。
+`;
+          }
+
+          const generalRequirementNotice = `
+--- 【论坛帖子通用语气与生成规则（最高优先级）】 ---
+1. 【统一第一人称视角】：所有帖子必须 100% 统一使用第一人称视角（“我”）进行叙述，严禁第三人称！
+2. 【口语化与社交媒体讲述语气】：
+   - 语气要像普通人在社交媒体（如贴吧、小红书、朋友圈）上分享经历一样自然、真实、接地气，【绝不能像在写小说或写文章】，避免过度修饰和刻意书面化的气氛描写。
+   - 用词口语化，句子长短结合，就像在和朋友聊天或讲述一件事。
+3. 【个人心理感受与当下反应】：
+   - 必须加入个人心理感受、情绪变化和当下真实反应（如“我当时真的懵了”、“整个人都麻了”、“心跳差点漏了一拍”等）。
+4. 【互动性语气词与社交表达】：
+   - 必须自然融入面对面讲述或发帖时的互动语气词，例如：“你们猜最后怎么了？”、“我当时真的懵了”、“你们敢信？”、“后来我才知道…”、“家人们”、“直接把我给整不会了”等。
+5. 【详细经过与字数要求】：必须详细描述事件完整经过，包含【时间、地点、事件起因、经过、细节和感受】，正文【字数绝对不少于 150 字】（推荐 180 ~ 380 字）。
+`;
+
+          const prompt = activeChar ? `你是角色：${activeChar.name}。简介：${activeChar.description}。
 ${loreContent ? `以下是本次生成挂载的世界观设定：\n${loreContent}\n` : ""}
 论坛板块：${board?.name}。板块简介/方向：${board?.description}。
-请以该角色的口吻，在匿名论坛的该板块下发布一篇简短的帖子（50-150字）。
-同时，请为该角色生成一个不包含原名“${activeChar.name}”的论坛匿名网名（4-8字，如“深夜吃瓜羊”、“赛博咸鱼”）。
-要求输出JSON格式：
+
+${generalRequirementNotice}
+${boardRequirementNotice}
+
+请以该角色的口吻，在匿名论坛的该板块下发布一篇详细的论坛帖子（必须使用第一人称“我”，口语化自然接地气，像在和朋友聊天讲述，自然加入“你们猜最后怎么了？”、“我当时真的懵了”、“你们敢信？”等互动语气，字数绝对不少于150字）。
+同时，请为该角色生成一个不包含原名“${activeChar.name}”的论坛匿名网名（4-8字，如“深夜听风者”、“赛博咸鱼”）。
+
+要求输出严格的 JSON 格式：
 {
+  ${isHorror ? `"isHorrorTheme": true,` : ""}
   "forumNickname": "论坛匿名网名",
-  "tag": "发帖标签",
-  "content": "帖子的正文内容"
+  "tag": "${isHorror ? "灵异" : "日常"}",
+  "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，像在和朋友聊天讲述，包含时间、地点、起因经过细节、当下情绪反应与自然互动语气词）"
 }` : `你是一个网络论坛NPC成员“${authorName}”。
 论坛板块：${board?.name}。板块方向：${board?.description}。
-请在该板块发布一篇符合板块氛围的简短帖子（50-150字）。
-要求输出JSON格式：
+
+${generalRequirementNotice}
+${boardRequirementNotice}
+
+请在该板块发布一篇符合板块氛围的详细帖子（必须使用第一人称“我”，口语化自然接地气，像在和朋友聊天讲述，自然加入“你们猜最后怎么了？”、“我当时真的懵了”、“你们敢信？”等互动语气，字数绝对不少于150字）。
+
+要求输出严格的 JSON 格式：
 {
-  "tag": "发帖标签",
-  "content": "帖子的正文内容"
+  ${isHorror ? `"isHorrorTheme": true,` : ""}
+  "tag": "${isHorror ? "灵异" : "日常"}",
+  "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，像在和朋友聊天讲述，包含时间、地点、起因经过细节、当下情绪反应与自然互动语气词）"
 }`;
 
-        const response = await apiChat({ 
-          messages: [{ role: "user", content: prompt }], 
-          character: activeChar || { id: "npc", name: authorName, description: "论坛NPC" } as any,
-          memories: activeChar?.memories || [],
-          matchedLore: selectedLores,
-          settings, 
-          systemInstruction: "你是一个只能输出JSON的API。" 
-        });
-        const responseText = response.text || "";
-        
-        let parsed = null;
-        try {
-          const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-          parsed = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);
-        } catch (e) {
-          console.error("Failed to parse forum post JSON", e);
+          const response = await apiChat({ 
+            messages: [{ role: "user", content: prompt }], 
+            character: activeChar || { id: "npc", name: authorName, description: "论坛NPC" } as any,
+            memories: activeChar?.memories || [],
+            matchedLore: selectedLores,
+            settings, 
+            systemInstruction: "你是一个严格按照规则输出JSON的API。" 
+          });
+          const responseText = response.text || "";
+          
+          let parsed = null;
+          try {
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+            parsed = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);
+          } catch (e) {
+            console.error("Failed to parse forum post JSON", e);
+          }
+
+          if (parsed && parsed.content) {
+            const text = parsed.content.trim();
+            const hasFirstPerson = text.includes("我");
+            const isHorrorValid = !isHorror || (parsed.isHorrorTheme !== false && isContentHorrorThemed(text));
+            const isLengthOk = text.length >= 120;
+
+            if ((hasFirstPerson && isHorrorValid && isLengthOk) || attempts >= 3) {
+              validParsed = parsed;
+            }
+          }
         }
 
-        if (parsed && parsed.content) {
+        if (validParsed && validParsed.content) {
           const usedNicknames = getAllUsedNicknames(posts, privateContacts, userNickname);
-          if (activeChar && parsed.forumNickname) {
-            const uniqueName = makeUniqueNickname(parsed.forumNickname, usedNicknames);
+          if (activeChar && validParsed.forumNickname) {
+            const uniqueName = makeUniqueNickname(validParsed.forumNickname, usedNicknames);
             authorName = uniqueName;
             usedNicknames.add(uniqueName);
             saveCharForumNickname(activeChar.id, uniqueName);
@@ -590,8 +737,8 @@ ${loreContent ? `以下是本次生成挂载的世界观设定：\n${loreContent
             authorName: authorName,
             authorAvatar: authorAvatar,
             title: "匿名帖子",
-            content: parsed.content,
-            tag: parsed.tag || "日常",
+            content: validParsed.content,
+            tag: validParsed.tag || (isHorror ? "灵异" : "日常"),
             timestamp: Date.now(),
             likes: Math.floor(Math.random() * 20),
             dislikes: 0,
@@ -1892,6 +2039,17 @@ ${loreContent ? `以下是本次生成挂载的世界观设定：\n${loreContent
               </select>
             </div>
 
+            {isHorrorBoard(boards.find(b => b.id === (userPostBoardId || activeBoardId || boards[0]?.id))) && (
+              <div className="text-[11px] text-red-700 bg-red-50 p-2.5 rounded-xl border border-red-200/60 leading-relaxed space-y-1">
+                <div className="font-bold flex items-center gap-1">
+                  <span>💀 恐怖/灵异板块规则：</span>
+                </div>
+                <p>1. 必须是真实恐怖或灵异事件/都市传说/恐怖故事/诡异梦境/民间传闻。</p>
+                <p>2. 统一使用第一人称（“我”）叙述，详细描述时间、地点、起因经过细节与感受，不少于150字。</p>
+                <p className="font-bold text-red-800">3. 严禁情感/恋爱/伤感类内容！</p>
+              </div>
+            )}
+
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-neutral-500 uppercase block">标签</label>
               <input 
@@ -1972,6 +2130,12 @@ ${loreContent ? `以下是本次生成挂载的世界观设定：\n${loreContent
                     {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
                 </div>
+
+                {isHorrorBoard(boards.find(b => b.id === genBoardId)) && (
+                  <div className="text-[11px] text-red-700 bg-red-50 p-2.5 rounded-xl border border-red-200/60 leading-relaxed">
+                    💀 恐怖板块规则触发：生成内容将严格限定为真实恐怖/灵异题材（统一第一人称“我”，描述时间地点起因经过与场景细节，不少于150字），且严禁生成情感/恋爱/伤感类内容。
+                  </div>
+                )}
 
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-neutral-500 uppercase block">生成帖数量 (1-12)</label>

@@ -630,6 +630,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
 请判断玩家是否猜中了完整的真相或核心动机。若基本符合真相，请回复：{"answer": "恭喜猜中汤底！", "isCorrect": true}；若偏离，回复：{"answer": "推测不完整或不准确，再想想看！", "isCorrect": false}`;
 
         const data = await apiChat({
+            character: { id: "host", name: "海龟汤主持人", description: "海龟汤主持" },
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: `玩家的提问/推测：${questionText}\n请根据以上推测，判断是/否/无关/猜中汤底。` }

@@ -40,13 +40,14 @@ export interface Message {
   matchedLoreKeys?: string[];
   isRecalled?: boolean;
   quotedMsg?: Message;
-  type?: 'transfer' | 'text' | string;
+  type?: 'transfer' | 'text' | 'moment' | string;
   transferData?: {
     amount: string;
     note: string;
     status: 'pending' | 'collected' | 'returned';
     transferId: string;
   };
+  momentData?: MomentPost;
   os?: string;
   senderId?: string;
   senderName?: string;
@@ -118,4 +119,32 @@ export interface Memory {
   isShared?: boolean;
   isSimplified?: boolean;
   sourceDialogue?: string;
+}
+
+export interface MomentComment {
+  id: string;
+  authorName: string;
+  authorAvatar: string;
+  isNpc?: boolean;
+  characterId?: string;
+  content: string;
+  replyToName?: string;
+  timestamp: number;
+}
+
+export interface MomentPost {
+  id: string;
+  authorName: string;
+  authorAvatar: string;
+  characterId?: string;
+  isCharacter?: boolean;
+  content: string;
+  image?: string;
+  mediaEmojis?: string;
+  timestamp: number;
+  likes: number;
+  likedByUser?: boolean;
+  visibility?: "all" | "visible_some" | "invisible_some";
+  targetCharacterIds?: string[];
+  comments?: MomentComment[];
 }
