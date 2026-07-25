@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ChevronLeft, Edit, MessageSquare } from "lucide-react";
-import { Character } from "../types";
+import { Character, UserPersona } from "../types";
 
 interface ProfileViewProps {
   character: Character;
@@ -16,6 +16,15 @@ export default function ProfileView({ character, allCharacters, onBack, onUpdate
   const [notes, setNotes] = useState(character.notes || "");
   const [isEditingGroup, setIsEditingGroup] = useState(false);
   const [group, setGroup] = useState(character.group || "其它");
+
+  const [userPersonas] = useState<UserPersona[]>(() => {
+    try {
+      const stored = localStorage.getItem("user_personas_v1");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const existingGroups = Array.from(new Set(allCharacters.map(c => c.group || "其它")));
 
@@ -68,6 +77,25 @@ export default function ProfileView({ character, allCharacters, onBack, onUpdate
             >
               {character.isBlocked ? '已拉黑' : '拉黑'}
             </button>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-neutral-500">绑定用户设定</span>
+            <select
+              value={character.userPersonaId || ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                onUpdateCharacter({
+                  ...character,
+                  userPersonaId: val ? val : undefined
+                });
+              }}
+              className="text-xs border border-neutral-200 rounded-lg p-1 bg-white font-sans text-neutral-800 focus:outline-none max-w-[180px] truncate"
+            >
+              <option value="">（未绑定设定）</option>
+              {userPersonas.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-sm text-neutral-500">分组</span>

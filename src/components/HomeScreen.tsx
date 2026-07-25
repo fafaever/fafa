@@ -400,6 +400,27 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
         {/* Page 2: Second Screen View */}
         <div className="w-full min-w-full shrink-0 snap-start flex flex-col px-5 pt-8 pb-4 text-neutral-900 select-none overflow-y-auto h-full">
           
+          {/* Theater Mode Button */}
+          <div className="w-full px-1 mt-4 shrink-0 select-none">
+            <button
+              onClick={() => onOpenApp("theater")}
+              className="w-full flex items-center justify-between bg-white border border-neutral-200/80 rounded-2xl p-4 shadow-sm active:scale-98 transition-all"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                  <span className="text-xl">🎭</span>
+                </div>
+                <div className="text-left">
+                  <h3 className="font-bold text-sm text-neutral-900">小剧场</h3>
+                  <p className="text-[10px] text-neutral-500 mt-0.5">独立架空演绎模式</p>
+                </div>
+              </div>
+              <div className="text-neutral-300">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </div>
+            </button>
+          </div>
+
           {/* Two Square Gallery Cards, Side-by-Side */}
           <div className="grid grid-cols-2 gap-4 w-full px-1 mt-4 shrink-0 select-none">
             {/* Left Card */}

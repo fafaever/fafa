@@ -21,11 +21,20 @@ export interface Character {
   bustQuestionsCount?: number; // Count of persistent questioning
   memories?: any[]; // Character long term memories
   lores?: any[]; // Character world book settings
+  userPersonaId?: string; // Bound User Persona ID
+}
+
+export interface UserPersona {
+  id: string;
+  name: string;
+  avatar: string; // Base64 or Image URL or Emoji
+  description: string; // The introduction (自由文本输入框)
+  createdAt: number;
 }
 
 export interface Message {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
   matchedLoreKeys?: string[];
@@ -81,6 +90,8 @@ export interface AppSettings {
   chatWallpaper?: string;
   globalFont?: FontOption;
   globalTheme?: ThemeOption;
+  groupChatMinReplies?: number;
+  groupChatMaxReplies?: number;
 }
 
 export interface ChatSession {

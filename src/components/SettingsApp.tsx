@@ -446,6 +446,43 @@ export default function SettingsApp({ settings, previewSettings, onPreviewSettin
               </div>
             </div>
 
+            {/* 板块四：群聊回复条数设置 */}
+            <div className="bg-white rounded-xl p-4 border border-neutral-200 shadow-sm space-y-3">
+              <div className="text-xs font-bold text-neutral-900 border-b pb-2">板块四：群聊回复条数</div>
+              <div className="flex flex-col gap-2">
+                <p className="text-[10px] text-neutral-500 mb-1">
+                  AI 生成一轮群聊回复时的消息条数范围（默认 1 - 6）。左侧数字须小于等于右侧数字，最大值为 25。
+                </p>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max="25"
+                    value={previewSettings.groupChatMinReplies || 1}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(25, parseInt(e.target.value) || 1));
+                      const maxVal = previewSettings.groupChatMaxReplies || 6;
+                      onPreviewSettings({ ...previewSettings, groupChatMinReplies: Math.min(val, maxVal) });
+                    }}
+                    className="flex-1 bg-neutral-50 border border-neutral-200 rounded-lg p-2 text-xs outline-none text-center font-mono focus:border-black transition-colors"
+                  />
+                  <span className="text-neutral-400 font-bold">-</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="25"
+                    value={previewSettings.groupChatMaxReplies || 6}
+                    onChange={(e) => {
+                      const val = Math.max(1, Math.min(25, parseInt(e.target.value) || 1));
+                      const minVal = previewSettings.groupChatMinReplies || 1;
+                      onPreviewSettings({ ...previewSettings, groupChatMaxReplies: Math.max(val, minVal) });
+                    }}
+                    className="flex-1 bg-neutral-50 border border-neutral-200 rounded-lg p-2 text-xs outline-none text-center font-mono focus:border-black transition-colors"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Save Button */}
             <button
               onClick={() => setShowConfirmModal(true)}

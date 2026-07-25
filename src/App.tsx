@@ -15,6 +15,7 @@ import NotesApp from "./components/NotesApp";
 import PhoneCheckApp from "./components/PhoneCheckApp";
 import { GameListApp } from "./components/GameListApp";
 import { ForumApp } from "./components/ForumApp";
+import { TheaterApp } from "./components/TheaterApp";
 import { Character, LoreEntry, AppSettings, ChatSession, Message, FontOption, ThemeOption } from "./types";
 import { Sparkles, HelpCircle } from "lucide-react";
 import { apiChat, apiGenerateNote } from "./lib/api";
@@ -565,6 +566,80 @@ export default function App() {
   };
 
   const triggerAiReply = async (characterId: string, customMessages?: Message[]) => {
+    const isGroup = characterId.startsWith("group-");
+
+    if (isGroup) {
+      const session = sessions.find((s) => s.id === characterId);
+      if (!session || !session.memberIds || session.memberIds.length === 0) return;
+      if (isGeneratingMap[characterId]) return;
+      
+      setIsGeneratingMap(prev => ({ ...prev, [characterId]: true }));
+      localStorage.setItem(`mobile_ai_bg_generating_${characterId}`, "generating");
+
+      try {
+        let currentMessages = customMessages || session.messages || [];
+        const minRep = settings.groupChatMinReplies || 1;
+        const maxRep = settings.groupChatMaxReplies || 6;
+        const replyCount = Math.floor(Math.random() * (Math.max(1, maxRep - minRep + 1))) + minRep;
+
+        let lastSpeakerId = "";
+
+        for (let i = 0; i < replyCount; i++) {
+          // Select a random member that is not the last speaker (if possible)
+          let availableMembers = session.memberIds.filter(id => id !== lastSpeakerId);
+          if (availableMembers.length === 0) availableMembers = session.memberIds;
+          const randomMemberId = availableMembers[Math.floor(Math.random() * availableMembers.length)];
+          const speakerChar = characters.find(c => c.id === randomMemberId);
+          if (!speakerChar) continue;
+
+          lastSpeakerId = randomMemberId;
+
+          // Call apiChat for this character
+          // Wait 500ms to simulate typing
+          await new Promise(res => setTimeout(res, 500));
+
+          const requestParams = {
+            character: speakerChar,
+            messages: currentMessages,
+            settings,
+            matchedLore: [], // simplify for group chat
+            chatMode: "online",
+            replyLength: "short",
+            replyCount: 1,
+            mood: "正常",
+            memories: speakerChar.memories || [],
+            userDidNotReply: false,
+            currentUserName: localStorage.getItem("user_name_v1") || "You",
+            currentUserDesc: localStorage.getItem("user_desc_v1") || "",
+            isGroup: true,
+          };
+
+          const data = await apiChat(requestParams);
+          const text = data.text || "";
+          if (text) {
+             const newMsg: Message = {
+               id: `msg-${Date.now()}-${Math.random()}`,
+               role: "assistant",
+               content: text,
+               timestamp: Date.now(),
+               senderId: speakerChar.id,
+               senderName: speakerChar.name,
+               senderAvatar: speakerChar.avatar,
+             };
+             currentMessages = [...currentMessages, newMsg];
+             // Trigger state update
+             handleUpdateSessionMessages(characterId, currentMessages, session.currentOS, { ...session, messages: currentMessages });
+          }
+        }
+      } catch (err) {
+        console.error("Group chat generation failed", err);
+      } finally {
+        setIsGeneratingMap(prev => ({ ...prev, [characterId]: false }));
+        localStorage.removeItem(`mobile_ai_bg_generating_${characterId}`);
+      }
+      return;
+    }
+
     const activeChar = characters.find(c => c.id === characterId);
     if (!activeChar) return;
 
@@ -712,6 +787,24 @@ export default function App() {
       else if (diffHours > 0) awayTimeDesc = `${diffHours}小时前`;
       else if (diffMins > 0) awayTimeDesc = `${diffMins}分钟前`;
 
+      let currentUserName = "我";
+      let currentUserDesc = "";
+      if (activeChar.userPersonaId) {
+        try {
+          const personasData = localStorage.getItem("user_personas_v1");
+          if (personasData) {
+            const personas = JSON.parse(personasData);
+            const persona = personas.find((p: any) => p.id === activeChar.userPersonaId);
+            if (persona) {
+              currentUserName = persona.name;
+              currentUserDesc = persona.description;
+            }
+          }
+        } catch (e) {
+          console.error("Failed to load user persona", e);
+        }
+      }
+
       const requestParams = {
         messages: targetMessages,
         character: cleanCharacter,
@@ -732,6 +825,8 @@ export default function App() {
         timePerception: timePerception,
         currentTime: currentTimeStr,
         awayTimeDesc: awayTimeDesc,
+        currentUserName: currentUserName,
+        currentUserDesc: currentUserDesc,
       };
 
       console.log('🚀 [App Background RequestParams]:', requestParams);
@@ -1091,6 +1186,15 @@ export default function App() {
           <UniverseApp
             characters={characters}
             settings={settings}
+            onClose={() => setCurrentScreen("home")}
+          />
+        );
+      case "theater":
+        return (
+          <TheaterApp
+            characters={characters}
+            settings={settings}
+            activeChatCharId={activeChatCharId}
             onClose={() => setCurrentScreen("home")}
           />
         );

@@ -1,11 +1,20 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, MessageCircle, Heart, Search, User, Sparkles, X, Compass, Mail, Edit3, MessageSquare } from "lucide-react";
+import { ChevronLeft, MessageCircle, Heart, Search, User, Sparkles, X, Compass, Mail, Edit3, MessageSquare, Plus, Skull, Smartphone, Heart as HeartIcon, RefreshCw } from "lucide-react";
 import { Character, AppSettings, LoreEntry } from "../types";
 import { apiChat } from "../lib/api";
 import { ConfirmModal } from "./ConfirmModal";
 
+interface Board {
+  id: string;
+  name: string;
+  icon: 'love' | 'skull' | 'phone' | 'plus';
+  description: string;
+  commentRequirement: string;
+}
+
 interface ForumPost {
   id: string;
+  boardId: string; // New field
   authorId: string;
   authorName: string;
   authorAvatar: string;
@@ -65,6 +74,14 @@ const generateAnonymousAvatar = (seed: string) => {
 
 export function ForumApp({ characters, settings, loreList = [], onClose }: ForumAppProps) {
   const [activeTab, setActiveTab] = useState<'public' | 'private' | 'profile'>('public');
+  const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+  const [isEditingBoard, setIsEditingBoard] = useState(false);
+  const [editingBoard, setEditingBoard] = useState<Board | null>(null);
+  const [boards, setBoards] = useState<Board[]>([
+    { id: 'board-1', name: '不可以涩涩', icon: 'love', description: '关于性爱、xp分享、亲密关系讨论的板块。', commentRequirement: '字数不限' },
+    { id: 'board-2', name: '深夜食堂', icon: 'skull', description: '关于灵异事件、恐怖经历的分享板块。', commentRequirement: '字数不限，支持颜文字' },
+    { id: 'board-3', name: '捡手机文学', icon: 'phone', description: '太太们创作的捡手机文学板块。', commentRequirement: '字数不限' },
+  ]);
   const [activeFilterTag, setActiveFilterTag] = useState<string>('全部');
   const [posts, setPosts] = useState<ForumPost[]>([]);
   const [selectedPost, setSelectedPost] = useState<ForumPost | null>(null);
@@ -78,20 +95,27 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
   const [isGeneratingPosts, setIsGeneratingPosts] = useState(false);
   const [isGeneratingComments, setIsGeneratingComments] = useState(false);
 
-  // Load posts
+  // Load posts and boards
   useEffect(() => {
-    const saved = localStorage.getItem("mobile_ai_forum_posts");
-    if (saved) {
+    const savedPosts = localStorage.getItem("mobile_ai_forum_posts");
+    if (savedPosts) {
       try {
-        setPosts(JSON.parse(saved));
+        setPosts(JSON.parse(savedPosts));
+      } catch (e) {}
+    }
+    const savedBoards = localStorage.getItem("mobile_ai_forum_boards");
+    if (savedBoards) {
+      try {
+        setBoards(JSON.parse(savedBoards));
       } catch (e) {}
     }
   }, []);
 
-  // Save posts
+  // Save posts and boards
   useEffect(() => {
     localStorage.setItem("mobile_ai_forum_posts", JSON.stringify(posts));
-  }, [posts]);
+    localStorage.setItem("mobile_ai_forum_boards", JSON.stringify(boards));
+  }, [posts, boards]);
 
   // Randomize DM contacts
   useEffect(() => {
@@ -111,6 +135,21 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
     if (cCount) setCommentGenCount(parseInt(cCount, 10));
   }, []);
 
+  const handleSaveBoard = (board: Board) => {
+    if (editingBoard) {
+      setBoards(boards.map(b => b.id === board.id ? board : b));
+    } else {
+      setBoards([...boards, { ...board, id: `board-${Date.now()}` }]);
+    }
+    setIsEditingBoard(false);
+    setEditingBoard(null);
+  };
+
+  const formatTime = (ts: number) => {
+    const d = new Date(ts);
+    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
   const saveConfig = (p: number, c: number) => {
     setPostGenCount(p);
     setCommentGenCount(c);
@@ -118,26 +157,37 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
     localStorage.setItem("mobile_ai_forum_c_count", c.toString());
   };
 
-  const handleGeneratePosts = async () => {
+  const [selectedLoreIds, setSelectedLoreIds] = useState<string[]>([]);
+  const [isGeneratingPostsModalOpen, setIsGeneratingPostsModalOpen] = useState(false);
+  const [genBoardId, setGenBoardId] = useState<string>('');
+  const [genCount, setGenCount] = useState<number>(3);
+
+  const handleGeneratePosts = async (boardId: string, count: number, loreIds: string[]) => {
     if (isGeneratingPosts || characters.length === 0) return;
     setIsGeneratingPosts(true);
     
+    const board = boards.find(b => b.id === boardId);
+    const selectedLores = loreList.filter(l => loreIds.includes(l.id));
+    const loreContent = selectedLores.map(l => `【${l.title}】:\n${l.content}`).join("\n\n");
+    
     try {
       const generatedPosts: ForumPost[] = [];
-      for (let i = 0; i < postGenCount; i++) {
+      for (let i = 0; i < count; i++) {
         const activeChar = characters[Math.floor(Math.random() * characters.length)];
-        const prompt = `你是角色：${activeChar.name}。简介：${activeChar.description}。设定：${activeChar.systemInstruction}。
-请以该角色的口吻，在匿名论坛上发布一篇简短的帖子（50-150字）。
+        const prompt = `你是角色：${activeChar.name}。简介：${activeChar.description}。
+${loreContent ? `以下是本次生成挂载的世界观设定：\n${loreContent}\n` : ""}
+论坛板块：${board?.name}。板块简介/方向：${board?.description}。
+请以该角色的口吻，在匿名论坛的该板块下发布一篇简短的帖子（50-150字）。
 要求输出JSON格式：
 {
-  "tag": "必须从[日常, 吐槽, 恐怖, 闲聊, 求助]中选择一个",
+  "tag": "发帖标签",
   "content": "帖子的正文内容"
 }`;
         const response = await apiChat({ 
           messages: [{ role: "user", content: prompt }], 
           character: activeChar,
           memories: activeChar.memories,
-          matchedLore: loreList,
+          matchedLore: selectedLores,
           settings, 
           systemInstruction: "你是一个只能输出JSON的API。" 
         });
@@ -154,6 +204,7 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
         if (parsed && parsed.content) {
           generatedPosts.push({
             id: Date.now().toString() + "-" + i,
+            boardId: boardId,
             authorId: activeChar.id,
             authorName: "匿名用户",
             authorAvatar: generateAnonymousAvatar(activeChar.id),
@@ -171,6 +222,8 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
       console.error(e);
     } finally {
       setIsGeneratingPosts(false);
+      setIsGeneratingPostsModalOpen(false);
+      setSelectedLoreIds([]);
     }
   };
 
@@ -223,9 +276,13 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
     }
   };
 
-  const formatTime = (ts: number) => {
-    const d = new Date(ts);
-    return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const renderBoardIcon = (icon: Board['icon']) => {
+    switch (icon) {
+      case 'love': return <HeartIcon className="w-8 h-8 text-neutral-900" />;
+      case 'skull': return <Skull className="w-8 h-8 text-neutral-900" />;
+      case 'phone': return <Smartphone className="w-8 h-8 text-neutral-900" />;
+      case 'plus': return <Plus className="w-8 h-8 text-neutral-900" />;
+    }
   };
 
   return (
@@ -342,114 +399,164 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
         <span className="font-sans font-bold text-base tracking-wide text-neutral-950">
           匿名论坛
         </span>
-        <div className="w-7 h-7" />
+        <div className="w-8" />
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 min-h-0 flex flex-col bg-neutral-50 relative">
+      <div className="flex-1 min-h-0 flex flex-row bg-neutral-50 relative">
+        {/* Sidebar */}
         {activeTab === 'public' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="px-4 py-3 flex items-center justify-between bg-white border-b border-neutral-100 shrink-0">
-              <div className="flex gap-2 overflow-x-auto no-scrollbar mask-edges pr-4">
-                {["全部", "日常", "吐槽", "恐怖", "闲聊", "求助", "情感"].map(tag => (
-                  <span 
-                    key={tag} 
-                    onClick={() => setActiveFilterTag(tag)}
-                    className={`text-xs px-3 py-1.5 rounded-full font-medium whitespace-nowrap cursor-pointer ${activeFilterTag === tag ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+          <div className="w-16 flex flex-col items-center py-4 bg-white border-r border-neutral-100 space-y-4">
+            {boards.map(board => (
+              <button 
+                key={board.id} 
+                onClick={() => setActiveBoardId(board.id)}
+                className={`p-3 rounded-2xl ${activeBoardId === board.id ? 'bg-neutral-100' : ''}`}
+              >
+                {renderBoardIcon(board.icon)}
+              </button>
+            ))}
+            <button 
+              onClick={() => { setEditingBoard(null); setIsEditingBoard(true); }}
+              className="p-3 rounded-2xl border-2 border-dashed border-neutral-200"
+            >
+              {renderBoardIcon('plus')}
+            </button>
+          </div>
+        )}
+
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {activeTab === 'public' && !activeBoardId && (
+            <div className="flex-1 p-4 flex flex-col items-center justify-center text-neutral-400 text-sm">
+              选择一个板块开始交流
+            </div>
+          )}
+          
+          {isGeneratingPostsModalOpen && (
+            <div className="absolute inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+              <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-4">
+                <div className="font-bold text-base">AI 生成帖子</div>
+                <select 
+                  value={genBoardId} 
+                  onChange={(e) => setGenBoardId(e.target.value)}
+                  className="w-full bg-neutral-100 p-3 rounded-xl text-sm"
+                >
+                  {boards.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <input 
+                  type="number" 
+                  min="1" 
+                  max="12" 
+                  value={genCount} 
+                  onChange={(e) => setGenCount(Math.min(12, Math.max(1, parseInt(e.target.value)||1)))} 
+                  className="w-full bg-neutral-100 p-3 rounded-xl text-sm" 
+                  placeholder="生成条数 (1-12)"
+                />
+                <div className="text-xs font-bold text-neutral-500">挂载世界书:</div>
+                <div className="max-h-40 overflow-y-auto space-y-1">
+                  {loreList.map(l => (
+                    <label key={l.id} className="flex items-center gap-2 text-xs">
+                      <input 
+                        type="checkbox"
+                        checked={selectedLoreIds.includes(l.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedLoreIds([...selectedLoreIds, l.id]);
+                          else setSelectedLoreIds(selectedLoreIds.filter(id => id !== l.id));
+                        }}
+                      />
+                      {l.title}
+                    </label>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setIsGeneratingPostsModalOpen(false)} className="flex-1 bg-neutral-100 py-3 rounded-xl text-xs font-bold">取消</button>
+                  <button onClick={() => handleGeneratePosts(genBoardId, genCount, selectedLoreIds)} className="flex-1 bg-black text-white py-3 rounded-xl text-xs font-bold">生成</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'public' && activeBoardId && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="px-4 py-3 flex items-center justify-between bg-white border-b border-neutral-100 shrink-0">
+                <button onClick={() => setActiveBoardId(null)} className="p-1 -ml-1 text-neutral-500 hover:text-black">
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-sm">{boards.find(b => b.id === activeBoardId)?.name}</span>
+                  <button 
+                    onClick={() => { 
+                      setGenBoardId(activeBoardId || ''); 
+                      setIsGeneratingPostsModalOpen(true); 
+                    }}
+                    className="text-neutral-900"
                   >
-                    {tag}
-                  </span>
+                    <Sparkles className="w-4 h-4" />
+                  </button>
+                </div>
+                <button onClick={() => { setEditingBoard(boards.find(b => b.id === activeBoardId) || null); setIsEditingBoard(true); }} className="text-xs font-medium text-neutral-500">编辑</button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {posts.filter(p => p.boardId === activeBoardId).map(post => (
+                  <div 
+                    key={post.id} 
+                    onClick={() => setSelectedPost(post)}
+                    className="bg-white p-4 rounded-2xl shadow-sm border border-neutral-100 cursor-pointer active:scale-[0.99] transition-transform relative"
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                         <div className="text-xs font-bold text-neutral-900">匿名用户</div>
+                      </div>
+                      <span className="text-[10px] bg-neutral-50 text-neutral-500 px-2 py-0.5 rounded border border-neutral-100">
+                        {post.tag}
+                      </span>
+                    </div>
+                    <p className="text-[13px] text-neutral-800 leading-relaxed font-medium mb-3 line-clamp-3">
+                      {post.content}
+                    </p>
+                  </div>
                 ))}
               </div>
-              <button 
-                onClick={handleGeneratePosts}
-                disabled={isGeneratingPosts}
-                className="shrink-0 ml-2 bg-neutral-900 hover:bg-black text-white px-3 py-1.5 rounded-full text-[11px] font-bold flex items-center gap-1 transition-all disabled:opacity-50"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                {isGeneratingPosts ? "生成中..." : "AI 生成"}
-              </button>
             </div>
-            
-            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {posts.filter(p => activeFilterTag === "全部" || p.tag === activeFilterTag).map(post => (
-                <div 
-                  key={post.id} 
-                  onClick={() => setSelectedPost(post)}
-                  className="bg-white p-4 rounded-2xl shadow-sm border border-neutral-100 cursor-pointer active:scale-[0.99] transition-transform relative"
-                >
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setConfirmDialog({
-                        title: "删除帖子",
-                        message: "确定要删除此帖子吗？此操作不可撤销。",
-                        onConfirm: () => {
-                          setPosts(prev => prev.filter(p => p.id !== post.id));
-                          setConfirmDialog(null);
-                        }
-                      });
-                    }}
-                    className="absolute top-4 right-4 text-neutral-300 hover:text-red-500"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      {post.authorAvatar.length > 2 ? (
-                        <img src={post.authorAvatar} alt="" className="w-8 h-8 rounded-full object-cover bg-neutral-100" />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center text-sm border border-neutral-200/50">
-                          {post.authorAvatar}
-                        </div>
-                      )}
-                      <div>
-                        <div className="text-xs font-bold text-neutral-900">匿名用户</div>
-                        <div className="text-[10px] text-neutral-400">{formatTime(post.timestamp)}</div>
-                      </div>
-                    </div>
-                    <span className="text-[10px] bg-neutral-50 text-neutral-500 px-2 py-0.5 rounded border border-neutral-100">
-                      {post.tag}
-                    </span>
-                  </div>
-                  <p className="text-[13px] text-neutral-800 leading-relaxed font-medium mb-3 line-clamp-3">
-                    {post.content}
-                  </p>
-                  <div className="flex items-center justify-between border-t border-neutral-50 pt-3">
-                    <div className="flex items-center gap-4 text-neutral-400">
-                      <div className="flex items-center gap-1 text-[11px] font-medium">
-                        <Heart className="w-3.5 h-3.5" /> {post.likes}
-                      </div>
-                      <div className="flex items-center gap-1 text-[11px] font-medium">
-                        <MessageSquare className="w-3.5 h-3.5" /> {post.comments.length}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {posts.length === 0 && (
-                <div className="text-center py-20 text-neutral-400 text-xs">
-                  暂无帖子，点击右上角生成一些吧
-                </div>
-              )}
+          )}
+        </div>
+        
+        {/* Board Edit Modal */}
+        {isEditingBoard && (
+          <div className="absolute inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-4">
+              <div className="font-bold text-base">{editingBoard ? "编辑板块" : "新建板块"}</div>
+              <input type="text" placeholder="板块名称" defaultValue={editingBoard?.name} className="w-full bg-neutral-100 p-3 rounded-xl text-sm" id="board-name-input" />
+              <textarea placeholder="板块介绍" defaultValue={editingBoard?.description} className="w-full bg-neutral-100 p-3 rounded-xl text-sm h-24" id="board-desc-input" />
+              <input type="text" placeholder="评论要求" defaultValue={editingBoard?.commentRequirement} className="w-full bg-neutral-100 p-3 rounded-xl text-sm" id="board-req-input" />
+              <div className="flex gap-2">
+                <button onClick={() => setIsEditingBoard(false)} className="flex-1 bg-neutral-100 py-3 rounded-xl text-xs font-bold">取消</button>
+                <button onClick={() => {
+                  const name = (document.getElementById('board-name-input') as HTMLInputElement).value;
+                  const description = (document.getElementById('board-desc-input') as HTMLTextAreaElement).value;
+                  const commentRequirement = (document.getElementById('board-req-input') as HTMLInputElement).value;
+                  handleSaveBoard({ ...editingBoard, id: editingBoard?.id || '', name, icon: editingBoard?.icon || 'phone', description, commentRequirement } as Board);
+                }} className="flex-1 bg-black text-white py-3 rounded-xl text-xs font-bold">保存</button>
+              </div>
             </div>
           </div>
         )}
-        
-        {confirmDialog && (
-          <ConfirmModal 
-            title={confirmDialog.title} 
-            message={confirmDialog.message} 
-            onConfirm={confirmDialog.onConfirm}
-            onCancel={() => setConfirmDialog(null)}
-          />
-        )}
 
         {activeTab === 'private' && (
-          <div className="flex-1 flex flex-col p-4 space-y-3 overflow-y-auto">
-            <div className="bg-white rounded-2xl border border-neutral-100 p-4 shadow-sm mb-2">
-              <p className="text-xs font-bold text-neutral-800 mb-1">论坛私信</p>
-              <p className="text-[10px] text-neutral-500">此处的私聊将转至系统的主要对话功能。联系人为系统随机生成。</p>
+          <div className="flex-1 flex flex-col p-4 space-y-3 overflow-y-auto w-full max-w-lg mx-auto">
+            <div className="flex items-center justify-between mb-2 px-2">
+              <p className="text-sm font-bold text-neutral-800">论坛私信</p>
+              <button 
+                onClick={() => {
+                   const shuffled = [...characters].sort(() => 0.5 - Math.random());
+                   const count = Math.min(shuffled.length, Math.floor(Math.random() * 3) + 2);
+                   setRandomizedContacts(shuffled.slice(0, count));
+                }} 
+                className="p-1 text-neutral-500 hover:text-black"
+              >
+                 <RefreshCw className="w-4 h-4" />
+              </button>
             </div>
             
             {randomizedContacts.map(char => (
@@ -459,20 +566,20 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
                   localStorage.setItem("mobile_ai_preselected_chat_char", char.id);
                   onClose(); 
                 }}
-                className="bg-white p-3 rounded-2xl shadow-sm border border-neutral-100 flex items-center justify-between cursor-pointer active:scale-95 transition-all"
+                className="bg-white p-4 rounded-2xl shadow-sm border border-neutral-100 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-transform"
               >
                 <div className="flex items-center gap-3">
                   <img src={generateAnonymousAvatar(char.id)} className="w-10 h-10 rounded-full object-cover border border-neutral-100" />
                   <div>
-                    <div className="text-xs font-bold text-neutral-900">匿名用户</div>
-                    <div className="text-[10px] text-neutral-400 mt-0.5 line-clamp-1">活跃于论坛的匿名用户</div>
+                    <div className="text-sm font-bold text-neutral-900">{char.name}</div>
+                    <div className="text-[11px] text-neutral-400 mt-0.5 line-clamp-1">点击进入私聊...</div>
                   </div>
                 </div>
                 <MessageCircle className="w-4 h-4 text-neutral-300" />
               </div>
             ))}
             {randomizedContacts.length === 0 && (
-              <div className="text-center py-20 text-neutral-400 text-xs">
+              <div className="text-center py-20 text-neutral-400 text-sm">
                 暂无私信联系人
               </div>
             )}

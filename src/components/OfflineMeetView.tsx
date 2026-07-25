@@ -117,6 +117,7 @@ interface OfflineMeetViewProps {
   onlineMessages?: Message[];
   onSyncToOnlineChat?: (storySummary: string) => void;
   onClose: () => void;
+  forcedMode?: "shared" | "isolated";
 }
 
 export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
@@ -125,6 +126,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   onlineMessages = [],
   onSyncToOnlineChat,
   onClose,
+  forcedMode,
 }) => {
   const [messages, setMessages] = useState<OfflineStoryMessage[]>([]);
   const [inputText, setInputText] = useState("");
@@ -141,7 +143,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
 
   // Core settings states
   const [wordLimit, setWordLimit] = useState<number>(600);
-  const [meetMode, setMeetMode] = useState<MeetModeType>("shared");
+  const [meetMode, setMeetMode] = useState<MeetModeType>(forcedMode || "shared");
   const [showSetupModal, setShowSetupModal] = useState<boolean>(false);
 
   // Customization & Style states
@@ -1416,63 +1418,65 @@ ${onlineContextStr}
         /* 模式设置页面 (三条线图标) */
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 font-sans">
           {/* 板块一：模式选择 */}
-          <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
-            <div className="flex items-center justify-between border-b border-black/5 pb-2">
-              <div className="flex items-center gap-2">
-                <Compass className="w-4 h-4 text-purple-700" />
-                <h3 className="font-bold text-xs text-stone-800">板块一：模式选择</h3>
+          {!forcedMode && (
+            <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
+              <div className="flex items-center justify-between border-b border-black/5 pb-2">
+                <div className="flex items-center gap-2">
+                  <Compass className="w-4 h-4 text-purple-700" />
+                  <h3 className="font-bold text-xs text-stone-800">板块一：模式选择</h3>
+                </div>
+                <span className="text-[10px] font-bold text-purple-800 bg-purple-100 px-2 py-0.5 rounded-full">
+                  当前: {meetMode === "shared" ? "互通模式" : "架空模式"}
+                </span>
               </div>
-              <span className="text-[10px] font-bold text-purple-800 bg-purple-100 px-2 py-0.5 rounded-full">
-                当前: {meetMode === "shared" ? "互通模式" : "架空模式"}
-              </span>
-            </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
-              {/* 互通模式卡片 */}
-              <button
-                type="button"
-                onClick={() => handleSwitchModeWithConfirm("shared")}
-                className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between gap-1.5 ${
-                  meetMode === "shared"
-                    ? "bg-purple-50/90 border-purple-500 ring-2 ring-purple-600/20 shadow-xs"
-                    : "bg-white border-stone-200 hover:border-purple-300"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
-                    <Link2 className="w-3.5 h-3.5 text-purple-700" />
-                    🔗 互通模式
-                  </span>
-                  {meetMode === "shared" && <Check className="w-3.5 h-3.5 text-purple-700" />}
-                </div>
-                <p className="text-[10.5px] text-stone-500 leading-tight">
-                  读取线上聊天历史作为记忆，线下剧情将同步至线上聊天。
-                </p>
-              </button>
+              <div className="grid grid-cols-2 gap-2.5">
+                {/* 互通模式卡片 */}
+                <button
+                  type="button"
+                  onClick={() => handleSwitchModeWithConfirm("shared")}
+                  className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between gap-1.5 ${
+                    meetMode === "shared"
+                      ? "bg-purple-50/90 border-purple-500 ring-2 ring-purple-600/20 shadow-xs"
+                      : "bg-white border-stone-200 hover:border-purple-300"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
+                      <Link2 className="w-3.5 h-3.5 text-purple-700" />
+                      🔗 互通模式
+                    </span>
+                    {meetMode === "shared" && <Check className="w-3.5 h-3.5 text-purple-700" />}
+                  </div>
+                  <p className="text-[10.5px] text-stone-500 leading-tight">
+                    读取线上聊天历史作为记忆，线下剧情将同步至线上聊天。
+                  </p>
+                </button>
 
-              {/* 架空模式卡片 */}
-              <button
-                type="button"
-                onClick={() => handleSwitchModeWithConfirm("isolated")}
-                className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between gap-1.5 ${
-                  meetMode === "isolated"
-                    ? "bg-amber-50/90 border-amber-500 ring-2 ring-amber-600/20 shadow-xs"
-                    : "bg-white border-stone-200 hover:border-amber-300"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
-                    <Unlink className="w-3.5 h-3.5 text-amber-700" />
-                    🌌 架空模式
-                  </span>
-                  {meetMode === "isolated" && <Check className="w-3.5 h-3.5 text-amber-700" />}
-                </div>
-                <p className="text-[10.5px] text-stone-500 leading-tight">
-                  平行时空小剧场。不读取也不同步线上历史，完全独立。
-                </p>
-              </button>
+                {/* 架空模式卡片 */}
+                <button
+                  type="button"
+                  onClick={() => handleSwitchModeWithConfirm("isolated")}
+                  className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between gap-1.5 ${
+                    meetMode === "isolated"
+                      ? "bg-amber-50/90 border-amber-500 ring-2 ring-amber-600/20 shadow-xs"
+                      : "bg-white border-stone-200 hover:border-amber-300"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
+                      <Unlink className="w-3.5 h-3.5 text-amber-700" />
+                      🌌 架空模式
+                    </span>
+                    {meetMode === "isolated" && <Check className="w-3.5 h-3.5 text-amber-700" />}
+                  </div>
+                  <p className="text-[10.5px] text-stone-500 leading-tight">
+                    平行时空小剧场。不读取也不同步线上历史，完全独立。
+                  </p>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* 板块二：开场设定 */}
           <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
