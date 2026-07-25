@@ -1,13 +1,15 @@
 import React from "react";
 
 interface ConfirmModalProps {
+  isOpen?: boolean;
   title: string;
   message: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
 
-export function ConfirmModal({ title, message, onConfirm, onCancel }: ConfirmModalProps) {
+export function ConfirmModal({ isOpen, title, message, onConfirm, onCancel }: ConfirmModalProps) {
+  if (isOpen === false) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/10 backdrop-blur-[2px]">
       <div className="bg-white rounded-2xl p-5 shadow-xl w-full max-w-xs animate-fade-in border border-neutral-100">

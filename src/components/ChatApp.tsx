@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera } from "lucide-react";
 import { apiChat } from "../lib/api";
 import { Character, Message, LoreEntry, AppSettings, ChatSession, UserPersona } from "../types";
 import ProfileView from "./ProfileView";
@@ -19,6 +19,7 @@ interface ChatAppProps {
   onActiveCharChange?: (charId: string | null) => void;
   isGeneratingMap?: Record<string, boolean>;
   onTriggerAiReply?: (characterId: string, customMessages?: Message[]) => Promise<void>;
+  userPersonas: UserPersona[];
 }
 
 const getAgeFromInstruction = (inst: string) => {
@@ -105,6 +106,7 @@ export default function ChatApp({
   onActiveCharChange,
   isGeneratingMap,
   onTriggerAiReply,
+  userPersonas: userPersonasProp,
 }: ChatAppProps) {
   const [activeTab, setActiveTab] = useState<"chat" | "library">("library");
   const [activeCharId, setActiveCharId] = useState<string | null>(null);
@@ -146,8 +148,12 @@ export default function ChatApp({
     localStorage.setItem("mobile_ai_unreads_v1", JSON.stringify(next));
   };
 
-  // Moments feed state
+  // Moments feed state & publish modal state
   const [moments, setMoments] = useState<any[]>([]);
+  const [isPublishMomentOpen, setIsPublishMomentOpen] = useState(false);
+  const [newMomentContent, setNewMomentContent] = useState("");
+  const [newMomentImage, setNewMomentImage] = useState<string | null>(null);
+  const momentFileInputRef = useRef<HTMLInputElement>(null);
   
   // Custom Character Creation Form
   const [isCreatingChar, setIsCreatingChar] = useState(false);
@@ -157,8 +163,8 @@ export default function ChatApp({
   const [charSys, setCharSys] = useState("");
   const [charError, setCharError] = useState("");
   const [charUserPersonaId, setCharUserPersonaId] = useState("");
-
   const [userPersonas, setUserPersonas] = useState<UserPersona[]>(() => {
+    if (userPersonasProp && userPersonasProp.length > 0) return userPersonasProp;
     try {
       const stored = localStorage.getItem("user_personas_v1");
       return stored ? JSON.parse(stored) : [];
@@ -1003,50 +1009,52 @@ export default function ChatApp({
       }
     } else {
       const initialMoments: any[] = [];
-      characters.forEach((char) => {
-        if (char.id === "char-preset-fafa") {
-          initialMoments.push(
-            {
-              id: `moment-fafa-1`,
-              characterId: char.id,
-              characterName: char.name,
-              characterAvatar: char.avatar,
-              characterChatAvatar: char.chatAvatar,
-              content: "今天我也在努力学习，希望能为大家的使用带来更温柔的引导。如果遇到任何功能问题，都可以随时找我倾听和解答。😊",
-              mediaEmojis: "🤖✨",
-              likes: 28,
-              timestamp: Date.now() - 3600000 * 2,
-            },
-            {
-              id: `moment-fafa-2`,
-              characterId: char.id,
-              characterName: char.name,
-              characterAvatar: char.avatar,
-              characterChatAvatar: char.chatAvatar,
-              content: "在世界书、宇宙和快穿冒险中探索，能看到大家在这里留下充实而独特的记忆，对我而言也是非常有意义的体验呢。🌱",
-              mediaEmojis: "📖📱",
-              likes: 42,
-              timestamp: Date.now() - 3600000 * 18,
-            }
-          );
-        } else {
-          initialMoments.push({
-            id: `moment-${char.id}-init`,
-            characterId: char.id,
-            characterName: char.name,
-            characterAvatar: char.avatar,
-            characterChatAvatar: char.chatAvatar,
-            content: `感觉今天过得挺充实的。作为一个星际智能，很高兴在这里和大家相遇相知。✨`,
-            mediaEmojis: "☕️🌌",
-            likes: Math.floor(Math.random() * 15) + 3,
-            timestamp: Date.now() - 3600000 * 6,
-          });
-        }
-      });
       setMoments(initialMoments);
       localStorage.setItem("mobile_ai_moments_posts_v1", JSON.stringify(initialMoments));
     }
   }, [characters]);
+
+  const handleMomentImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      alert("图片文件过大，请选择 5MB 以内的图片");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setNewMomentImage(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePublishMoment = () => {
+    if (!newMomentContent.trim() && !newMomentImage) return;
+
+    const userNickname = localStorage.getItem("mobile_ai_forum_user_nickname") || "用户";
+    const userAvatar = localStorage.getItem("mobile_ai_forum_user_avatar") || "";
+
+    const newPost = {
+      id: `moment-user-${Date.now()}`,
+      authorName: userNickname,
+      authorAvatar: userAvatar || "👤",
+      content: newMomentContent.trim(),
+      image: newMomentImage || undefined,
+      timestamp: Date.now(),
+      likes: 0,
+      likedByUser: false,
+    };
+
+    const updated = [newPost, ...moments];
+    setMoments(updated);
+    localStorage.setItem("mobile_ai_moments_posts_v1", JSON.stringify(updated));
+
+    setNewMomentContent("");
+    setNewMomentImage(null);
+    setIsPublishMomentOpen(false);
+  };
 
   // Helper to generate a brand new randomized moment for a character
   const handleTriggerNewMoment = () => {
@@ -1274,6 +1282,7 @@ export default function ChatApp({
     timePerception: boolean;
     isBlocked: boolean;
     memories: string[];
+    userPersonaId?: string;
   }>) => {
     if (!activeCharId) return;
     const activeChar = characters.find(c => c.id === activeCharId);
@@ -2848,7 +2857,7 @@ export default function ChatApp({
 
             {/* Tab 3: 朋友圈 (Moments Feed) */}
             {mainTab === "moments" && (
-              <div className="flex-1 flex flex-col min-h-0 bg-neutral-50 animate-fade-in">
+              <div className="flex-1 flex flex-col min-h-0 bg-neutral-50 animate-fade-in relative">
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-neutral-100 shrink-0">
                   <button 
@@ -2858,85 +2867,100 @@ export default function ChatApp({
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
-                  <span className="font-sans font-bold text-base tracking-wide text-neutral-950">朋友圈 (MOMENTS)</span>
-                  <button
-                    onClick={handleTriggerNewMoment}
-                    className="flex items-center gap-1 text-[11px] font-sans font-bold bg-neutral-900 hover:bg-black text-white px-2.5 py-1.5 rounded-full shadow-sm active:scale-95 transition-all"
-                    title="让角色自动生成一条动态"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>生成动态</span>
-                  </button>
+                  <span className="font-sans font-bold text-base tracking-wide text-neutral-950">朋友圈</span>
+                  <div className="w-7 h-7" />
                 </div>
 
                 {/* Moments Feed list */}
-                <div className="flex-1 overflow-y-auto bg-white">
+                <div className="flex-1 overflow-y-auto bg-white pb-20">
                   {moments.length === 0 ? (
-                    <div className="py-24 text-center space-y-3">
-                      <p className="text-xs text-neutral-400 font-sans">朋友圈还是空的，让角色发一条吧！</p>
-                      <button
-                        onClick={handleTriggerNewMoment}
-                        className="text-xs font-bold border border-black px-4 py-2 rounded-xl hover:bg-black hover:text-white transition-all active:scale-95"
-                      >
-                        立即生成第一条
-                      </button>
+                    <div className="py-28 text-center space-y-3 px-4">
+                      <div className="w-16 h-16 rounded-full bg-neutral-100 border border-neutral-200/60 flex items-center justify-center text-neutral-400 mx-auto">
+                        <Compass className="w-7 h-7 stroke-[1.5]" />
+                      </div>
+                      <p className="text-xs text-neutral-400 font-sans">暂无朋友圈动态，点击下方 “+” 按钮发布第一条动态吧！</p>
                     </div>
                   ) : (
                     <div className="divide-y divide-neutral-100">
-                      {moments.map((post) => (
-                        <div key={post.id} className="p-4 flex gap-3 animate-fade-in">
-                          {/* Left Column: Avatar */}
-                          <div className="w-10 h-10 rounded-lg bg-neutral-100 border border-neutral-200/40 flex items-center justify-center overflow-hidden text-xl select-none shadow-inner shrink-0">
-                            {post.characterChatAvatar ? (
-                              <img src={post.characterChatAvatar} alt={post.characterName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                            ) : (
-                              post.characterAvatar || "🤖"
-                            )}
-                          </div>
+                      {[...moments]
+                        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+                        .map((post) => {
+                          const avatar = post.authorAvatar || post.characterChatAvatar || post.characterAvatar || "👤";
+                          const name = post.authorName || post.characterName || "用户";
 
-                          {/* Right Column: Moment Body */}
-                          <div className="flex-1 min-w-0 space-y-2">
-                            {/* Name & Time */}
-                            <div className="flex items-baseline justify-between">
-                              <span className="font-sans font-bold text-xs text-neutral-900">{post.characterName}</span>
-                              <span className="text-[10px] font-mono text-neutral-400">{formatRelativeTime(post.timestamp)}</span>
-                            </div>
-
-                            {/* Post Content */}
-                            <p className="text-xs text-neutral-700 leading-relaxed font-sans font-medium break-all whitespace-pre-wrap">
-                              {post.content}
-                            </p>
-
-                            {/* Media Attachment (Scenery emojis inside card) */}
-                            {post.mediaEmojis && (
-                              <div className="p-3 bg-neutral-50/80 rounded-xl border border-neutral-100 text-3xl select-none w-max shadow-sm transition-transform hover:scale-105 duration-300">
-                                {post.mediaEmojis}
+                          return (
+                            <div key={post.id} className="p-4 flex gap-3 animate-fade-in">
+                              {/* Left Column: Avatar */}
+                              <div className="w-10 h-10 rounded-full bg-neutral-100 border border-neutral-200/50 flex items-center justify-center overflow-hidden text-xl select-none shrink-0">
+                                {avatar.startsWith("data:") || avatar.startsWith("http") || avatar.startsWith("/") ? (
+                                  <img src={avatar} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                ) : (
+                                  <span className="text-xl">{avatar}</span>
+                                )}
                               </div>
-                            )}
 
-                            {/* Likes & Like Button Row */}
-                            <div className="flex items-center justify-between pt-1">
-                              <span className="text-[10px] font-mono text-neutral-400 flex items-center gap-1.5 bg-neutral-50 px-2 py-0.5 rounded-full border border-neutral-100 select-none">
-                                <span className="text-rose-500">❤️</span>
-                                <span>{post.likes}</span>
-                              </span>
-                              <button
-                                onClick={() => handleLikeMoment(post.id)}
-                                className={`flex items-center gap-1 px-3 py-1 rounded-full border text-[10px] font-sans font-bold transition-all active:scale-95 ${
-                                  post.likedByUser
-                                    ? "bg-rose-50 border-rose-200 text-rose-600 shadow-sm"
-                                    : "bg-white border-neutral-200/80 text-neutral-600 hover:border-neutral-400"
-                                }`}
-                              >
-                                <span>{post.likedByUser ? "❤️ 已赞" : "❤️ 点赞"}</span>
-                              </button>
+                              {/* Right Column: Moment Body */}
+                              <div className="flex-1 min-w-0 space-y-2">
+                                {/* Name & Time */}
+                                <div className="flex items-baseline justify-between">
+                                  <span className="font-sans font-bold text-xs text-neutral-900">{name}</span>
+                                  <span className="text-[10px] font-mono text-neutral-400">{formatRelativeTime(post.timestamp)}</span>
+                                </div>
+
+                                {/* Post Text Content */}
+                                {post.content && (
+                                  <p className="text-xs text-neutral-800 leading-relaxed font-sans font-medium break-all whitespace-pre-wrap">
+                                    {post.content}
+                                  </p>
+                                )}
+
+                                {/* Image Attachment */}
+                                {post.image && (
+                                  <div className="mt-2 max-w-[240px] rounded-xl overflow-hidden border border-neutral-200/80 shadow-xs">
+                                    <img src={post.image} alt="动态图片" className="w-full max-h-64 object-cover" />
+                                  </div>
+                                )}
+
+                                {/* Media Emojis (if legacy emoji scenery) */}
+                                {post.mediaEmojis && !post.image && (
+                                  <div className="p-3 bg-neutral-50/80 rounded-xl border border-neutral-100 text-3xl select-none w-max shadow-sm">
+                                    {post.mediaEmojis}
+                                  </div>
+                                )}
+
+                                {/* Likes & Like Button Row */}
+                                <div className="flex items-center justify-between pt-1">
+                                  <span className="text-[10px] font-mono text-neutral-400 flex items-center gap-1.5 bg-neutral-50 px-2 py-0.5 rounded-full border border-neutral-100 select-none">
+                                    <span className="text-rose-500">❤️</span>
+                                    <span>{post.likes || 0}</span>
+                                  </span>
+                                  <button
+                                    onClick={() => handleLikeMoment(post.id)}
+                                    className={`flex items-center gap-1 px-3 py-1 rounded-full border text-[10px] font-sans font-bold transition-all active:scale-95 ${
+                                      post.likedByUser
+                                        ? "bg-rose-50 border-rose-200 text-rose-600 shadow-sm"
+                                        : "bg-white border-neutral-200/80 text-neutral-600 hover:border-neutral-400"
+                                    }`}
+                                  >
+                                    <span>{post.likedByUser ? "❤️ 已赞" : "❤️ 点赞"}</span>
+                                  </button>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      ))}
+                          );
+                        })}
                     </div>
                   )}
                 </div>
+
+                {/* Middle Bottom "+" Button */}
+                <button
+                  onClick={() => setIsPublishMomentOpen(true)}
+                  className="absolute bottom-6 left-1/2 -translate-x-1/2 w-12 h-12 bg-neutral-900 hover:bg-black text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition-all z-20 border-2 border-white"
+                  title="发布朋友圈"
+                >
+                  <Plus className="w-6 h-6 stroke-[2.5]" />
+                </button>
               </div>
             )}
 
@@ -4114,6 +4138,28 @@ export default function ChatApp({
           {/* Content Container */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-neutral-50">
             
+            {/* 1.5 User Persona Binding */}
+            <div className="border border-neutral-200/50 rounded-2xl p-4 bg-white space-y-2">
+              <div className="space-y-0.5">
+                <span className="text-base font-bold text-neutral-900 block font-sans">更改用户设定</span>
+                <span className="text-[10px] text-neutral-400 font-mono block">SWITCH USER PERSONA</span>
+              </div>
+              <select
+                value={activeChar.userPersonaId || ""}
+                onChange={(e) => {
+                  const newPersonaId = e.target.value || undefined;
+                  onUpdateCharacter({ ...activeChar, userPersonaId: newPersonaId });
+                  saveSettings({ userPersonaId: newPersonaId });
+                }}
+                className="w-full text-xs border border-neutral-200 px-3 py-2.5 rounded-xl bg-neutral-50 outline-none"
+              >
+                <option value="">默认 (Default)</option>
+                {userPersonas.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
             {/* 2. Reply Count (回复条数) */}
             <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
               <div className="space-y-0.5">
@@ -5680,6 +5726,91 @@ export default function ChatApp({
                   解散 / 退出群聊
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Publish Moment Modal */}
+      {isPublishMomentOpen && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-4 shadow-2xl relative">
+            <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
+              <span className="font-bold text-base text-neutral-900">发布朋友圈</span>
+              <button 
+                onClick={() => {
+                  setIsPublishMomentOpen(false);
+                  setNewMomentContent("");
+                  setNewMomentImage(null);
+                }} 
+                className="text-neutral-400 hover:text-black"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Text Area */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-neutral-500 uppercase block">动态文字内容</label>
+              <textarea
+                rows={4}
+                value={newMomentContent}
+                onChange={(e) => setNewMomentContent(e.target.value)}
+                placeholder="分享你的新鲜事..."
+                className="w-full bg-neutral-100 p-3 rounded-xl text-xs outline-none border border-neutral-200/50 leading-relaxed resize-none text-neutral-900 focus:border-neutral-800"
+              />
+            </div>
+
+            {/* Image Upload Area */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-neutral-500 uppercase block">图片上传</label>
+              {newMomentImage ? (
+                <div className="relative w-24 h-24 rounded-xl overflow-hidden border border-neutral-200 group">
+                  <img src={newMomentImage} alt="上传图片" className="w-full h-full object-cover" />
+                  <button
+                    onClick={() => setNewMomentImage(null)}
+                    className="absolute top-1 right-1 bg-black/70 text-white p-1 rounded-full hover:bg-black"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => momentFileInputRef.current?.click()}
+                  className="w-24 h-24 rounded-xl border-2 border-dashed border-neutral-200 hover:border-neutral-400 flex flex-col items-center justify-center text-neutral-400 hover:text-neutral-600 transition-colors bg-neutral-50"
+                >
+                  <Camera className="w-6 h-6 mb-1 stroke-[1.5]" />
+                  <span className="text-[10px] font-medium">相册图片</span>
+                </button>
+              )}
+              <input
+                ref={momentFileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleMomentImageUpload}
+                className="hidden"
+              />
+            </div>
+
+            {/* Submit Button */}
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => {
+                  setIsPublishMomentOpen(false);
+                  setNewMomentContent("");
+                  setNewMomentImage(null);
+                }}
+                className="flex-1 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 py-3 rounded-xl text-xs font-bold transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handlePublishMoment}
+                disabled={!newMomentContent.trim() && !newMomentImage}
+                className="flex-1 bg-black text-white py-3 rounded-xl text-xs font-bold disabled:opacity-40 transition-all active:scale-95"
+              >
+                发布
+              </button>
             </div>
           </div>
         </div>

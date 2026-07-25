@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft, UserPlus, Sparkles, AlertCircle, Smile, HelpCircle, Edit3, MessageSquare, Trash2, Check, Upload, FileText, Zap } from "lucide-react";
 
-import { Character, AppSettings } from "../types";
+import { Character, AppSettings, UserPersona } from "../types";
 import { apiAnalyzeCharacterFile } from "../lib/api";
 import JSZip from "jszip";
 
 interface CharacterCreatorAppProps {
   characters: Character[];
+  userPersonas: UserPersona[];
   settings?: AppSettings;
   onAddCharacter: (char: Omit<Character, "id" | "createdAt">) => void;
   onUpdateCharacter?: (id: string, char: Omit<Character, "id" | "createdAt">) => void;
@@ -95,6 +96,7 @@ const PRESET_STYLES = [
 
 export default function CharacterCreatorApp({
   characters,
+  userPersonas,
   settings,
   onAddCharacter,
   onUpdateCharacter,
@@ -112,6 +114,7 @@ export default function CharacterCreatorApp({
   const [background, setBackground] = useState(""); // 角色背景
   const [personality, setPersonality] = useState(""); // 人设 / 性格特点
   const [chatStyle, setChatStyle] = useState(""); // 聊天风格
+  const [selectedPersonaId, setSelectedPersonaId] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [isImporting, setIsImporting] = useState(false);
@@ -148,6 +151,7 @@ export default function CharacterCreatorApp({
     setPersonality(getPersonalityFromInstruction(char.systemInstruction));
     setBackground(getBackgroundFromInstruction(char.systemInstruction));
     setChatStyle(getChatStyleFromInstruction(char.systemInstruction));
+    setSelectedPersonaId(char.userPersonaId || "");
     setRealImage(char.realImage || "");
     setChatAvatar(char.chatAvatar || "");
     setErrorMsg("");
@@ -622,6 +626,7 @@ ${background.trim() || "暂无背景故事"}
         model: settings.model, // Default to current global model
         realImage: realImage || undefined,
         chatAvatar: chatAvatar || undefined,
+        userPersonaId: selectedPersonaId || undefined,
       };
 
       console.log("[Character Save Payload]", {
@@ -858,6 +863,20 @@ ${background.trim() || "暂无背景故事"}
               onChange={(e) => setName(e.target.value)}
               className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none"
             />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">绑定用户设定 (User Persona)</label>
+            <select
+              value={selectedPersonaId}
+              onChange={(e) => setSelectedPersonaId(e.target.value)}
+              className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none"
+            >
+              <option value="">不绑定 (无)</option>
+              {userPersonas.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
           </div>
 
           {/* Personality Description (人设) */}

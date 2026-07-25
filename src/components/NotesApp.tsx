@@ -238,11 +238,6 @@ export default function NotesApp({ characters, settings, onClose, onGenerateNote
               <div className="flex items-center justify-between pt-3 border-t border-neutral-100">
                 <span className="text-[10px] text-neutral-400 font-mono flex items-center gap-2">
                   {formatRelativeTime(note.timestamp)}
-                  {note.isShared && (
-                    <span className="bg-emerald-50 text-emerald-600 px-1.5 py-0.5 rounded border border-emerald-100 text-[9px] font-sans">
-                      已分享
-                    </span>
-                  )}
                 </span>
                 
                 <button 

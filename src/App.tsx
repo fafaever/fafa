@@ -16,7 +16,7 @@ import PhoneCheckApp from "./components/PhoneCheckApp";
 import { GameListApp } from "./components/GameListApp";
 import { ForumApp } from "./components/ForumApp";
 import { TheaterApp } from "./components/TheaterApp";
-import { Character, LoreEntry, AppSettings, ChatSession, Message, FontOption, ThemeOption } from "./types";
+import { Character, UserPersona, LoreEntry, AppSettings, ChatSession, Message, FontOption, ThemeOption } from "./types";
 import { Sparkles, HelpCircle } from "lucide-react";
 import { apiChat, apiGenerateNote } from "./lib/api";
 
@@ -165,6 +165,7 @@ export default function App() {
 
   // Core Data States
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [userPersonas, setUserPersonas] = useState<UserPersona[]>([]);
   const [loreList, setLoreList] = useState<LoreEntry[]>([]);
   const [settings, setSettings] = useState<AppSettings>({ apiUrl: "", apiKey: "", model: "", apiPresets: [], activePresetId: "" });
   const [previewSettings, setPreviewSettings] = useState<AppSettings>({ apiUrl: "", apiKey: "", model: "", apiPresets: [], activePresetId: "" });
@@ -190,6 +191,11 @@ export default function App() {
 
   // Hydrate from localStorage on mount
   useEffect(() => {
+    // 1.5 User Personas
+    const savedPersonas = localStorage.getItem("user_personas_v1");
+    if (savedPersonas) {
+      setUserPersonas(JSON.parse(savedPersonas));
+    }
     // 1. Characters
     const savedChars = localStorage.getItem("mobile_ai_characters");
     if (savedChars) {
@@ -814,6 +820,7 @@ export default function App() {
         },
         matchedLore: matched,
         chatMode: "online",
+        systemInstruction: "你现在处于【线上聊天模式】。禁止角色发送任何包含动作描写的内容。只允许以第一人称口语化语气表达感受或状态，用词克制，不渲染，不描述具体动作。整体语气保持克制、自然，像正常人在线上聊天，不刻意暴露或渲染。",
         replyLength: replyLength,
         replyCount: count,
         mood: mood,
@@ -1072,6 +1079,7 @@ export default function App() {
             onActiveCharChange={setActiveChatCharId}
             isGeneratingMap={isGeneratingMap}
             onTriggerAiReply={triggerAiReply}
+            userPersonas={userPersonas}
           />
         );
       case "creator":
@@ -1088,6 +1096,7 @@ export default function App() {
               // We want to trigger chat selection automatically, which is handled inside ChatApp.
               localStorage.setItem("mobile_ai_preselected_chat_char", charId);
             }}
+            userPersonas={userPersonas}
           />
         );
       case "worldbook":
@@ -1145,7 +1154,10 @@ export default function App() {
         return (
           <PhoneCheckApp
             characters={characters}
+            settings={settings}
             onClose={() => setCurrentScreen("home")}
+            onGenerateNote={generateNoteBackground}
+            isGeneratingMap={isGeneratingMap}
           />
         );
       case "gamelist":
