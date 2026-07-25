@@ -108,6 +108,7 @@ export default function App() {
         const activeKeyboard = keyboardHeight > 100 ? keyboardHeight : 0;
         
         document.documentElement.style.setProperty('--keyboard-height', `${activeKeyboard}px`);
+        document.documentElement.style.setProperty('--keyboard-margin', activeKeyboard > 0 ? `${activeKeyboard + 4}px` : '0px');
         
         // Prevent outer window from scrolling/shifting on soft keyboard focus
         window.scrollTo(0, 0);

@@ -39,9 +39,15 @@ html, body, #root {
   border-top: 1px solid #EFECE8;
   position: relative;
   z-index: 20;
-  margin-bottom: calc(var(--keyboard-height, 0px) + 4px);
+  margin-bottom: var(--keyboard-margin, 0px);
   padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
-  transition: margin-bottom 0.15s ease-out;
+  transition: margin-bottom 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root.is-fullscreen .chat-input-area {
+  position: relative;
+  z-index: 50;
+  margin-bottom: var(--keyboard-margin, 0px);
 }
 
 /* Portrait lock helper CSS */
