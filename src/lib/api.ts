@@ -255,7 +255,9 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
     }
 
     console.log("================ [LLM API REQUEST] ================");
-    console.log("[Request URL]:", endpoint);
+    console.log("[Request URL via /api/proxy]:", "/api/proxy");
+    console.log("[Target Endpoint]:", endpoint);
+    console.log("[Request Method]:", "POST");
     console.log("[Request Headers]:", headers);
     console.log("[Request Body]:", JSON.stringify(body, null, 2));
     console.log("==================================================");
@@ -272,15 +274,31 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
           body
         })
       });
+      console.log("================ [LLM API RESPONSE] ================");
+      console.log("[Response Status]:", response.status, response.statusText);
+      console.log("===================================================");
     } catch (proxyErr: any) {
       console.warn("[/api/proxy failed, attempting direct browser fetch]:", proxyErr);
       try {
+        console.log("================ [LLM DIRECT REQUEST] ================");
+        console.log("[Request URL]:", endpoint);
+        console.log("[Request Method]:", "POST");
+        console.log("[Request Headers]:", headers);
+        console.log("[Request Body]:", JSON.stringify(body, null, 2));
+        console.log("=====================================================");
         response = await fetch(endpoint, {
           method: "POST",
           headers,
           body: JSON.stringify(body),
         });
+        console.log("================ [LLM DIRECT RESPONSE] ================");
+        console.log("[Response Status]:", response.status, response.statusText);
+        console.log("======================================================");
       } catch (directErr: any) {
+        console.error("================ [LLM API FETCH FATAL ERROR] ================");
+        console.error("[Proxy Error]:", proxyErr);
+        console.error("[Direct Error]:", directErr);
+        console.error("===========================================================");
         throw new Error(`API 请求失败: 网络连接失败 (${proxyErr?.message || directErr?.message || "Failed to fetch"})，请检查网络或 API 地址。`);
       }
     }
@@ -288,12 +306,20 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
     if (!response.ok) {
       let errDetail = "";
       try {
-        const errJson = await response.json();
-        errDetail = errJson?.error?.message || errJson?.error || errJson?.message || errJson?.detail || (typeof errJson === 'string' ? errJson : JSON.stringify(errJson));
+        const errText = await response.text();
+        console.error("================ [LLM API ERROR TEXT CONTENT] ================");
+        console.error(errText);
+        console.error("===========================================================");
+        try {
+          const errJson = JSON.parse(errText);
+          errDetail = errJson?.error?.message || errJson?.error || errJson?.message || errJson?.detail || (typeof errJson === 'string' ? errJson : JSON.stringify(errJson));
+        } catch {
+          errDetail = errText;
+        }
       } catch (e) {
-        errDetail = await response.text().catch(() => response.statusText);
+        errDetail = response.statusText;
       }
-      console.error("================ [LLM API ERROR RESPONSE] ================");
+      console.error("================ [LLM API ERROR SUMMARY] ================");
       console.error("Status:", response.status, response.statusText);
       console.error("Error Detail:", errDetail);
       console.error("========================================================");
@@ -1302,9 +1328,29 @@ export async function apiFetchModels(params: any = {}) {
   }
   const endpoint = cleanApiUrl.endsWith('/models') ? cleanApiUrl : `${cleanApiUrl}/models`;
   
-  const response = await fetch(endpoint, {
-    headers: { "Authorization": `Bearer ${config.apiKey}` },
-  });
+  let response: Response;
+  try {
+    // Try proxying first to bypass CORS
+    response = await fetch("/api/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: endpoint,
+        method: "GET",
+        headers: { "Authorization": `Bearer ${config.apiKey}` }
+      })
+    });
+  } catch (proxyErr: any) {
+    console.warn("[Models proxy fetch failed, attempting direct fetch]:", proxyErr);
+    try {
+      response = await fetch(endpoint, {
+        method: "GET",
+        headers: { "Authorization": `Bearer ${config.apiKey}` },
+      });
+    } catch (directErr: any) {
+      throw new Error(`获取模型列表失败: 网络连接失败 (${proxyErr?.message || directErr?.message || "Failed to fetch"})`);
+    }
+  }
 
   if (!response.ok) {
     let errText = "";

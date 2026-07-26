@@ -1,6 +1,7 @@
 import React, { useState, useRef } from "react";
 import { ChevronLeft, Save, Trash2, Upload, RotateCcw, Download, Plus, Check, Monitor, Layout, Type, Palette, Package, Smartphone, Image as ImageIcon, Database, Cpu, HardDrive, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
 import { AppSettings, FontOption, ThemePreset } from "../types";
+import { apiFetchModels } from "../lib/api";
 
 interface SettingsAppProps {
   settings: AppSettings;
@@ -18,6 +19,8 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   const [isSavingApiPreset, setIsSavingApiPreset] = useState(false);
   const [presetName, setPresetName] = useState("");
   const [apiPresetName, setApiPresetName] = useState("");
+  const [fetchedModels, setFetchedModels] = useState<string[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
   const wallpaper1Ref = useRef<HTMLInputElement>(null);
@@ -270,6 +273,35 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
       apiPresets: settings.apiPresets?.filter(p => p.id !== id),
       activePresetId: settings.activePresetId === id ? undefined : settings.activePresetId
     });
+  };
+
+  const handleFetchModels = async () => {
+    if (!settings.apiUrl || !settings.apiKey) {
+      alert("请先填写 API 地址和 API Key！");
+      return;
+    }
+    setIsLoadingModels(true);
+    try {
+      const res = await apiFetchModels({
+        apiUrl: settings.apiUrl,
+        apiKey: settings.apiKey
+      });
+      if (res.success && res.models && res.models.length > 0) {
+        setFetchedModels(res.models);
+        // Automatically select the first model if current model is empty
+        if (!settings.model && res.models[0]) {
+          handleUpdate({ model: res.models[0] });
+        }
+        alert(`成功拉取到 ${res.models.length} 个可用模型！已填充到下方下拉框中。`);
+      } else {
+        alert("未获取到可用模型，请检查接口是否支持 /v1/models 路径。您可以手动输入模型名称进行连接。");
+      }
+    } catch (err: any) {
+      console.error("[Fetch Models Error]:", err);
+      alert(err.message || "拉取模型列表失败，请确认 API 路径和 Key 的正确性，或尝试直接在下方手动输入模型名称。");
+    } finally {
+      setIsLoadingModels(false);
+    }
   };
 
   const exportAllData = () => {
@@ -991,8 +1023,42 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                       placeholder="sk-..."
                     />
                   </div>
+                  
+                  {/* 模型选择下拉框和拉取模型按钮 */}
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">模型名称</label>
+                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">模型选择</label>
+                    <div className="flex gap-2">
+                      <select 
+                        value={fetchedModels.includes(settings.model) ? settings.model : (settings.model ? "custom" : "")}
+                        onChange={e => {
+                          if (e.target.value && e.target.value !== "custom") {
+                            handleUpdate({ model: e.target.value });
+                          }
+                        }}
+                        className="flex-1 bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all"
+                      >
+                        <option value="">-- 请选择或拉取模型 --</option>
+                        {fetchedModels.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                        {settings.model && !fetchedModels.includes(settings.model) && (
+                          <option value={settings.model}>{settings.model} (当前)</option>
+                        )}
+                        <option value="custom">✍️ 手动输入自定义...</option>
+                      </select>
+                      <button 
+                        type="button"
+                        onClick={handleFetchModels}
+                        disabled={isLoadingModels}
+                        className="px-4 bg-white hover:bg-neutral-100 text-neutral-800 rounded-xl text-xs font-bold active:scale-95 transition-all shrink-0 flex items-center justify-center border border-neutral-200"
+                      >
+                        {isLoadingModels ? "拉取中..." : "拉取模型"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">模型名称 (可手动输入/修改作为备选)</label>
                     <input 
                       type="text" 
                       value={settings.model} 
@@ -1001,6 +1067,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                       placeholder="gpt-4o / gemini-3.6-flash"
                     />
                   </div>
+
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">API 协议格式</label>
                     <div className="grid grid-cols-2 gap-2">
@@ -1035,7 +1102,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                     onClick={handleSave}
                     className="w-full py-3 bg-black text-white rounded-xl text-xs font-bold shadow-md active:scale-[0.98] transition-all"
                   >
-                    保存 API 设置
+                    保存并应用
                   </button>
                 </div>
 
@@ -1047,15 +1114,34 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                         value={settings.activePresetId || ""}
                         onChange={(e) => {
                           const preset = settings.apiPresets?.find(p => p.id === e.target.value);
-                          if (preset) applyApiPreset(preset);
+                          if (preset) {
+                            if (window.confirm(`确认应用并自动填入预设“${preset.name}”的配置吗？\n(包含 API 地址、Key 和模型名称)`)) {
+                              applyApiPreset(preset);
+                            }
+                          }
                         }}
-                        className="flex-1 bg-white border border-neutral-200 rounded-xl px-3 py-2 text-xs outline-none"
+                        className="flex-1 bg-white border border-neutral-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-black"
                       >
                         <option value="">选择预设...</option>
                         {settings.apiPresets?.map(p => (
                           <option key={p.id} value={p.id}>{p.name}</option>
                         ))}
                       </select>
+                      {settings.activePresetId && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const preset = settings.apiPresets?.find(p => p.id === settings.activePresetId);
+                            if (preset && window.confirm(`确定要删除选中的预设“${preset.name}”吗？`)) {
+                              deleteApiPreset(preset.id);
+                            }
+                          }}
+                          className="px-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-[10px] font-bold border border-red-200/40 shrink-0 transition-all active:scale-95"
+                          title="删除当前选中的预设"
+                        >
+                          删除预设
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1067,7 +1153,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                           type="text" 
                           value={apiPresetName}
                           onChange={e => setApiPresetName(e.target.value)}
-                          placeholder="预设名称..."
+                          placeholder="输入预设名称..."
                           className="flex-1 bg-white border border-neutral-200 rounded-xl px-3 py-2 text-xs outline-none"
                         />
                         <button 
@@ -1076,6 +1162,12 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                         >
                           保存
                         </button>
+                        <button 
+                          onClick={() => setIsSavingApiPreset(false)}
+                          className="px-3 bg-neutral-100 text-neutral-600 rounded-xl text-[10px]"
+                        >
+                          取消
+                        </button>
                       </div>
                     ) : (
                       <button 
@@ -1083,24 +1175,10 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                         className="w-full py-2.5 border-2 border-dashed border-neutral-200 rounded-xl flex items-center justify-center gap-2 text-neutral-400 hover:text-black hover:border-black transition-all group"
                       >
                         <Plus className="w-3 h-3" />
-                        <span className="text-[10px] font-bold">保存当前为预设</span>
+                        <span className="text-[10px] font-bold">保存当前为新预设</span>
                       </button>
                     )}
                   </div>
-
-                  {settings.apiPresets && settings.apiPresets.length > 0 && (
-                    <div className="space-y-1 max-h-[120px] overflow-y-auto pr-1">
-                      {settings.apiPresets.map(p => (
-                        <div key={p.id} className="flex items-center justify-between p-2 bg-white border border-neutral-100 rounded-lg group">
-                          <span className="text-[10px] font-medium text-neutral-700">{p.name}</span>
-                          <div className="flex items-center gap-2">
-                            <button onClick={() => applyApiPreset(p)} className="text-[9px] font-bold text-neutral-400 hover:text-black">应用</button>
-                            <button onClick={() => deleteApiPreset(p.id)} className="text-[9px] font-bold text-neutral-300 hover:text-red-500">删除</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
              </div>
           </div>

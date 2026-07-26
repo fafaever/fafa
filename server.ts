@@ -212,8 +212,8 @@ app.post("/api/generate-note", async (req, res) => {
   }
 });
 
-// Alias & direct handler for /api/chat
-app.post("/api/chat", async (req, res) => {
+// Alias & direct handler for /api/chat and OpenAI standard completions paths
+app.post(["/api/chat", "/api/chat/completions", "/api/chat/v1/chat/completions", "/api/v1/chat/completions"], async (req, res) => {
   if (req.body && req.body.url) {
     return handleProxyRequest(req, res);
   }
@@ -256,6 +256,20 @@ app.post("/api/chat", async (req, res) => {
   } catch (err: any) {
     return res.status(500).json({ error: err.message || "Chat generation failed" });
   }
+});
+
+// GET route to support pulling models from local API proxy or default list
+app.get(["/api/models", "/api/v1/models", "/api/chat/models"], (req, res) => {
+  res.json({
+    data: [
+      { id: "gemini-3.6-flash" },
+      { id: "gemini-2.5-flash" },
+      { id: "gemini-2.0-flash" },
+      { id: "gemini-1.5-flash" },
+      { id: "gpt-4o" },
+      { id: "gpt-3.5-turbo" }
+    ]
+  });
 });
 
 // Explicitly handle GET on API routes to avoid confusing 405s from static middleware
