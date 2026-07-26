@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { Character, AppSettings } from "../types";
 import { callLLM, getThreeDataSourcesPrompt } from "../lib/api";
+import { CharacterAvatar } from "./CharacterAvatar";
 import NotesApp from "./NotesApp";
 import { ConfirmModal } from "./ConfirmModal";
 
@@ -50,11 +51,19 @@ interface NpcContact {
   messages: NpcMessage[];
 }
 
+interface ShoppingItem {
+  id: string;
+  name: string;
+  quantity: string;
+  isBought: boolean;
+  timestamp: number;
+}
+
 export default function PhoneCheckApp({ characters, settings, onClose, onGenerateNote, isGeneratingMap, loreList = [] }: PhoneCheckAppProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
   
-  // Active sub-module view: null | 'memos' | 'browser' | 'essays' | 'contacts' | 'gallery' | 'calendar' | 'shopping' | 'settings'
+  // Active sub-module view: null | 'memos' | 'browser' | 'essays' | 'contacts' | 'shopping'
   const [activeModule, setActiveModule] = useState<string | null>(null);
   
   // Search history state
@@ -67,6 +76,11 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
   const [isGeneratingMemos, setIsGeneratingMemos] = useState(false);
   const [memoCooldownTimer, setMemoCooldownTimer] = useState<number>(0); // remaining seconds
   const [memoToast, setMemoToast] = useState<string | null>(null);
+
+  // Shopping List state
+  const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
+  const [isGeneratingShopping, setIsGeneratingShopping] = useState(false);
+  const [shoppingToast, setShoppingToast] = useState<string | null>(null);
 
   // Contacts / NPC state
   const [contacts, setContacts] = useState<NpcContact[]>([]);
@@ -138,6 +152,19 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     } catch (e) {
       console.error(e);
       setContacts([]);
+    }
+
+    // 4. Load Shopping List
+    try {
+      const savedShopping = localStorage.getItem(`mobile_ai_phone_shopping_${selectedCharId}`);
+      if (savedShopping) {
+        setShoppingList(JSON.parse(savedShopping));
+      } else {
+        setShoppingList([]);
+      }
+    } catch (e) {
+      console.error(e);
+      setShoppingList([]);
     }
   }, [selectedCharId]);
 
@@ -240,12 +267,6 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     }
   };
 
-  const toggleMemoStatus = (memoId: string) => {
-    if (!selectedCharId) return;
-    const updated = memos.map(m => m.id === memoId ? { ...m, isCompleted: !m.isCompleted } : m);
-    setMemos(updated);
-    localStorage.setItem(`mobile_ai_phone_memos_${selectedCharId}`, JSON.stringify(updated));
-  };
 
   // ----------------------------------------------------
   // 2. SEARCH HISTORY FEATURE (网站搜索)
@@ -257,13 +278,14 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     try {
       const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
       const prompt = `${dataSourceContext}
-请根据以上角色的完整人设、记忆与世界书设定，生成 6-8 条最新的浏览器无痕搜索历史词条及内心想法。
+请根据以上角色的完整人设、记忆与世界书设定，生成 6-8 条最新的浏览器搜索历史词条及内心想法。
 【规则】：
 1. 搜索词条要贴合角色近期关注的事物、生活琐事或隐藏小心思。
 2. 每条附带该角色搜索此词条时的【内心真实想法】（15字以内，可爱/真实/严谨）。
-3. 输出为严格 JSON 数组，格式：
+3. 只有当搜索内容是角色【不想让别人知道】的隐秘心思、尴尬问题或特殊设定时，才标记为无痕模式 (isIncognito: true)。普通搜索直接标记为 false。
+4. 输出为严格 JSON 数组，格式：
 [
-  {"query": "搜索词条", "innerThought": "内心想法"},
+  {"query": "搜索词条", "innerThought": "内心想法", "isIncognito": boolean},
   ...
 ]`;
 
@@ -282,7 +304,7 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
           query: item.query || "搜索词条",
           innerThought: item.innerThought || "只是随便查查…",
           timestamp: Date.now() - idx * 300000,
-          isIncognito: true
+          isIncognito: item.isIncognito === true
         }));
 
         // Combine with previous history, keeping max 20
@@ -305,10 +327,6 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
 
   const handleOpenSearchBox = () => {
     setShowSearchModal(true);
-    // If no searches exist yet, generate initial batch
-    if (searchHistory.length === 0) {
-      handleGenerateSearchHistory();
-    }
   };
 
   // ----------------------------------------------------
@@ -438,15 +456,62 @@ ${recentHistory}
     }
   };
 
+  const handleGenerateShoppingList = async () => {
+    if (!selectedChar) return;
+    setIsGeneratingShopping(true);
+
+    try {
+      const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
+      const prompt = `${dataSourceContext}
+请根据以上角色的完整人设、记忆与世界书设定，自动生成 6-8 个购物清单条目。
+【规则】：
+1. 包含『要买的』和『已买的』状态。
+2. 内容必须紧密结合该角色的日常行程、性格和当前状态。
+3. 格式请输出严格 JSON 数组：
+[
+  {"name": "商品名称", "quantity": "数量或备注", "isBought": boolean}
+]`;
+
+      const responseText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [
+        { role: "user", content: prompt }
+      ]);
+
+      let jsonStr = responseText;
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (jsonMatch) jsonStr = jsonMatch[0];
+
+      const parsed = JSON.parse(jsonStr);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const newBatch: ShoppingItem[] = parsed.map((item: any, idx: number) => ({
+          id: `shop-${Date.now()}-${idx}`,
+          name: item.name || "商品",
+          quantity: item.quantity || "1份",
+          isBought: !!item.isBought,
+          timestamp: Date.now() - idx * 300000
+        }));
+
+        const combined = [...newBatch, ...shoppingList];
+        const trimmed = combined.slice(0, 20);
+
+        setShoppingList(trimmed);
+        localStorage.setItem(`mobile_ai_phone_shopping_${selectedChar.id}`, JSON.stringify(trimmed));
+        showToast("购物清单更新成功");
+      } else {
+        throw new Error("解析失败");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("购物清单生成失败");
+    } finally {
+      setIsGeneratingShopping(false);
+    }
+  };
+
   const modules = [
     { name: "联系人", icon: <MessageCircle className="w-6 h-6 text-[#1A1A1A]" />, id: "contacts" },
     { name: "备忘录", icon: <FileText className="w-6 h-6 text-[#1A1A1A]" />, id: "memos" },
     { name: "随笔", icon: <Feather className="w-6 h-6 text-[#1A1A1A]" />, id: "essays" },
-    { name: "浏览器", icon: <Globe className="w-6 h-6 text-[#1A1A1A]" />, id: "browser" },
-    { name: "相册", icon: <Image className="w-6 h-6 text-[#1A1A1A]" />, id: "gallery" },
-    { name: "日历", icon: <Calendar className="w-6 h-6 text-[#1A1A1A]" />, id: "calendar" },
-    { name: "购物车", icon: <ShoppingBag className="w-6 h-6 text-[#1A1A1A]" />, id: "shopping" },
-    { name: "设置", icon: <Settings className="w-6 h-6 text-[#1A1A1A]" />, id: "settings" },
+    { name: "购物清单", icon: <ShoppingBag className="w-6 h-6 text-[#1A1A1A]" />, id: "shopping" },
   ];
 
   // ----------------------------------------------------
@@ -454,17 +519,17 @@ ${recentHistory}
   // ----------------------------------------------------
   if (!selectedCharId) {
     return (
-      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] font-sans text-[#1A1A1A]">
+      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A]">
         <div className="flex items-center p-4 border-b border-neutral-200/50 bg-white/60 backdrop-blur-md">
           <button onClick={onClose} className="p-2 bg-white rounded-full shadow-sm active:scale-95 transition-all">
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <h2 className="flex-1 text-center font-serif text-lg font-bold">查手机</h2>
+          <h2 className="flex-1 text-center  text-lg font-bold">查手机</h2>
           <div className="w-9" />
         </div>
         
         <div className="flex-1 p-6 overflow-y-auto">
-          <p className="text-xs text-[#A8A39A] text-center mb-6 font-serif italic">选择你想翻看哪位角色的手机秘密...</p>
+          <p className="text-xs text-[#A8A39A] text-center mb-6  italic">选择你想翻看哪位角色的手机秘密...</p>
           <div className="grid grid-cols-2 gap-6 max-w-sm mx-auto">
             {characters.map(char => (
               <button 
@@ -472,15 +537,9 @@ ${recentHistory}
                 onClick={() => setSelectedCharId(char.id)}
                 className="bg-white/80 p-4 rounded-2xl border border-neutral-200/60 shadow-sm hover:shadow-md flex flex-col items-center gap-3 group active:scale-95 transition-all"
               >
-                <div className="w-[64px] h-[64px] rounded-full overflow-hidden border-2 border-white shadow-md group-hover:border-neutral-900/10 transition-colors">
-                  {char.chatAvatar || char.avatar ? (
-                    <img src={char.chatAvatar || char.avatar} alt={char.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full bg-neutral-200 flex items-center justify-center text-2xl">👤</div>
-                  )}
-                </div>
+                <CharacterAvatar character={char} mode="real" size={64} className="border-2 border-white shadow-md group-hover:border-neutral-900/10 transition-colors" />
                 <div className="text-center">
-                  <span className="font-serif text-sm font-bold text-neutral-900 block">{char.name}</span>
+                  <span className=" text-sm font-bold text-neutral-900 block">{char.name}</span>
                   <span className="text-[10px] text-neutral-400 line-clamp-1 mt-0.5">{char.description || "全能AI角色"}</span>
                 </div>
               </button>
@@ -504,13 +563,13 @@ ${recentHistory}
     const doneMemos = memos.filter(m => m.isCompleted);
 
     return (
-      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] font-sans text-[#1A1A1A] relative overflow-hidden animate-fade-in">
+      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A] relative overflow-hidden animate-fade-in">
         {/* Header */}
         <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-4 shrink-0 sticky top-0 z-10">
           <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <span className="font-serif font-bold text-sm text-neutral-900">
+          <span className=" font-bold text-sm text-neutral-900">
             {selectedChar?.name}的备忘录
           </span>
           <button 
@@ -546,17 +605,16 @@ ${recentHistory}
               {todoMemos.map(memo => (
                 <div 
                   key={memo.id} 
-                  onClick={() => toggleMemoStatus(memo.id)}
-                  className="bg-white p-3.5 rounded-2xl border border-neutral-200/70 shadow-xs hover:border-neutral-300 transition-all cursor-pointer group"
+                  className="bg-white p-3.5 rounded-2xl border border-neutral-200/70 shadow-xs transition-all"
                 >
                   <div className="flex items-start gap-3">
-                    <div className="w-4 h-4 rounded border-2 border-neutral-300 mt-0.5 flex items-center justify-center shrink-0 group-hover:border-black transition-colors" />
+                    <div className="w-4 h-4 rounded border-2 border-neutral-300 mt-0.5 flex items-center justify-center shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-neutral-900 font-medium leading-relaxed">
                         {memo.content}
                       </p>
                       {/* 角色感想 (小字，暖灰色) */}
-                      <p className="text-[11px] text-[#A8A39A] italic mt-1.5 font-serif border-t border-neutral-100 pt-1">
+                      <p className="text-[11px] text-[#A8A39A] italic mt-1.5  border-t border-neutral-100 pt-1">
                         💭 感想：{memo.reflection}
                       </p>
                     </div>
@@ -583,8 +641,7 @@ ${recentHistory}
               {doneMemos.map(memo => (
                 <div 
                   key={memo.id} 
-                  onClick={() => toggleMemoStatus(memo.id)}
-                  className="bg-white/60 p-3.5 rounded-2xl border border-neutral-200/50 shadow-xs hover:border-neutral-300 transition-all cursor-pointer opacity-80"
+                  className="bg-white/60 p-3.5 rounded-2xl border border-neutral-200/50 shadow-xs transition-all opacity-80"
                 >
                   <div className="flex items-start gap-3">
                     <div className="w-4 h-4 rounded bg-neutral-900 text-white mt-0.5 flex items-center justify-center shrink-0">
@@ -596,7 +653,7 @@ ${recentHistory}
                         {memo.content}
                       </p>
                       {/* 角色感想 (小字，暖灰色) */}
-                      <p className="text-[11px] text-[#A8A39A] italic mt-1.5 font-serif border-t border-neutral-100 pt-1">
+                      <p className="text-[11px] text-[#A8A39A] italic mt-1.5  border-t border-neutral-100 pt-1">
                         💭 感想：{memo.reflection}
                       </p>
                     </div>
@@ -620,13 +677,13 @@ ${recentHistory}
   // ----------------------------------------------------
   if (activeModule === 'browser') {
     return (
-      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] font-sans text-[#1A1A1A] relative overflow-hidden animate-fade-in">
+      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A] relative overflow-hidden animate-fade-in">
         {/* Header */}
         <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-4 shrink-0 sticky top-0 z-10">
           <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <span className="font-serif font-bold text-sm text-neutral-900">
+          <span className=" font-bold text-sm text-neutral-900">
             {selectedChar?.name}的浏览器搜索记录
           </span>
           <button 
@@ -642,7 +699,7 @@ ${recentHistory}
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           <div className="text-[11px] text-[#A8A39A] px-1 flex items-center justify-between">
-            <span>最近无痕搜索词条 ({searchHistory.length}/20)</span>
+            <span>最近搜索记录 ({searchHistory.length}/20)</span>
             <span>自动保留最近20条</span>
           </div>
 
@@ -654,15 +711,21 @@ ${recentHistory}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded-full border border-neutral-200/60">
-                      🔒 无痕搜索
-                    </span>
+                    {item.isIncognito ? (
+                      <span className="text-[10px] font-bold bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded-full border border-neutral-200/60">
+                        🔒 无痕搜索
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full border border-blue-100/60">
+                        🔍 搜索
+                      </span>
+                    )}
                     <span className="text-xs font-bold text-neutral-900">{item.query}</span>
                   </div>
                 </div>
 
                 {/* 角色对搜索词条的内心想法 (小字，暖灰色) */}
-                <p className="text-[11px] text-[#A8A39A] italic font-serif border-t border-neutral-100 pt-1.5 leading-relaxed">
+                <p className="text-[11px] text-[#A8A39A] italic  border-t border-neutral-100 pt-1.5 leading-relaxed">
                   💭 内心想法：{item.innerThought}
                 </p>
               </div>
@@ -671,6 +734,64 @@ ${recentHistory}
             {searchHistory.length === 0 && (
               <div className="text-center py-12 text-xs text-neutral-400">
                 暂无搜索记录，点击右上角“生成新历史”
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ----------------------------------------------------
+  // SUB-VIEW 5: SHOPPING LIST (购物清单)
+  // ----------------------------------------------------
+  if (activeModule === 'shopping') {
+    return (
+      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A] relative overflow-hidden animate-fade-in">
+        <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-4 shrink-0 sticky top-0 z-10">
+          <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <span className=" font-bold text-sm text-neutral-900">
+            {selectedChar?.name}的购物清单
+          </span>
+          <button 
+            onClick={handleGenerateShoppingList}
+            disabled={isGeneratingShopping}
+            className="flex items-center gap-1 text-xs font-bold bg-neutral-900 text-white px-2.5 py-1.5 rounded-full hover:bg-black active:scale-95 transition-all disabled:opacity-50"
+          >
+            {isGeneratingShopping ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            <span>生成新清单</span>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="text-[11px] text-[#A8A39A] px-1 flex items-center justify-between">
+            <span>最近购物清单 ({shoppingList.length}/20)</span>
+            <span>自动保留最近20条</span>
+          </div>
+
+          <div className="space-y-2.5">
+            {shoppingList.map((item) => (
+              <div 
+                key={item.id}
+                className={`p-3.5 rounded-2xl border shadow-xs space-y-2 ${item.isBought ? 'bg-white/60 border-neutral-200/50 opacity-80' : 'bg-white border-neutral-200/70'}`}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-4 h-4 rounded border-2 ${item.isBought ? 'bg-neutral-900 border-neutral-900 flex items-center justify-center' : 'border-neutral-300'}`}>
+                      {item.isBought && <Check className="w-3 h-3 text-white stroke-[3]" />}
+                    </div>
+                    <span className={`text-xs font-bold ${item.isBought ? 'text-neutral-400 line-through' : 'text-neutral-900'}`}>{item.name}</span>
+                  </div>
+                  <span className="text-[10px] text-neutral-400">{item.quantity}</span>
+                </div>
+              </div>
+            ))}
+
+            {shoppingList.length === 0 && (
+              <div className="text-center py-12 text-xs text-neutral-400">
+                暂无购物清单，点击右上角“生成新清单”
               </div>
             )}
           </div>
@@ -691,6 +812,7 @@ ${recentHistory}
           onClose={() => setActiveModule(null)}
           onGenerateNote={onGenerateNote || (async () => {})}
           isGeneratingMap={isGeneratingMap || {}}
+          forcedCharId={selectedCharId}
         />
       </div>
     );
@@ -709,7 +831,7 @@ ${recentHistory}
       }
 
       return (
-        <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] font-sans text-[#1A1A1A] relative overflow-hidden animate-fade-in">
+        <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A] relative overflow-hidden animate-fade-in">
           {/* NPC Chat Header */}
           <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-3 shrink-0 sticky top-0 z-10">
             <button onClick={() => setSelectedNpcId(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
@@ -742,16 +864,14 @@ ${recentHistory}
                   key={msg.id}
                   className={`flex items-start gap-2.5 ${isChar ? 'flex-row-reverse' : 'flex-row'}`}
                 >
-                  <div className="w-8 h-8 rounded-full bg-white border border-neutral-200/80 flex items-center justify-center text-sm shrink-0 overflow-hidden shadow-2xs">
-                    {isChar ? (
-                      selectedChar?.chatAvatar || selectedChar?.avatar ? (
-                        <img src={selectedChar.chatAvatar || selectedChar.avatar} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        "👤"
-                      )
-                    ) : (
-                      npc.avatar || "👤"
-                    )}
+                  <div className="shrink-0">
+                    <CharacterAvatar 
+                      character={isChar ? selectedChar : undefined} 
+                      avatar={isChar ? (selectedChar?.chatAvatar || selectedChar?.avatar) : npc.avatar} 
+                      name={isChar ? selectedChar?.name : npc.name} 
+                      size={32} 
+                      className="border border-neutral-200/80 shadow-2xs" 
+                    />
                   </div>
                   <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-xs leading-relaxed ${
                     isChar 
@@ -788,13 +908,13 @@ ${recentHistory}
 
     // NPC List View
     return (
-      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] font-sans text-[#1A1A1A] relative overflow-hidden animate-fade-in">
+      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A] relative overflow-hidden animate-fade-in">
         {/* Header */}
         <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-4 shrink-0 sticky top-0 z-10">
           <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <span className="font-serif font-bold text-sm text-neutral-900">
+          <span className=" font-bold text-sm text-neutral-900">
             {selectedChar?.name}的联系人
           </span>
           <button 
@@ -854,7 +974,7 @@ ${recentHistory}
   // MAIN PHONE CHECK DESKTOP (Selected Character's Phone)
   // ----------------------------------------------------
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] relative overflow-hidden font-sans text-[#1A1A1A]">
+    <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] relative overflow-hidden  text-[#1A1A1A]">
       {/* Phone Header - Status Bar */}
       <div className="px-5 pt-3 flex justify-between items-center text-[10px] text-[#A8A39A] font-medium">
         <div className="flex items-center gap-1">
@@ -876,8 +996,8 @@ ${recentHistory}
         >
           <ChevronLeft className="w-5 h-5 text-[#A8A39A]" />
         </button>
-        <div className="font-serif italic font-normal text-[#A8A39A] text-4xl tracking-tight mb-1">{formatTime(currentTime)}</div>
-        <div className="flex items-center gap-2 text-[#A8A39A] font-serif italic text-sm">
+        <div className=" italic font-normal text-[#A8A39A] text-4xl tracking-tight mb-1">{formatTime(currentTime)}</div>
+        <div className="flex items-center gap-2 text-[#A8A39A]  italic text-sm">
           <span>{formatDate(currentTime)}</span>
           <span className="mx-1">|</span>
           <span>晴 28°C</span>
@@ -914,7 +1034,7 @@ ${recentHistory}
               <div className="w-14 h-14 bg-white rounded-2xl flex items-center justify-center shadow-[0_2px_8px_-2px_rgba(0,0,0,0.05)] border border-white/50 group-hover:scale-105 transition-transform active:scale-95">
                 {mod.icon}
               </div>
-              <span className="font-sans text-[11px] font-medium text-[#1A1A1A]">{mod.name}</span>
+              <span className=" text-[11px] font-medium text-[#1A1A1A]">{mod.name}</span>
             </button>
           ))}
         </div>
@@ -923,10 +1043,10 @@ ${recentHistory}
       {/* Bottom Footer Info */}
       <div className="mt-auto px-6 py-4 flex flex-col items-center gap-1 border-t border-neutral-200/20">
         <div className="flex items-center gap-2">
-          <img src={selectedChar?.chatAvatar || selectedChar?.avatar || "👤"} alt={selectedChar?.name} className="w-8 h-8 rounded-full object-cover border border-white shadow-sm" />
-          <span className="font-serif italic text-xs text-[#A8A39A]">{selectedChar?.name}的手机</span>
+          <CharacterAvatar character={selectedChar} mode="real" size={32} className="border border-white shadow-sm" />
+          <span className=" italic text-xs text-[#A8A39A]">{selectedChar?.name}的手机</span>
         </div>
-        <div className="text-[10px] text-[#BFBAB2] font-sans">
+        <div className="text-[10px] text-[#BFBAB2] ">
           存储空间：已用 32.8GB / 64GB
         </div>
       </div>
@@ -938,7 +1058,7 @@ ${recentHistory}
             <div className="flex items-center justify-between border-b border-neutral-200/60 pb-3">
               <div className="flex items-center gap-2">
                 <Search className="w-4 h-4 text-neutral-700" />
-                <span className="font-serif font-bold text-sm text-neutral-900">
+                <span className=" font-bold text-sm text-neutral-900">
                   {selectedChar?.name} 的最近搜索历史 ({searchHistory.length}/20)
                 </span>
               </div>
@@ -967,14 +1087,20 @@ ${recentHistory}
                   className="bg-white p-3 rounded-xl border border-neutral-200/60 shadow-2xs space-y-1.5"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded-full">
-                      🔒 无痕搜索
-                    </span>
+                    {item.isIncognito ? (
+                      <span className="text-[10px] font-bold bg-neutral-100 text-neutral-600 px-2 py-0.5 rounded-full">
+                        🔒 无痕搜索
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
+                        🔍 搜索
+                      </span>
+                    )}
                     <span className="text-xs font-bold text-neutral-900">{item.query}</span>
                   </div>
 
                   {/* 角色对搜索词条的内心想法 (小字，暖灰色) */}
-                  <p className="text-[11px] text-[#A8A39A] italic font-serif border-t border-neutral-100 pt-1 leading-relaxed">
+                  <p className="text-[11px] text-[#A8A39A] italic  border-t border-neutral-100 pt-1 leading-relaxed">
                     💭 内心想法：{item.innerThought}
                   </p>
                 </div>

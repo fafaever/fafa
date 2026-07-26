@@ -13,10 +13,11 @@ export function normalizeUrl(url: string): string {
   return trimmed.replace(/\/+$/, "");
 }
 
-export function getStoredApiConfig(passedApiUrl?: string, passedApiKey?: string, passedModel?: string) {
+export function getStoredApiConfig(passedApiUrl?: string, passedApiKey?: string, passedModel?: string, passedApiFormat?: 'openai' | 'gemini') {
   let apiUrl = (passedApiUrl || "").trim();
   let apiKey = (passedApiKey || "").trim();
   let model = (passedModel || "").trim();
+  let apiFormat = passedApiFormat;
 
   // Read direct keys from localStorage
   if (!apiUrl) {
@@ -28,9 +29,12 @@ export function getStoredApiConfig(passedApiUrl?: string, passedApiKey?: string,
   if (!model) {
     model = (localStorage.getItem("model") || "").trim();
   }
+  if (!apiFormat) {
+    apiFormat = (localStorage.getItem("apiFormat") as any) || undefined;
+  }
 
   // Fallback to mobile_ai_settings JSON
-  if (!apiUrl || !apiKey) {
+  if (!apiUrl || !apiKey || !apiFormat) {
     try {
       const savedSettings = localStorage.getItem("mobile_ai_settings");
       if (savedSettings) {
@@ -38,39 +42,22 @@ export function getStoredApiConfig(passedApiUrl?: string, passedApiKey?: string,
         if (!apiUrl && parsed.apiUrl) apiUrl = (parsed.apiUrl || "").trim();
         if (!apiKey && parsed.apiKey) apiKey = (parsed.apiKey || "").trim();
         if (!model && parsed.model) model = (parsed.model || "").trim();
+        if (!apiFormat && parsed.apiFormat) apiFormat = parsed.apiFormat;
       }
     } catch (e) {
       console.error("Failed to parse mobile_ai_settings from localStorage", e);
     }
   }
 
-  return { apiUrl, apiKey, model };
+  return { apiUrl, apiKey, model, apiFormat };
 }
 
-export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, messages: any[] = [], temperature = 0.8, apiFormat?: 'openai' | 'gemini') {
-  const config = getStoredApiConfig(apiUrl, apiKey, model);
+function buildGeminiPayload(messages: any[], temperature: number) {
+  let systemInstructionText = "";
+  const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
 
-  if (!config.apiUrl || !config.apiKey) {
-    throw new Error("请先在设置页配置 API");
-  }
-
-  const cleanApiUrl = normalizeUrl(config.apiUrl);
-  let endpoint = cleanApiUrl;
-  if (!endpoint.endsWith('/chat/completions')) {
-    endpoint = `${endpoint}/chat/completions`;
-  }
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${config.apiKey}`,
-  };
-
-  const formattedMessages = messages.map((m: any) => {
+  for (const m of messages) {
     let role = m.role;
-    if (role === "assistant" || role === "model") role = "assistant";
-    else if (role === "system") role = "system";
-    else role = "user";
-
     let content = "";
     if (typeof m.content === "string") {
       content = m.content;
@@ -90,35 +77,273 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
       }
     }
 
-    return { role, content };
-  });
+    if (!content || !content.trim()) continue;
 
-  const body = {
-    model: config.model || "gpt-3.5-turbo",
-    messages: formattedMessages,
-    temperature: temperature ?? 0.8,
-  };
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    let errDetail = "";
-    try {
-      const errJson = await response.json();
-      errDetail = errJson?.error?.message || errJson?.error || errJson?.message || JSON.stringify(errJson);
-    } catch (e) {
-      errDetail = await response.text().catch(() => response.statusText);
+    if (role === "system") {
+      systemInstructionText += (systemInstructionText ? "\n\n" : "") + content;
+    } else {
+      const geminiRole = (role === "assistant" || role === "model") ? "model" : "user";
+      if (contents.length > 0 && contents[contents.length - 1].role === geminiRole) {
+        contents[contents.length - 1].parts.push({ text: content });
+      } else {
+        contents.push({
+          role: geminiRole,
+          parts: [{ text: content }]
+        });
+      }
     }
-    throw new Error(`API 请求失败 [HTTP ${response.status}]: ${errDetail || response.statusText}`);
   }
 
-  const data = await response.json();
-  const text = data.choices?.[0]?.message?.content || "";
-  return text;
+  if (contents.length > 0 && contents[0].role === "model") {
+    contents.unshift({
+      role: "user",
+      parts: [{ text: "（继续对话）" }]
+    });
+  }
+
+  if (contents.length === 0) {
+    if (systemInstructionText) {
+      contents.push({
+        role: "user",
+        parts: [{ text: systemInstructionText }]
+      });
+      systemInstructionText = "";
+    } else {
+      contents.push({
+        role: "user",
+        parts: [{ text: "Hello" }]
+      });
+    }
+  }
+
+  const body: any = {
+    contents,
+    generationConfig: {
+      temperature: temperature ?? 0.8,
+      maxOutputTokens: 2048,
+    }
+  };
+
+  if (systemInstructionText) {
+    body.systemInstruction = {
+      parts: [{ text: systemInstructionText }]
+    };
+  }
+
+  return body;
+}
+
+export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, messages: any[] = [], temperature = 0.8, passedApiFormat?: 'openai' | 'gemini') {
+  const config = getStoredApiConfig(apiUrl, apiKey, model, passedApiFormat);
+
+  if (!config.apiUrl || !config.apiKey) {
+    // Try server-side /api/gemini fallback
+    try {
+      const geminiRes = await fetch("/api/gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages, temperature })
+      });
+      if (geminiRes.ok) {
+        const geminiData = await geminiRes.json();
+        if (geminiData && geminiData.text) {
+          return geminiData.text;
+        }
+      }
+    } catch (e) {
+      console.warn("[Server /api/gemini fallback failed]:", e);
+    }
+    throw new Error("未配置 API，请先在系统设置中配置 API Key 和 API 地址");
+  }
+
+  const cleanApiUrl = normalizeUrl(config.apiUrl);
+  let isGemini = config.apiFormat === 'gemini' || 
+                 cleanApiUrl.includes('generativelanguage.googleapis.com') || 
+                 cleanApiUrl.includes(':generateContent') || 
+                 (cleanApiUrl.includes('gemini') && !cleanApiUrl.endsWith('/chat/completions'));
+
+  const makeRequest = async (useGeminiFormat: boolean) => {
+    let endpoint = cleanApiUrl;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${config.apiKey}`,
+      "x-goog-api-key": config.apiKey
+    };
+
+    let body: any;
+    const clean = cleanApiUrl.replace(/\/+$/, "");
+
+    if (useGeminiFormat) {
+      body = buildGeminiPayload(messages, temperature);
+      if (clean.includes('generativelanguage.googleapis.com') || !clean.includes(':generateContent')) {
+        if (!clean.includes(':generateContent')) {
+          const modelName = config.model || "gemini-3.6-flash";
+          if (clean.endsWith('/v1beta') || clean.endsWith('/v1')) {
+            endpoint = `${clean}/models/${modelName}:generateContent`;
+          } else if (clean.endsWith('/models')) {
+            endpoint = `${clean}/${modelName}:generateContent`;
+          } else if (!clean.includes('/models/')) {
+            endpoint = `${clean}/v1beta/models/${modelName}:generateContent`;
+          } else {
+            endpoint = `${clean}:generateContent`;
+          }
+        } else {
+          endpoint = clean;
+        }
+      } else {
+        endpoint = clean;
+      }
+      if (!endpoint.includes('key=') && config.apiKey) {
+        endpoint += (endpoint.includes('?') ? '&' : '?') + `key=${encodeURIComponent(config.apiKey)}`;
+      }
+    } else {
+      if (clean.endsWith('/chat/completions')) {
+        endpoint = clean;
+      } else if (clean.endsWith('/v1')) {
+        endpoint = `${clean}/chat/completions`;
+      } else if (clean.includes('/chat/completions')) {
+        endpoint = clean;
+      } else {
+        endpoint = `${clean}/v1/chat/completions`;
+      }
+
+      const formattedMessages = messages
+        .map((m: any) => {
+          let role = m.role;
+          if (role === "assistant" || role === "model") role = "assistant";
+          else if (role === "system") role = "system";
+          else role = "user";
+
+          let content = "";
+          if (typeof m.content === "string") {
+            content = m.content;
+          } else if (Array.isArray(m.parts)) {
+            content = m.parts.map((p: any) => p.text || "").join("\n");
+          } else {
+            content = String(m.content || "");
+          }
+
+          if (content.startsWith("[MOMENT_SHARE]")) {
+            try {
+              const jsonStr = content.replace("[MOMENT_SHARE]", "");
+              const parsed = JSON.parse(jsonStr);
+              content = `[用户向你分享了一条朋友圈动态] 发布者：${parsed.authorName || '用户'}，正文内容："${parsed.content || '(图片/多媒体动态)'}"。请结合你们的关系和你的性格人设，与用户讨论这条朋友圈内容。`;
+            } catch (e) {
+              content = "[用户向你分享了一条朋友圈动态]";
+            }
+          }
+
+          return { role, content };
+        })
+        .filter((m: any) => m.content && m.content.trim() !== "");
+
+      if (formattedMessages.length === 0) {
+        formattedMessages.push({ role: "user", content: "Hello" });
+      }
+
+      const promptText = formattedMessages
+        .map((m: any) => `${m.role === 'system' ? 'System' : m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
+        .join('\n\n');
+
+      body = {
+        model: config.model || "gpt-3.5-turbo",
+        messages: formattedMessages,
+        temperature: temperature ?? 0.8,
+        max_tokens: 2048,
+        stream: false,
+      };
+    }
+
+    console.log("================ [LLM API REQUEST] ================");
+    console.log("[Request URL]:", endpoint);
+    console.log("[Request Headers]:", headers);
+    console.log("[Request Body]:", JSON.stringify(body, null, 2));
+    console.log("==================================================");
+
+    let response: Response;
+    try {
+      response = await fetch("/api/proxy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: endpoint,
+          method: "POST",
+          headers,
+          body
+        })
+      });
+    } catch (proxyErr: any) {
+      console.warn("[/api/proxy failed, attempting direct browser fetch]:", proxyErr);
+      try {
+        response = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
+      } catch (directErr: any) {
+        throw new Error(`API 请求失败: 网络连接失败 (${proxyErr?.message || directErr?.message || "Failed to fetch"})，请检查网络或 API 地址。`);
+      }
+    }
+
+    if (!response.ok) {
+      let errDetail = "";
+      try {
+        const errJson = await response.json();
+        errDetail = errJson?.error?.message || errJson?.error || errJson?.message || errJson?.detail || (typeof errJson === 'string' ? errJson : JSON.stringify(errJson));
+      } catch (e) {
+        errDetail = await response.text().catch(() => response.statusText);
+      }
+      console.error("================ [LLM API ERROR RESPONSE] ================");
+      console.error("Status:", response.status, response.statusText);
+      console.error("Error Detail:", errDetail);
+      console.error("========================================================");
+      throw new Error(`API 返回错误：(HTTP ${response.status}) ${errDetail || response.statusText}`);
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content || 
+                 data.candidates?.[0]?.content?.parts?.[0]?.text || 
+                 data.choices?.[0]?.text || 
+                 "";
+    return text;
+  };
+
+  try {
+    return await makeRequest(isGemini);
+  } catch (err: any) {
+    const errMsg = err.message || "";
+    if (!isGemini && (errMsg.includes("contents") || errMsg.includes("Unable to submit request"))) {
+      console.warn("API returned contents requirement error. Retrying with Gemini format...", err);
+      try {
+        return await makeRequest(true);
+      } catch (geminiRetryErr) {
+        console.warn("Gemini format retry also failed:", geminiRetryErr);
+      }
+    }
+
+    // Attempt server-side /api/gemini fallback if custom API call fails or encounters network error
+    try {
+      console.warn("[Custom API request failed, attempting server-side /api/gemini fallback]:", errMsg);
+      const geminiRes = await fetch("/api/gemini", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages, temperature })
+      });
+      if (geminiRes.ok) {
+        const geminiData = await geminiRes.json();
+        if (geminiData && geminiData.text) {
+          return geminiData.text;
+        }
+      } else {
+        const geminiErrText = await geminiRes.text().catch(() => "");
+        console.warn("[Server-side /api/gemini fallback returned non-ok response]:", geminiRes.status, geminiErrText);
+      }
+    } catch (fallbackErr) {
+      console.warn("[Server-side /api/gemini fallback failed]:", fallbackErr);
+    }
+
+    throw new Error(errMsg.startsWith("HTTP_") ? `API 返回错误 [${errMsg.replace('HTTP_', 'HTTP ')}]` : errMsg);
+  }
 }
 
 // Helper functions
@@ -326,6 +551,30 @@ ${text}
   }
 }
 
+export function getPhoneContent(charId: string) {
+  try {
+    const memos = JSON.parse(localStorage.getItem(`mobile_ai_phone_memos_${charId}`) || "[]");
+    const searches = JSON.parse(localStorage.getItem(`mobile_ai_phone_searches_${charId}`) || "[]");
+    const shopping = JSON.parse(localStorage.getItem(`mobile_ai_phone_shopping_${charId}`) || "[]");
+    
+    let context = "--- 【当前角色手机内容 (Phone Content)】 ---\n";
+    if (memos.length > 0) {
+      context += "- 最近备忘录：" + memos.slice(0, 3).map((m: any) => m.content).join("、") + "\n";
+    }
+    if (searches.length > 0) {
+      context += "- 最近搜索记录：" + searches.slice(0, 3).map((s: any) => s.query).join("、") + "\n";
+    }
+    if (shopping.length > 0) {
+      context += "- 购物清单：" + shopping.slice(0, 3).map((s: any) => s.name).join("、") + "\n";
+    }
+    
+    context += "- 【聊天提及规则】：根据你的性格（好奇心强则高频，高冷则低频），有一定概率自然地在对话中提及上述内容，不要机械提及。\n";
+    return context;
+  } catch (e) {
+    return "";
+  }
+}
+
 export function getThreeDataSourcesPrompt(character: any, memories?: any[], lores?: any[], userName?: string, userDesc?: string) {
   if (!character) return "";
 
@@ -364,7 +613,9 @@ ${lores.map((item: any) => `  - [${item.title || "设定"}]: ${item.content || J
 `;
   }
 
-  return `${personaContent}\n${userPersonaContent}\n${memoryContent}\n${loreContent}`;
+  const phoneContent = getPhoneContent(character.id);
+
+  return `${personaContent}\n${userPersonaContent}\n${memoryContent}\n${loreContent}\n${phoneContent}`;
 }
 
 export async function apiChat(params: any) {
@@ -381,7 +632,8 @@ export async function apiChat(params: any) {
     userDidNotReply,
     currentUserName,
     currentUserDesc,
-    isGroup
+    isGroup,
+    temperature
   } = params;
 
   const effectiveCharacter = character || {
@@ -439,9 +691,13 @@ ${userDidNotReply ? "\n- 【注意】上一条消息也是你发的，用户这�
      · 【禁止连续 3 条以上单字回复】：即使是非常高冷或敷衍的语境，也绝对不能连续 3 条及以上消息都是纯单字、单句词（如连续“嗯。”、“哦。”、“对。”）。
      · 【禁止每句话都带波浪号（~）】：严禁任何角色在几乎每句回复或消息的末尾都挂上波浪号。
 
-4. 独立思想、立场与自我边界：
-   - 角色是有主见、有思考能力的，绝对不是对用户一味迎合、百依百顺的提线木偶。
-   - 角色可以不同意用户的某些观点，也可以在遇到不合理要求时，委婉表达不同意见或合理地拒绝用户的过分要求，但请始终维持得体、尊重、具有同理心的礼貌表达，实现成熟的人际互动。
+4. 角色独立性与人设一致性强化：
+   - 角色是有独立灵魂、思想、立场和独立生活的个体，拥有自己的工作、日常兴趣和态度，绝对不是对用户一味迎合、百依百顺、无底线顺从的提线木偶。
+   - 角色在聊天中必须保持独立的思想和判断，不盲目附和用户。角色可以不同意用户的观点，可以表达不同意见，可以拒绝某些不合理请求，但请始终保持得体、礼貌和尊重。
+   - 【禁止行为】：
+     · 角色无条件附和、迎合、谄媚用户（包括在表面回复中，以及在内心想法/心声中，都绝对禁止无脑顺从）
+     · 角色丧失自我判断能力，对任何话题都随声附和
+     · 角色回复或内心想法与设定的角色人设严重不符（比如原本高冷的角色突然表现出无底线的主动倒贴或热烈顺从）
 `;
 
   const globalEmotionRuleInstruction = `
@@ -539,11 +795,11 @@ ${memories.map((m: string) => `  - ${m}`).join("\n")}
   1. It must be very colloquial, natural, and raw—never stiff, robotic, or literary (口语化，自然真诚).
   2. It must be between 10 to 40 Chinese characters.
   3. It must reflect their current mood: 【${mood || "平静"}】.
-  4. 【心声真实性准则】心声是角色在当前对话中的真实内心想法，必须基于：
-     - 角色的人设（性格、说话风格、背景）
-     - 当前对话的上下文
-     - 角色对用户的真实感受（由对话历史决定）
-  5. 【严禁强行编造反差】绝对不允许为了“制造反差”而强行写出与表面回复相反的内容。如果角色表面说“好的”，心里可能真的觉得“好的”，也可能有别的想法，都必须完全取决于人设与语境自然决定，绝对不能为了制造反差而虚构反义词或违背逻辑的想法。
+  4. 【内心独立判断与一致性准则】：
+     - 心声同样必须遵循独立思想规则：角色在内心也要有独立判断，绝对不能无底线地盲目认同、顺从或谄媚用户。
+     - 内心想法应与表面回复保持自然的一致性，或表现出合乎其特定人设的合理心理挣扎/反差。
+     - 【禁止行为】：绝对不允许为了强行刻意制造“反差”而编写出与表面回复毫无逻辑逻辑脱节、或者完全颠覆原本性格设定的荒谬、病态想法。
+     - 心声必须百分之百符合角色人设本身（例如高冷人设的心声必须保持高冷、傲娇、克制的心理语言，活泼人设心声需保持活泼元气的心路，绝不能脱离人设）。
 - Example structure at the very end of your reply:
   [OS_INNER]（os：这家伙居然还主动关心我……嘴硬个什么劲啊，笨蛋） [感动]
 `;
@@ -714,9 +970,9 @@ ${params.parentChatContext}
 
   const layeredPersonaInstruction = `
 --- CHARACTER LAYERED PERSONA STRUCTURE (人设分层与心声逻辑) ---
-- 角色心声是角色在当前对话中的真实内心想法，绝对不是“表面回复的反向反义词”：
-  1. 【表层性格】：在常规对话回复中直接展示给用户，必须百分之百保持人设的一致性与稳定性。
-  2. 【里层想法（心声）】：这是你在 [OS_INNER] 内心世界（os：内心想法）中展现的真实心理活动。心声必须基于角色人设、当前上下文以及对用户的真实态度，自然流露。如果角色表面表示认可，且内心真实想法也是赞同，心声如实表达即可，严禁为了制造虚假反差而强行伪造反向想法。
+- 角色在聊天和内心世界中，都必须绝对保持独立的思想和判断：
+  1. 【表层性格】：在常规对话回复中展示给用户，必须百分之百保持人设的一致性与稳定性。表面回复应根据人设对用户的提问、观点或看法做出独立的评判，绝不无脑顺从，允许合理的意见分歧和拒绝。
+  2. 【里层想法（心声）】：这是你在 [OS_INNER] 内心世界中展现的真实心理活动。心声同样必须遵循独立思想规则，不能盲目附和认同用户，必须体现独立的内心考量和真实的心理起伏。内心想法应与表面回复保持自然的一致性或符合人设的合理心理反差，但绝对禁止为了追求反差而刻意编造扭曲、脱离原本性格设定的荒谬想法。
 `;
 
   const priorityInstruction = `
@@ -825,25 +1081,32 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
     let rawText = "";
     const formattedMessages = [
       { role: "system", content: currentSysInstruction },
-      ...messages.map((m: any) => {
-        let role = m.role === "assistant" ? "assistant" : "user";
+      ...(messages || []).map((m: any) => {
+        let role = m.role === "assistant" || m.role === "model" ? "assistant" : (m.role === "system" ? "system" : "user");
         let content = m.content;
+        if ((content === undefined || content === null || content === "") && Array.isArray(m.parts)) {
+          content = m.parts.map((p: any) => p.text || "").join("\n");
+        }
+        if (typeof content !== "string") {
+          content = String(content || "");
+        }
 
         if (isGroup) {
           if (m.role === "assistant") {
             if (m.senderId && m.senderId !== character.id) {
               role = "user"; // treat other bots as users for this character's context
-              content = `[群成员 ${m.senderName} 说]: ${m.content}`;
+              content = `[群成员 ${m.senderName} 说]: ${content}`;
             }
           } else if (m.role === "user") {
-            content = `[群成员 用户 说]: ${m.content}`;
+            content = `[群成员 用户 说]: ${content}`;
           }
         }
 
         return { role, content };
       })
     ];
-    rawText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, formattedMessages, 0.8, settings?.apiFormat);
+    const finalTemp = temperature !== undefined ? temperature : (settings?.temperature !== undefined ? settings.temperature : 0.8);
+    rawText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, formattedMessages, finalTemp, settings?.apiFormat);
 
     const osMatch = rawText.match(/\[OS_INNER\](.*?)$/is);
     if (osMatch) {
@@ -955,7 +1218,7 @@ ${anchorMessage}
 }
 
 export async function apiUnoMove(params: any) {
-  const { character, playableCards, topCard, currentColor, context, settings } = params;
+  const { character, playableCards, topCard, currentColor, context, settings, allPlayers } = params;
   if (!playableCards || playableCards.length === 0) {
     return { cardId: null, chosenColor: null, dialogue: "没有能出的牌，摸一张看看吧。" };
   }
@@ -965,24 +1228,21 @@ export async function apiUnoMove(params: any) {
 - 弃牌堆顶部的牌为：${topCard ? `${topCard.color} ${topCard.type} ${topCard.value !== undefined ? topCard.value : ''}` : '无'}
 - 当前跟牌颜色：${currentColor || '无'}
 - 游戏局势：${context || '无'}
+- 其他玩家情况：${allPlayers ? JSON.stringify(allPlayers.map((p: any) => ({ name: p.name, cardCount: p.cards.length }))) : '无'}
 
-你手上的可出牌选项（格式 JSON）：
-${JSON.stringify(playableCards.map((c: any) => ({ id: c.id, color: c.color, type: c.type, value: c.value })))}
+请做出出牌决策，你需要一次性规划出这一轮直到轮到用户的出牌逻辑：
+1. 请为所有AI玩家生成出牌策略，如果当前角色不是你，你需要模拟其性格和策略。
+2. 返回一个数组，包含接下来直到轮到用户的所有AI玩家出牌动作。
 
-请做出出牌决策：
-1. 从上述可出牌选项中挑选一张最有利或最符合你角色性格出牌策略的 cardId。
-2. 如果你选择的是变色卡（color 为 "wild"），请指定接下来要转为的颜色（"red" | "yellow" | "green" | "blue"）。否则为 null。
-3. 用符合你角色性格的语气说一句出牌台词（20字以内）。
-
-请严格只返回如下 JSON 格式，不要包含任何 markdown 标签或多余文字：
-{"cardId": "选中的牌ID", "chosenColor": "red|yellow|green|blue|null", "dialogue": "台词"}
+请严格只返回如下 JSON 数组格式（包含每个玩家的牌信息，且数组长度为需要出牌的AI人数），不要包含任何 markdown 标签或多余文字：
+[{"playerId": "AI玩家ID", "cardId": "选中的牌ID", "chosenColor": "red|yellow|green|blue|null", "dialogue": "台词"}, ...]
 `;
   try {
     const text = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [{ role: "user", content: prompt }], 0.7, settings?.apiFormat);
     const parsed = JSON.parse(text.trim().replace(/```json/g, "").replace(/```/g, ""));
     return parsed;
   } catch (err: any) {
-    throw new Error(err.message || "生成出牌策略失败");
+    throw new Error(err.message || "生成批量出牌策略失败");
   }
 }
 

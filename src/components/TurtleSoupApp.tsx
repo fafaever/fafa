@@ -25,6 +25,7 @@ import { apiChat, apiGenerateTurtlesoupBatch } from "../lib/api";
 
 import { Character, AppSettings } from "../types";
 import { TURTLE_SOUP_PRESETS, TurtleSoupPuzzle } from "../data/turtleSoupPuzzles";
+import { CharacterAvatar } from "./CharacterAvatar";
 
 export interface TurtleSoupQnA {
   id: string;
@@ -96,32 +97,16 @@ function sanitizeAvatar(avatar: any): string {
   return str || "👤";
 }
 
-function PlayerAvatar({ avatar, className = "w-6 h-6" }: { avatar: string; className?: string }) {
+function PlayerAvatar({ avatar, className = "w-6 h-6", character }: { avatar: string; className?: string; character?: Character }) {
   const sanitized = sanitizeAvatar(avatar);
-  console.log(`[TurtleSoup PlayerAvatar Render] Input: "${avatar}" -> Sanitized: "${sanitized}"`);
-
-  if (!sanitized) {
-    return (
-      <div className={`${className} rounded-full bg-neutral-100 border border-neutral-200 flex items-center justify-center text-xs shrink-0 overflow-hidden select-none`}>
-        👤
-      </div>
-    );
-  }
-  const isUrl = sanitized.startsWith("data:") || sanitized.startsWith("http:") || sanitized.startsWith("https:") || sanitized.startsWith("/");
-  if (isUrl) {
-    return (
-      <img
-        src={sanitized}
-        alt="avatar"
-        className={`${className} object-cover rounded-full overflow-hidden shrink-0`}
-        referrerPolicy="no-referrer"
-      />
-    );
-  }
   return (
-    <div className={`${className} rounded-full bg-neutral-100 border border-neutral-200 flex items-center justify-center text-xs shrink-0 overflow-hidden select-none`}>
-      {sanitized}
-    </div>
+    <CharacterAvatar 
+      character={character} 
+      avatar={sanitized} 
+      name="Avatar" 
+      mode="real" 
+      className={className} 
+    />
   );
 }
 
@@ -881,7 +866,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-white text-neutral-900 select-none relative overflow-hidden animate-fade-in font-sans">
+    <div className="flex-1 flex flex-col h-full bg-white text-neutral-900 select-none relative overflow-hidden animate-fade-in ">
       {/* HEADER BAR */}
       <div className="h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-3 shrink-0 z-10">
         <button
@@ -901,15 +886,15 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
           <ChevronLeft className="w-5 h-5" />
         </button>
 
-        <span className="font-serif font-bold text-sm tracking-wide text-neutral-900 flex items-center gap-2">
-          🐢 海龟汤 {gameState === "playing" && <span className="font-sans text-xs font-normal text-neutral-500">· 第 {currentRound} 轮 ({formatSeconds(gameElapsedSeconds)})</span>}
+        <span className=" font-bold text-sm tracking-wide text-neutral-900 flex items-center gap-2">
+          🐢 海龟汤 {gameState === "playing" && <span className=" text-xs font-normal text-neutral-500">· 第 {currentRound} 轮 ({formatSeconds(gameElapsedSeconds)})</span>}
         </span>
 
         <div className="flex items-center gap-1.5">
           {/* History Archives button */}
           <button
             onClick={() => setHistoryModalOpen(true)}
-            className="px-2.5 py-1.5 text-xs font-sans font-medium text-neutral-900 hover:bg-neutral-100 rounded-[8px] transition flex items-center gap-1 cursor-pointer border border-neutral-200"
+            className="px-2.5 py-1.5 text-xs  font-medium text-neutral-900 hover:bg-neutral-100 rounded-[8px] transition flex items-center gap-1 cursor-pointer border border-neutral-200"
             title="历史对局/存档"
           >
             <History className="w-3.5 h-3.5 text-neutral-900" />
@@ -925,7 +910,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
           {gameState === "playing" && (
             <button
               onClick={isPaused ? handleResumeGame : handlePauseGame}
-              className={`px-2.5 py-1.5 text-xs font-sans font-medium rounded-[8px] transition flex items-center gap-1 cursor-pointer border ${
+              className={`px-2.5 py-1.5 text-xs  font-medium rounded-[8px] transition flex items-center gap-1 cursor-pointer border ${
                 isPaused
                   ? "bg-neutral-900 text-white border-neutral-900 hover:bg-neutral-800"
                   : "bg-white text-neutral-900 border-neutral-200 hover:bg-neutral-100"
@@ -951,10 +936,10 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
         <div className="flex-1 flex flex-col justify-between p-5 overflow-y-auto max-w-md mx-auto w-full animate-fade-in">
           <div className="space-y-6">
             <div className="text-center pt-2 space-y-1">
-              <h1 className="font-serif text-2xl font-bold text-neutral-900 tracking-tight">
+              <h1 className=" text-2xl font-bold text-neutral-900 tracking-tight">
                 海龟汤 · 情境推理
               </h1>
-              <p className="text-xs text-neutral-500 font-sans">
+              <p className="text-xs text-neutral-500 ">
                 根据极简的“汤面”事件，通过提问问出真相“汤底”
               </p>
             </div>
@@ -962,10 +947,10 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
             {/* Mode selection: Presets vs Custom */}
             <div className="space-y-3">
               <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
-                <span className="text-xs font-serif font-bold text-neutral-900">1. 选择海龟汤题目</span>
+                <span className="text-xs  font-bold text-neutral-900">1. 选择海龟汤题目</span>
                 <button
                   onClick={() => setIsCustomMode(!isCustomMode)}
-                  className="text-xs text-neutral-600 hover:text-neutral-900 font-sans cursor-pointer underline"
+                  className="text-xs text-neutral-600 hover:text-neutral-900  cursor-pointer underline"
                 >
                   {isCustomMode ? "切换经典预设" : "自定义出题"}
                 </button>
@@ -1014,7 +999,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                   {/* Puzzle list */}
                   <div className="grid grid-cols-1 gap-2.5 max-h-[240px] overflow-y-auto pr-1">
                     {filteredPuzzles.length === 0 ? (
-                      <div className="py-10 text-center text-xs text-neutral-400 font-sans">
+                      <div className="py-10 text-center text-xs text-neutral-400 ">
                         暂无符合条件的海龟汤题目
                       </div>
                     ) : (
@@ -1032,7 +1017,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                             }`}
                           >
                             <div className="flex items-center justify-between mb-1 pr-12">
-                              <span className="font-serif font-bold text-xs truncate max-w-[160px]">{p.title}</span>
+                              <span className=" font-bold text-xs truncate max-w-[160px]">{p.title}</span>
                               <span
                                 className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono shrink-0 ${
                                   isSelected ? "bg-white/20 text-white" : "bg-neutral-100 text-neutral-600"
@@ -1084,7 +1069,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
 
             {/* Host Selection */}
             <div className="space-y-2">
-              <span className="text-xs font-serif font-bold text-neutral-900 block border-b border-neutral-100 pb-2">
+              <span className="text-xs  font-bold text-neutral-900 block border-b border-neutral-100 pb-2">
                 2. 指定主持人 (Host)
               </span>
               <select
@@ -1102,7 +1087,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
 
             {/* Players Selection */}
             <div className="space-y-2">
-              <span className="text-xs font-serif font-bold text-neutral-900 block border-b border-neutral-100 pb-2">
+              <span className="text-xs  font-bold text-neutral-900 block border-b border-neutral-100 pb-2">
                 3. 选择参与对局的 AI 角色 (已选 {selectedPlayerIds.length + 1} 人)
               </span>
               <div className="grid grid-cols-2 gap-2 max-h-[160px] overflow-y-auto pr-1">
@@ -1128,7 +1113,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                         }`}
                       >
                         <div className="flex items-center gap-2 overflow-hidden">
-                          <PlayerAvatar avatar={c.chatAvatar || c.avatar} className="w-5 h-5" />
+                          <PlayerAvatar character={c} avatar={c.chatAvatar || c.avatar} className="w-5 h-5" />
                           <span className="text-xs font-bold truncate">{c.name}</span>
                         </div>
                         {isSelected && <UserCheck className="w-3.5 h-3.5 text-white shrink-0" />}
@@ -1142,14 +1127,14 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
           <div className="space-y-2 pt-4">
             <button
               onClick={handleStartGame}
-              className="w-full py-3.5 bg-neutral-900 hover:bg-neutral-800 text-white font-sans font-bold text-xs rounded-[8px] active:scale-95 transition shadow-xs cursor-pointer flex items-center justify-center gap-2"
+              className="w-full py-3.5 bg-neutral-900 hover:bg-neutral-800 text-white  font-bold text-xs rounded-[8px] active:scale-95 transition shadow-xs cursor-pointer flex items-center justify-center gap-2"
             >
               <Sparkles className="w-4 h-4 text-white" />
               开启海龟汤对局
             </button>
             <button
               onClick={() => setHistoryModalOpen(true)}
-              className="w-full py-2.5 bg-white border border-neutral-200 hover:bg-neutral-50 text-neutral-900 font-sans font-bold text-xs rounded-[8px] active:scale-95 transition cursor-pointer flex items-center justify-center gap-1.5"
+              className="w-full py-2.5 bg-white border border-neutral-200 hover:bg-neutral-50 text-neutral-900  font-bold text-xs rounded-[8px] active:scale-95 transition cursor-pointer flex items-center justify-center gap-1.5"
             >
               <History className="w-3.5 h-3.5 text-neutral-900" />
               查看历史对局 ({savedGames.length})
@@ -1166,7 +1151,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <PlayerAvatar avatar={currentHost.avatar} className="w-6 h-6" />
-                  <span className="text-xs font-serif font-bold text-neutral-900">
+                  <span className="text-xs  font-bold text-neutral-900">
                     {currentHost.name}
                   </span>
                   <span className="px-1.5 py-0.5 bg-neutral-100 text-neutral-600 text-[9px] font-bold rounded-[4px] border border-neutral-200">
@@ -1185,7 +1170,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                 <div className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase mb-1">
                   【汤 面】SOUP SURFACE
                 </div>
-                <p className="text-xs font-sans text-neutral-900 font-medium leading-relaxed bg-neutral-50 p-2.5 rounded-[10px] border border-neutral-100">
+                <p className="text-xs  text-neutral-900 font-medium leading-relaxed bg-neutral-50 p-2.5 rounded-[10px] border border-neutral-100">
                   {currentPuzzle.surface}
                 </p>
               </div>
@@ -1211,7 +1196,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
             {qnaHistory.length === 0 ? (
               <div className="py-12 text-center text-neutral-400 space-y-2">
                 <MessageSquare className="w-8 h-8 mx-auto opacity-30 stroke-1" />
-                <p className="text-xs font-sans">对局已就绪，请在下方输入框向主持人提问或猜汤底</p>
+                <p className="text-xs ">对局已就绪，请在下方输入框向主持人提问或猜汤底</p>
                 <p className="text-[10px] text-neutral-400">主持人仅回答：“是 / 否 / 无关 / 是与否无关 / 关键/接近”</p>
               </div>
             ) : (
@@ -1229,7 +1214,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                         )}
                       </div>
                       <div
-                        className={`p-3 rounded-[14px] text-xs font-sans leading-relaxed text-right ${
+                        className={`p-3 rounded-[14px] text-xs  leading-relaxed text-right ${
                           qna.isGuessSolution
                             ? "bg-neutral-900 text-white"
                             : "bg-neutral-100 text-neutral-900 border border-neutral-200"
@@ -1251,8 +1236,8 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                           主持人
                         </span>
                       </div>
-                      <div className="bg-neutral-50 border border-neutral-200 p-3 rounded-[14px] text-xs font-sans space-y-1 shadow-2xs">
-                        <div className="font-serif font-bold text-sm text-neutral-900 flex items-center gap-1.5">
+                      <div className="bg-neutral-50 border border-neutral-200 p-3 rounded-[14px] text-xs  space-y-1 shadow-2xs">
+                        <div className=" font-bold text-sm text-neutral-900 flex items-center gap-1.5">
                           {qna.answer === "关键/接近" ? (
                             <span className="text-amber-600 flex items-center gap-1">
                               <Key className="w-4 h-4" /> 关键 / 接近！
@@ -1262,7 +1247,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                           )}
                         </div>
                         {qna.hostComment && (
-                          <p className="text-[11px] text-neutral-500 font-sans border-t border-neutral-200/60 pt-1 mt-1 leading-normal">
+                          <p className="text-[11px] text-neutral-500  border-t border-neutral-200/60 pt-1 mt-1 leading-normal">
                             {qna.hostComment}
                           </p>
                         )}
@@ -1345,15 +1330,15 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                   <Pause className="w-6 h-6 stroke-[2.5]" />
                 </div>
                 <div className="space-y-1">
-                  <h3 className="text-base font-serif font-bold text-neutral-900">
+                  <h3 className="text-base  font-bold text-neutral-900">
                     游戏已暂停
                   </h3>
-                  <p className="text-xs text-neutral-500 font-sans leading-relaxed">
+                  <p className="text-xs text-neutral-500  leading-relaxed">
                     所有操作已暂停，包含提问历史及局面已自动归档至本地。
                   </p>
                 </div>
 
-                <div className="p-3 bg-neutral-50 rounded-[12px] border border-neutral-200 text-left text-xs space-y-1.5 font-sans">
+                <div className="p-3 bg-neutral-50 rounded-[12px] border border-neutral-200 text-left text-xs space-y-1.5 ">
                   <div className="flex justify-between text-neutral-900">
                     <span className="text-neutral-500">题目:</span>
                     <span className="font-bold truncate max-w-[150px]">{currentPuzzle.title}</span>
@@ -1371,14 +1356,14 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                 <div className="space-y-2 pt-1">
                   <button
                     onClick={handleResumeGame}
-                    className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 active:scale-95 text-white font-sans text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+                    className="w-full py-3 bg-neutral-900 hover:bg-neutral-800 active:scale-95 text-white  text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
                   >
                     <Play className="w-4 h-4 fill-white" />
                     继续对局
                   </button>
                   <button
                     onClick={() => setHistoryModalOpen(true)}
-                    className="w-full py-2.5 bg-white border border-neutral-200 hover:bg-neutral-50 active:scale-95 text-neutral-900 font-sans text-xs font-bold rounded-[8px] transition cursor-pointer flex items-center justify-center gap-1.5"
+                    className="w-full py-2.5 bg-white border border-neutral-200 hover:bg-neutral-50 active:scale-95 text-neutral-900  text-xs font-bold rounded-[8px] transition cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <History className="w-3.5 h-3.5 text-neutral-900" />
                     历史存档列表
@@ -1394,15 +1379,15 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
       {gameState === "game_over" && (
         <div className="absolute inset-0 bg-white z-50 flex flex-col justify-between p-6 overflow-y-auto animate-fade-in">
           <div className="space-y-5 text-center mt-4 max-w-sm mx-auto w-full">
-            <div className="inline-flex items-center justify-center w-14 h-14 bg-neutral-900 text-white font-serif font-bold text-2xl rounded-[16px] shadow-xs mb-1">
+            <div className="inline-flex items-center justify-center w-14 h-14 bg-neutral-900 text-white  font-bold text-2xl rounded-[16px] shadow-xs mb-1">
               {isWon ? "🎉" : "🔍"}
             </div>
 
             <div className="space-y-1">
-              <h2 className="text-xl font-serif font-bold text-neutral-900">
+              <h2 className="text-xl  font-bold text-neutral-900">
                 {isWon ? "破解成功！真相大白" : "本局海龟汤对局公布"}
               </h2>
-              <p className="text-xs text-neutral-500 font-sans">
+              <p className="text-xs text-neutral-500 ">
                 {isWon ? "逻辑极其严密，成功拆解了全部线索" : "完整真相故事揭晓"}
               </p>
             </div>
@@ -1410,11 +1395,11 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
             {/* Metrics */}
             <div className="grid grid-cols-2 gap-2.5">
               <div className="p-3 bg-white rounded-[14px] border border-neutral-200 text-center">
-                <span className="text-[10px] text-neutral-500 font-sans block">提问次数</span>
-                <span className="text-sm font-serif font-bold text-neutral-900">{questionCount} 次</span>
+                <span className="text-[10px] text-neutral-500  block">提问次数</span>
+                <span className="text-sm  font-bold text-neutral-900">{questionCount} 次</span>
               </div>
               <div className="p-3 bg-white rounded-[14px] border border-neutral-200 text-center">
-                <span className="text-[10px] text-neutral-500 font-sans block">总用时长</span>
+                <span className="text-[10px] text-neutral-500  block">总用时长</span>
                 <span className="text-sm font-mono font-bold text-neutral-900">{formatSeconds(gameElapsedSeconds)}</span>
               </div>
             </div>
@@ -1424,7 +1409,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
               <div className="text-[10px] font-bold text-neutral-400 tracking-wider uppercase">
                 【完整汤底揭秘】SOUP BASE REVEALED
               </div>
-              <p className="text-xs font-sans text-neutral-900 leading-relaxed font-normal">
+              <p className="text-xs  text-neutral-900 leading-relaxed font-normal">
                 {currentPuzzle.base}
               </p>
             </div>
@@ -1448,7 +1433,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
               onClick={() => {
                 setGameState("setup");
               }}
-              className="w-full py-3.5 bg-neutral-900 hover:bg-neutral-800 text-white font-sans font-bold text-xs rounded-[8px] active:scale-95 transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              className="w-full py-3.5 bg-neutral-900 hover:bg-neutral-800 text-white  font-bold text-xs rounded-[8px] active:scale-95 transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
             >
               <RotateCw className="w-4 h-4" />
               再来一局
@@ -1457,14 +1442,14 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
               onClick={() => {
                 setGameState("setup");
               }}
-              className="w-full py-3 bg-white border border-neutral-200 hover:bg-neutral-50 text-neutral-900 font-sans font-bold text-xs rounded-[8px] active:scale-95 transition cursor-pointer flex items-center justify-center gap-1.5"
+              className="w-full py-3 bg-white border border-neutral-200 hover:bg-neutral-50 text-neutral-900  font-bold text-xs rounded-[8px] active:scale-95 transition cursor-pointer flex items-center justify-center gap-1.5"
             >
               <RotateCw className="w-4 h-4 text-neutral-900" />
               返回游戏大厅
             </button>
             <button
               onClick={onClose}
-              className="w-full py-2 text-neutral-400 hover:text-neutral-900 font-sans text-xs transition cursor-pointer"
+              className="w-full py-2 text-neutral-400 hover:text-neutral-900  text-xs transition cursor-pointer"
             >
               退出应用
             </button>
@@ -1477,7 +1462,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
         <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white border border-neutral-200 p-5 rounded-[20px] w-full max-w-[340px] shadow-2xl flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between border-b border-neutral-200 pb-3 mb-3 shrink-0">
-              <span className="text-sm font-serif font-bold text-neutral-900 flex items-center gap-1.5">
+              <span className="text-sm  font-bold text-neutral-900 flex items-center gap-1.5">
                 <History className="w-4 h-4 text-neutral-900" />
                 历史对局存档 ({savedGames.length})
               </span>
@@ -1514,7 +1499,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                       <div className="flex items-start justify-between">
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-serif font-bold text-xs text-neutral-900">{save.title}</span>
+                            <span className=" font-bold text-xs text-neutral-900">{save.title}</span>
                             {save.status === "completed" ? (
                               <span className="px-1.5 py-0.5 text-[9px] bg-neutral-100 text-neutral-900 font-bold rounded-[4px]">
                                 {save.isWon ? "已破解" : "已完结"}
@@ -1568,8 +1553,8 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
               <Eye className="w-5 h-5" />
             </div>
             <div className="space-y-1">
-              <h3 className="text-sm font-serif font-bold text-neutral-900">确认公布汤底真相？</h3>
-              <p className="text-xs text-neutral-500 font-sans">
+              <h3 className="text-sm  font-bold text-neutral-900">确认公布汤底真相？</h3>
+              <p className="text-xs text-neutral-500 ">
                 公布后本局游戏将直接结束并展现完整汤底。
               </p>
             </div>
@@ -1594,9 +1579,9 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
       {/* RULE MODAL */}
       {ruleModalOpen && (
         <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
-          <div className="bg-white border border-neutral-200 p-5 rounded-[20px] w-full max-w-[320px] space-y-3 shadow-2xl font-sans text-xs">
+          <div className="bg-white border border-neutral-200 p-5 rounded-[20px] w-full max-w-[320px] space-y-3 shadow-2xl  text-xs">
             <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
-              <span className="font-serif font-bold text-sm text-neutral-900">🐢 海龟汤规则</span>
+              <span className=" font-bold text-sm text-neutral-900">🐢 海龟汤规则</span>
               <button onClick={() => setRuleModalOpen(false)}>
                 <X className="w-4 h-4 text-neutral-500" />
               </button>
@@ -1622,7 +1607,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
         <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white border border-neutral-200 p-5 rounded-[20px] w-full max-w-[420px] shadow-2xl flex flex-col max-h-[90vh]">
             <div className="flex items-center justify-between border-b border-neutral-200 pb-3 mb-3 shrink-0">
-              <span className="text-sm font-serif font-bold text-neutral-900 flex items-center gap-1.5">
+              <span className="text-sm  font-bold text-neutral-900 flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-amber-500 animate-pulse" />
                 AI 批量出题结果预览 (5道)
               </span>
@@ -1648,7 +1633,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
                   className="p-4 rounded-[14px] border border-neutral-200 bg-neutral-50 text-left space-y-2.5 hover:border-neutral-400 transition"
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-serif font-bold text-xs text-neutral-900">
+                    <span className=" font-bold text-xs text-neutral-900">
                       {p.title}
                     </span>
                     <span className="text-[9px] bg-neutral-200 text-neutral-700 px-1.5 py-0.5 rounded-full font-bold shrink-0">
@@ -1676,7 +1661,7 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
 
                   <button
                     onClick={() => handleSelectPuzzleFromBatch(p)}
-                    className="w-full py-2 bg-neutral-900 hover:bg-neutral-800 text-white font-sans text-xs font-bold rounded-[8px] transition active:scale-95 cursor-pointer flex items-center justify-center gap-1 shadow-xs"
+                    className="w-full py-2 bg-neutral-900 hover:bg-neutral-800 text-white  text-xs font-bold rounded-[8px] transition active:scale-95 cursor-pointer flex items-center justify-center gap-1 shadow-xs"
                   >
                     选择此题作为本局游戏
                   </button>

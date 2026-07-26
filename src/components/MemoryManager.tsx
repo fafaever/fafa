@@ -54,11 +54,11 @@ export function MemoryManager({ character, settings, sessions }: MemoryManagerPr
     setIsExtracting(true);
     try {
       const dialogueText = todayMessages.map(m => `${m.role === 'user' ? '用户' : character.name}: ${m.content}`).join('\n');
-      const prompt = `你是一个长期记忆提取助手。请根据以下当天的对话内容，提取出最关键的信息，生成一段简短但包含完整关键事实的记忆摘要（100字左右）。
+      const prompt = `你是一个长期记忆提取助手。请根据以下当天的对话内容，进行客观的第三人称总结。
 要求：
-1. 完整保留关键信息，不过度简化。
-2. 以第三人称记录。
-3. 不要包含任何开场白，直接输出正文。
+1. 提取出当天的关键事件、用户分享的重要信息、角色观察到的用户状态。
+2. 格式为第三人称陈述句，客观概括，不要包含角色对用户的直接说话内容。
+3. 保持简洁，不要包含开场白。
 
 对话内容：
 ${dialogueText}`;
@@ -198,7 +198,7 @@ ${combinedText}`;
   };
 
   const tabClass = (layer: 1 | 2 | 3) => 
-    `pb-2 text-sm font-sans transition-all relative ${activeLayer === layer ? "text-neutral-900 font-bold" : "text-neutral-400"}`;
+    `pb-2 text-sm  transition-all relative ${activeLayer === layer ? "text-neutral-900 font-bold" : "text-neutral-400"}`;
 
   return (
     <div className="flex flex-col h-full bg-[#F5F3F0]">
@@ -227,7 +227,7 @@ ${combinedText}`;
               <div key={group.key} className="space-y-2">
                 <button 
                   onClick={() => toggleMonth(group.key)}
-                  className="flex items-center gap-2 text-[#A8A39A] font-serif italic text-sm py-1"
+                  className="flex items-center gap-2 text-[#A8A39A]  italic text-sm py-1"
                 >
                   {expandedMonths.includes(group.key) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                   {group.key}
@@ -244,7 +244,7 @@ ${combinedText}`;
                         <div className="flex justify-between items-start gap-3">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1.5">
-                              <span className="text-[11px] text-[#BFBAB2] font-sans">{new Date(m.timestamp).toLocaleDateString()}</span>
+                              <span className="text-[11px] text-[#BFBAB2] ">{new Date(m.timestamp).toLocaleDateString()}</span>
                               <span className="text-[11px] bg-neutral-50 text-[#BFBAB2] px-1.5 py-0.5 rounded border border-neutral-100">{m.source}</span>
                               {m.isSimplified && <span className="text-[10px] bg-neutral-900 text-white px-1.5 py-0.5 rounded">已简化</span>}
                             </div>
@@ -279,8 +279,8 @@ ${combinedText}`;
                   <div className="flex-1">
                     <p className="text-[15px] leading-relaxed text-[#1A1A1A] font-light">{m.text}</p>
                     <div className="flex items-center gap-2 mt-2">
-                      <span className="text-[11px] text-[#BFBAB2] font-sans">{new Date(m.timestamp).toLocaleString()}</span>
-                      <span className="text-[11px] text-[#BFBAB2] font-sans">来源: {m.source}</span>
+                      <span className="text-[11px] text-[#BFBAB2] ">{new Date(m.timestamp).toLocaleString()}</span>
+                      <span className="text-[11px] text-[#BFBAB2] ">来源: {m.source}</span>
                       {m.isShared ? <span className="text-[10px] text-green-500 font-bold">已分享</span> : <span className="text-[10px] text-neutral-400">未分享</span>}
                     </div>
                   </div>

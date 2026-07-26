@@ -3,6 +3,7 @@ import { ChevronLeft, Plus, Trash2, Edit3, Check, Wand2, Loader2, Lock } from "l
 import { ConfirmModal } from "./ConfirmModal";
 
 import { Character, AppSettings } from "../types";
+import { CharacterAvatar } from "./CharacterAvatar";
 
 interface Note {
   id: string;
@@ -17,10 +18,11 @@ interface NotesAppProps {
   onClose: () => void;
   onGenerateNote: (character: Character, settings: AppSettings) => Promise<void>;
   isGeneratingMap: Record<string, boolean>;
+  forcedCharId?: string | null;
 }
 
-export default function NotesApp({ characters, settings, onClose, onGenerateNote, isGeneratingMap }: NotesAppProps) {
-  const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
+export default function NotesApp({ characters, settings, onClose, onGenerateNote, isGeneratingMap, forcedCharId }: NotesAppProps) {
+  const [selectedCharId, setSelectedCharId] = useState<string | null>(forcedCharId || null);
   const [notes, setNotes] = useState<Note[]>([]);
   const isGenerating = selectedCharId ? !!isGeneratingMap[selectedCharId] : false;
   const [autoGenerateInterval, setAutoGenerateInterval] = useState(0);
@@ -99,7 +101,7 @@ export default function NotesApp({ characters, settings, onClose, onGenerateNote
   };
 
   // Gallery View
-  if (!selectedCharId) {
+  if (!selectedCharId && !forcedCharId) {
     return (
       <div className="flex-1 flex flex-col bg-neutral-50 animate-fade-in relative h-full">
         <div className="h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-3 shrink-0 sticky top-0 z-10">
@@ -112,7 +114,7 @@ export default function NotesApp({ characters, settings, onClose, onGenerateNote
         
         <div className="flex-1 overflow-y-auto p-4">
           {characters.length === 0 ? (
-            <div className="text-center text-xs text-neutral-400 mt-10 font-sans">
+            <div className="text-center text-xs text-neutral-400 mt-10 ">
               暂无角色，请先创建角色
             </div>
           ) : (
@@ -129,14 +131,10 @@ export default function NotesApp({ characters, settings, onClose, onGenerateNote
                     onClick={() => setSelectedCharId(char.id)}
                     className="bg-white p-4 rounded-2xl border border-neutral-200 shadow-sm flex flex-col items-center justify-center gap-3 transition-all hover:shadow-md active:scale-95 relative group"
                   >
-                    {hasNew && (
-                      <div className="absolute top-3 right-3 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white shadow-sm" />
-                    )}
-                    <div className="w-16 h-16 rounded-full bg-neutral-100 border border-neutral-200/50 flex items-center justify-center text-2xl overflow-hidden shrink-0">
-                      {char.chatAvatar ? (
-                        <img src={char.chatAvatar} alt={char.name} className="w-full h-full object-cover" />
-                      ) : (
-                        char.avatar || "👤"
+                    <div className="relative">
+                      <CharacterAvatar character={char} mode="real" size={64} className="border border-neutral-200/50 shrink-0" />
+                      {hasNew && (
+                        <div className="absolute top-0 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full border-2 border-white shadow-sm" />
                       )}
                     </div>
                     <div className="text-center w-full">
@@ -162,7 +160,7 @@ export default function NotesApp({ characters, settings, onClose, onGenerateNote
     <div className="flex-1 flex flex-col bg-neutral-50 animate-fade-in relative h-full">
       <div className="h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-3 shrink-0 sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-2">
-          <button onClick={() => setSelectedCharId(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
+          <button onClick={() => forcedCharId ? onClose() : setSelectedCharId(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
             <ChevronLeft className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2">
@@ -184,7 +182,7 @@ export default function NotesApp({ characters, settings, onClose, onGenerateNote
         {/* Controls Section */}
         <div className="bg-white p-4 rounded-2xl border border-neutral-200 shadow-sm flex flex-col gap-4 mb-2">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-bold text-neutral-900 italic font-serif" style={{ fontFamily: 'Playfair Display, serif' }}>生成设置</span>
+            <span className="text-sm font-bold text-neutral-900 italic " style={{ fontFamily: 'Playfair Display, serif' }}>生成设置</span>
             <button
               onClick={handleGenerate}
               disabled={isGenerating}
@@ -224,14 +222,14 @@ export default function NotesApp({ characters, settings, onClose, onGenerateNote
         {notes.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 px-4 opacity-60">
             <div className="text-4xl mb-4 grayscale">🪶</div>
-            <p className="text-center text-xs text-neutral-500 font-sans tracking-wide">
+            <p className="text-center text-xs text-neutral-500  tracking-wide">
               ta还没写什么…<br/>也许在等一个安静的时刻。
             </p>
           </div>
         ) : (
           notes.map(note => (
             <div key={note.id} className="bg-white p-4 rounded-2xl border border-neutral-200 shadow-sm flex flex-col gap-3 group relative overflow-hidden">
-              <p className="text-sm text-neutral-800 whitespace-pre-wrap font-sans leading-relaxed">
+              <p className="text-sm text-neutral-800 whitespace-pre-wrap  leading-relaxed">
                 {note.text}
               </p>
               

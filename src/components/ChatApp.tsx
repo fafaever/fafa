@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2, CheckSquare } from "lucide-react";
-import { apiChat } from "../lib/api";
+import { apiChat, getPhoneContent, getThreeDataSourcesPrompt } from "../lib/api";
+import { getDefaultAvatar } from "../lib/avatarUtils";
 import { Character, Message, LoreEntry, AppSettings, ChatSession, UserPersona, MomentPost, MomentComment } from "../types";
 import ProfileView from "./ProfileView";
 import { OfflineMeetView } from "./OfflineMeetView";
+
+import { CharacterAvatar } from "./CharacterAvatar";
 
 interface ChatAppProps {
   characters: Character[];
@@ -37,12 +40,54 @@ const getPersonalityFromInstruction = (inst: string) => {
   return inst;
 };
 
+const getEmotionIconPath = (emotion: string): string | null => {
+  const em = (emotion || "").toLowerCase().trim();
+  if (!em || em === "无") return null;
+
+  // 1. Exact matches / keywords for uploaded files
+  if (em.includes("伤心") || em.includes("难过") || em.includes("悲") || em.includes("哀") || em.includes("哭") || em.includes("痛") || em.includes("郁")) {
+    return "/images/emoji/伤心、难过.png";
+  }
+  if (em.includes("困") || em.includes("疲") || em.includes("累") || em.includes("倦") || em.includes("懒") || em.includes("慵")) {
+    return "/images/emoji/困了、疲惫.png";
+  }
+  if (em.includes("害怕") || em.includes("恐") || em.includes("惧") || em.includes("抖") || em.includes("吓")) {
+    return "/images/emoji/害怕.png";
+  }
+  if (em.includes("开") || em.includes("乐") || em.includes("喜") || em.includes("欢") || em.includes("笑") || em.includes("甜") || em.includes("悦") || em.includes("满") || em.includes("兴") || em.includes("红") || em.includes("宠") || em.includes("娇") || em.includes("傲")) {
+    return "/images/emoji/开心.png";
+  }
+  if (em.includes("担") || em.includes("焦") || em.includes("虑") || em.includes("愁") || em.includes("挂") || em.includes("忧") || em.includes("慌")) {
+    return "/images/emoji/担心、焦虑.png";
+  }
+  if (em.includes("生") || em.includes("气") || em.includes("怒") || em.includes("火") || em.includes("烦") || em.includes("躁") || em.includes("恼") || em.includes("呛") || em.includes("恨") || em.includes("厌")) {
+    return "/images/emoji/生气.png";
+  }
+  if (em.includes("平") || em.includes("静") || em.includes("淡") || em.includes("冷") || em.includes("克制") || em.includes("常")) {
+    return "/images/emoji/平静.png";
+  }
+
+  // 2. Best effort closest mapping (自动匹配最接近的情绪)
+  if (em.includes("羞") || em.includes("涩") || em.includes("爱") || em.includes("情") || em.includes("恋") || em.includes("感") || em.includes("戏") || em.includes("狡") || em.includes("坏") || em.includes("邪") || em.includes("得")) {
+    return "/images/emoji/开心.png";
+  }
+  if (em.includes("思") || em.includes("疑") || em.includes("奇") || em.includes("纳") || em.includes("探") || em.includes("呆") || em.includes("傻") || em.includes("懵") || em.includes("怔") || em.includes("愣") || em.includes("惊") || em.includes("震") || em.includes("汗") || em.includes("尬") || em.includes("哑")) {
+    return "/images/emoji/平静.png";
+  }
+  if (em.includes("叹") || em.includes("憋") || em.includes("屈") || em.includes("酸") || em.includes("孤") || em.includes("独") || em.includes("怜")) {
+    return "/images/emoji/伤心、难过.png";
+  }
+
+  return null;
+};
+
 const parseOS = (osStr: string | undefined | null) => {
   if (!osStr || osStr.trim() === "") {
     return {
       text: "（os：...）",
       emotion: "无",
-      emoji: "💭"
+      emoji: "💭",
+      icon: null as string | null
     };
   }
 
@@ -88,7 +133,8 @@ const parseOS = (osStr: string | undefined | null) => {
   return {
     text: text,
     emotion: emotion,
-    emoji: emoji
+    emoji: emoji,
+    icon: getEmotionIconPath(emotion)
   };
 };
 
@@ -596,6 +642,7 @@ export default function ChatApp({
         }
 
         let systemInstruction = `你正在参与群聊「${activeSession.groupName}」。同群成员有：${characters.filter(c => memberIds.includes(c.id)).map(c => c.name).join('、')}。`;
+        systemInstruction += getPhoneContent(respondingCharId);
         
         if (activeSession.worldSetting && activeSession.worldSetting.trim()) {
           systemInstruction += `\n\n【当前群聊的世界设定/叙事背景】：\n${activeSession.worldSetting.trim()}\n\n【注意】：此世界设定只作为你当前在群聊中的身份定位、叙事背景 and 对话氛围，绝对不能改变或覆盖你原本的性格特征、说话风格和人设偏好。请保持你原本人设的同时，自然地融入并符合这一背景设定与氛围，在发言和互动时予以符合。`;
@@ -624,7 +671,7 @@ export default function ChatApp({
           avatar: respondingChar.avatar,
           description: respondingChar.description || "一个充满魅力的角色",
           systemInstruction: systemInstruction,
-          model: respondingChar.model || settings?.model || "gemini-2.5-flash",
+          model: respondingChar.model || settings?.model || "gemini-3.6-flash",
         };
 
         const requestParams = {
@@ -632,7 +679,7 @@ export default function ChatApp({
           character: cleanCharacter,
           settings: {
             ...settings,
-            model: respondingChar.model || settings?.model || "gemini-2.5-flash",
+            model: respondingChar.model || settings?.model || "gemini-3.6-flash",
           },
           chatMode: "online",
           replyLength: charType === "silent" ? "short" : "medium",
@@ -640,6 +687,8 @@ export default function ChatApp({
           mood: "平静",
           memories: memories,
           isGroup: true,
+          // Mandatory data sources injection
+          systemInstruction: systemInstruction + "\n\n" + getThreeDataSourcesPrompt(respondingChar, memories, [])
         };
 
         const data = await apiChat(requestParams);
@@ -801,6 +850,52 @@ export default function ChatApp({
   const [isBlocked, setIsBlocked] = useState<boolean>(false);
   const [memories, setMemories] = useState<string[]>([]);
   const [newMemoryInput, setNewMemoryInput] = useState<string>("");
+  const [chatWallpapers, setChatWallpapers] = useState<string[]>([]);
+  const [currentChatWallpaper, setCurrentChatWallpaper] = useState<string | null>(null);
+
+  const compressImage = (file: File, maxSizeKB: number = 300): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new window.Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const maxDim = 800;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round(height * (maxDim / width));
+              width = maxDim;
+            } else {
+              width = Math.round(width * (maxDim / height));
+              height = maxDim;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          let quality = 0.85;
+          let dataUrl = canvas.toDataURL('image/jpeg', quality);
+          
+          const tryCompress = () => {
+            if (dataUrl.length > maxSizeKB * 1024 && quality > 0.1) {
+              quality -= 0.1;
+              dataUrl = canvas.toDataURL('image/jpeg', quality);
+              tryCompress();
+            } else {
+              resolve(dataUrl);
+            }
+          };
+          tryCompress();
+        };
+        img.src = e.target!.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
     message: string;
@@ -1348,11 +1443,12 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
   }
 ]`;
 
+          const charToUse = selectedChars[0] || { id: "moments-generator", name: "朋友圈助手", description: "朋友圈动态生成", memories: [] };
           const res = await apiChat({
-            character: selectedChars[0] || { id: "moments-generator", name: "朋友圈助手", description: "朋友圈动态生成" },
+            character: charToUse,
             messages: [{ role: "user", content: prompt }],
             settings,
-            systemInstruction: "你是一个朋友圈动态生成助手，请根据角色人设生成真实生动的动态。必须只返回JSON数组。"
+            systemInstruction: "你是一个朋友圈动态生成助手，请根据角色人设生成真实生动的动态。必须只返回JSON数组。\n\n" + getThreeDataSourcesPrompt(charToUse, (charToUse as any).memories || [], [])
           });
 
           const rawText = res.text || "";
@@ -1779,6 +1875,20 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
       setTimePerception(parsedSelf.timePerception !== undefined ? parsedSelf.timePerception : false);
       setIsBlocked(parsedSelf.isBlocked !== undefined ? parsedSelf.isBlocked : false);
       setMemories(memoriesToLoad);
+
+      const savedWallpapers = localStorage.getItem(`chat_wallpapers_${activeCharId}`);
+      if (savedWallpapers) {
+        try {
+          setChatWallpapers(JSON.parse(savedWallpapers));
+        } catch (e) {
+          setChatWallpapers([]);
+        }
+      } else {
+        setChatWallpapers([]);
+      }
+
+      const savedWp = localStorage.getItem(`chat_current_wallpaper_${activeCharId}`);
+      setCurrentChatWallpaper(savedWp || null);
     }
   }, [activeCharId, characters]);
 
@@ -1903,7 +2013,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
       avatar: charAvatar.trim() || "🤖",
       description: charDesc.trim() || "暂无简介",
       systemInstruction: charSys.trim() || `你正在扮演角色 "${charName.trim()}"。`,
-      model: settings?.model || "gemini-2.5-flash",
+      model: settings?.model || "gemini-3.6-flash",
       userPersonaId: charUserPersonaId || undefined,
     });
 
@@ -2128,8 +2238,43 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
       const lastUserMsg = [...currentHistory].reverse().find((m) => m.role === "user");
       const { matched, keys } = lastUserMsg ? matchLore(lastUserMsg.content) : { matched: [], keys: [] };
 
-      // Determine reply count (for active messages, usually 1 or randomized based on settings)
-      const count = Math.max(1, Math.floor(Math.random() * (maxReplies - minReplies + 1)) + minReplies);
+      // Determine reply count (for active messages, usually 1 or randomized based on settings) based on character personality/archetype (强化条数绑定规则)
+      const getReplyCountForCharacter = (char: any, minRep: number, maxRep: number): number => {
+        const name = char?.name || "";
+        const desc = char?.description || "";
+        const sys = char?.systemInstruction || "";
+        const combined = `${name} ${desc} ${sys}`.toLowerCase();
+
+        const isColdOrSilent = /冷|少|静|高冷|克制|淡|不善言辞|冰/i.test(combined);
+        const isLivelyOrTalkative = /热|活泼|话痨|痨|多话|话多|健谈|啰唆/i.test(combined);
+        const isGentleOrListening = /温|暖|听|倾听|治愈|缓/i.test(combined);
+
+        if (isColdOrSilent) {
+          // 高冷/话少人设：即使设置范围是 1-10 条，也只回复 1-2 条，用简短语句表达。
+          return Math.floor(Math.random() * 2) + 1; // 1 or 2 replies
+        }
+
+        if (isLivelyOrTalkative) {
+          // 活泼/话痨人设：在设置范围内取偏大值，可连续发送多条消息。
+          const mid = Math.floor((minRep + maxRep) / 2);
+          const start = Math.max(minRep, mid);
+          const end = Math.max(start, maxRep);
+          return Math.floor(Math.random() * (end - start + 1)) + start;
+        }
+
+        if (isGentleOrListening) {
+          // 温和/倾听型人设：回复条数适中，以回应和承接为主。
+          const mid = Math.round((minRep + maxRep) / 2);
+          const start = Math.max(1, mid - 1);
+          const end = Math.min(maxRep, mid + 1);
+          return Math.floor(Math.random() * (end - start + 1)) + start;
+        }
+
+        // Default fallback random
+        return Math.max(1, Math.floor(Math.random() * (maxRep - minRep + 1)) + minRep);
+      };
+
+      const count = getReplyCountForCharacter(activeChar, minReplies, maxReplies);
 
       // 2. Request API response
       const cleanCharacter = {
@@ -2138,14 +2283,14 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
         avatar: activeChar.avatar,
         description: activeChar.description || "一个充满魅力的角色",
         systemInstruction: activeChar.systemInstruction || `你正在扮演角色 "${activeChar.name}"。请保持符合人设的自然日常对话。`,
-        model: activeChar.model || settings?.model || "gemini-2.5-flash",
+        model: activeChar.model || settings?.model || "gemini-3.6-flash",
       };
       const requestParams = {
         messages: [...currentHistory, promptMessage], // append hidden prompt message
         character: cleanCharacter,
         settings: {
           ...settings,
-          model: activeChar.model || settings?.model || "gemini-2.5-flash",
+          model: activeChar.model || settings?.model || "gemini-3.6-flash",
         },
         matchedLore: matched,
         chatMode: chatMode,
@@ -2519,17 +2664,17 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
           <div className="absolute left-[10px] top-[18px] bottom-[18px] w-[3px] bg-blue-500 rounded-[1.5px]" />
           <div className="pl-2 space-y-2.5">
             <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
-              <span className="text-xs font-sans font-bold text-blue-900 flex items-center gap-1.5 shrink-0">
-                🚶 互通模式见面
+              <span className="text-xs  font-bold text-blue-900 flex items-center gap-1.5 shrink-0">
+                线下界面
               </span>
-              <span className={`text-[10px] font-sans font-medium px-2 py-0.5 rounded-full ${
+              <span className={`text-[10px]  font-medium px-2 py-0.5 rounded-full ${
                 status === "active" ? "bg-amber-100 text-amber-800" : "bg-neutral-100 text-neutral-500"
               }`}>
                 {status === "active" ? "进行中" : "已结束"}
               </span>
             </div>
             
-            <p className="text-xs font-sans text-neutral-600 leading-relaxed break-words line-clamp-3">
+            <p className="text-xs  text-neutral-600 leading-relaxed break-words line-clamp-3">
               正在进行一场读取主线上下文的线下约会。
             </p>
 
@@ -2541,7 +2686,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     onClick={() => {
                       setShowOfflineMeet(true);
                     }}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold font-sans text-xs py-2 rounded-[10px] transition-colors active:scale-95"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold  text-xs py-2 rounded-[10px] transition-colors active:scale-95"
                   >
                     继续见面
                   </button>
@@ -2549,21 +2694,21 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     <button
                       type="button"
                       onClick={() => handleEndMeet("save")}
-                      className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold font-sans text-xs py-2 rounded-[10px] transition-colors active:scale-95"
+                      className="flex-1 bg-stone-100 hover:bg-stone-200 text-stone-700 font-bold  text-xs py-2 rounded-[10px] transition-colors active:scale-95"
                     >
                       结束并注入记忆
                     </button>
                     <button
                       type="button"
                       onClick={() => handleEndMeet("delete")}
-                      className="flex-1 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold font-sans text-xs py-2 rounded-[10px] transition-colors active:scale-95"
+                      className="flex-1 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold  text-xs py-2 rounded-[10px] transition-colors active:scale-95"
                     >
                       结束并删除记忆
                     </button>
                   </div>
                 </>
               ) : (
-                <span className="text-xs text-neutral-400 font-sans block text-center py-1">
+                <span className="text-xs text-neutral-400  block text-center py-1">
                   该场见面已结束
                 </span>
               )}
@@ -2608,16 +2753,16 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
           <div className="pl-2 space-y-2.5">
             {/* 第一行：左侧“💳 转账”，右侧金额（大号艺术字体，深灰色 28px Playfair Display） */}
             <div className="flex items-baseline justify-between gap-3 border-b border-neutral-100/80 pb-2.5">
-              <span className="text-xs font-sans font-medium text-neutral-600 flex items-center gap-1.5 shrink-0">
+              <span className="text-xs  font-medium text-neutral-600 flex items-center gap-1.5 shrink-0">
                 💳 转账
               </span>
-              <span className="font-serif text-[28px] font-bold text-neutral-800 tracking-tight leading-none shrink-0">
+              <span className=" text-[28px] font-bold text-neutral-800 tracking-tight leading-none shrink-0">
                 ¥{amount}
               </span>
             </div>
 
             {/* 第二行：转账人（加粗）+ “向你转账”，灰色小字 */}
-            <div className="text-xs font-sans text-neutral-500 flex items-center">
+            <div className="text-xs  text-neutral-500 flex items-center">
               <span className="font-bold text-neutral-800 mr-1">
                 {activeChar?.name || "对方"}
               </span>
@@ -2626,7 +2771,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
             {/* 第三行：附言（小字，斜体，暖灰色） */}
             {note && (
-              <p className="text-[11px] font-sans italic text-stone-500 leading-relaxed break-words">
+              <p className="text-[11px]  italic text-stone-500 leading-relaxed break-words">
                 “{note}”
               </p>
             )}
@@ -2641,7 +2786,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       e.stopPropagation();
                       handleReturnCharacterTransfer(msg.id, transferId);
                     }}
-                    className="text-xs font-sans text-neutral-400 hover:text-neutral-600 px-2 py-1 transition-colors"
+                    className="text-xs  text-neutral-400 hover:text-neutral-600 px-2 py-1 transition-colors"
                   >
                     退回
                   </button>
@@ -2651,7 +2796,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       e.stopPropagation();
                       handleCollectCharacterTransfer(msg.id, amount, note, transferId);
                     }}
-                    className="bg-black hover:bg-neutral-800 active:scale-95 text-white font-sans text-xs font-medium rounded-[8px] px-[20px] py-[8px] transition-all shadow-xs cursor-pointer"
+                    className="bg-black hover:bg-neutral-800 active:scale-95 text-white  text-xs font-medium rounded-[8px] px-[20px] py-[8px] transition-all shadow-xs cursor-pointer"
                   >
                     确认收款
                   </button>
@@ -2661,7 +2806,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 <button
                   disabled
                   type="button"
-                  className="bg-neutral-300 text-white font-sans text-xs font-medium rounded-[8px] px-[20px] py-[8px] cursor-not-allowed"
+                  className="bg-neutral-300 text-white  text-xs font-medium rounded-[8px] px-[20px] py-[8px] cursor-not-allowed"
                 >
                   已收款
                 </button>
@@ -2670,7 +2815,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 <button
                   disabled
                   type="button"
-                  className="bg-neutral-200 text-neutral-400 font-sans text-xs font-medium rounded-[8px] px-[20px] py-[8px] cursor-not-allowed"
+                  className="bg-neutral-200 text-neutral-400  text-xs font-medium rounded-[8px] px-[20px] py-[8px] cursor-not-allowed"
                 >
                   已退回
                 </button>
@@ -2692,16 +2837,16 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
           <div className="pl-2 space-y-2.5">
             {/* 第一行：左侧“💳 转账”，右侧金额（大号艺术字体，深灰色 28px Playfair Display） */}
             <div className="flex items-baseline justify-between gap-3 border-b border-neutral-100/80 pb-2.5">
-              <span className="text-xs font-sans font-medium text-neutral-600 flex items-center gap-1.5 shrink-0">
+              <span className="text-xs  font-medium text-neutral-600 flex items-center gap-1.5 shrink-0">
                 💳 转账
               </span>
-              <span className="font-serif text-[28px] font-bold text-neutral-800 tracking-tight leading-none shrink-0">
+              <span className=" text-[28px] font-bold text-neutral-800 tracking-tight leading-none shrink-0">
                 ¥{amount}
               </span>
             </div>
 
             {/* 第二行：转账人（加粗）+ “向你转账”，灰色小字 */}
-            <div className="text-xs font-sans text-neutral-500 flex items-center">
+            <div className="text-xs  text-neutral-500 flex items-center">
               你向
               <span className="font-bold text-neutral-800 mx-1">
                 {activeChar?.name || "对方"}
@@ -2711,7 +2856,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
             {/* 第三行：附言（小字，斜体，暖灰色） */}
             {note && (
-              <p className="text-[11px] font-sans italic text-stone-500 leading-relaxed break-words">
+              <p className="text-[11px]  italic text-stone-500 leading-relaxed break-words">
                 “{note}”
               </p>
             )}
@@ -2721,7 +2866,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               <button
                 disabled
                 type="button"
-                className="bg-neutral-100 text-neutral-500 font-sans text-xs font-medium rounded-[8px] px-[20px] py-[8px] cursor-default"
+                className="bg-neutral-100 text-neutral-500  text-xs font-medium rounded-[8px] px-[20px] py-[8px] cursor-default"
               >
                 等待对方接收
               </button>
@@ -2738,7 +2883,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             <span className="text-base">📍</span>
             <span className="truncate">共享位置</span>
           </div>
-          <p className="text-xs font-sans font-medium text-neutral-800">{locName}</p>
+          <p className="text-xs  font-medium text-neutral-800">{locName}</p>
         </div>
       );
     }
@@ -2759,7 +2904,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
       return (
         <div className="bg-white border border-neutral-200 rounded-2xl p-3.5 space-y-2 text-xs text-neutral-900 select-none shadow-sm max-w-[260px] my-1 text-left">
           <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
-            <span className="text-[10px] font-sans font-bold text-neutral-700 flex items-center gap-1">
+            <span className="text-[10px]  font-bold text-neutral-700 flex items-center gap-1">
               <Compass className="w-3.5 h-3.5 text-neutral-800" />
               朋友圈动态
             </span>
@@ -2778,7 +2923,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
           </div>
 
           {textContent && (
-            <p className="text-xs font-sans text-neutral-800 line-clamp-3 leading-relaxed font-medium">
+            <p className="text-xs  text-neutral-800 line-clamp-3 leading-relaxed font-medium">
               {textContent}
             </p>
           )}
@@ -2827,10 +2972,10 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
           <div className="pl-2 space-y-2.5">
             {/* 顶栏 */}
             <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
-              <span className="text-xs font-sans font-bold text-purple-900 flex items-center gap-1.5 shrink-0">
+              <span className="text-xs  font-bold text-purple-900 flex items-center gap-1.5 shrink-0">
                 📖 线下见面邀请
               </span>
-              <span className={`text-[10px] font-sans font-medium px-2 py-0.5 rounded-full ${
+              <span className={`text-[10px]  font-medium px-2 py-0.5 rounded-full ${
                 status === "pending"
                   ? "bg-amber-50 text-amber-700 border border-amber-200"
                   : status === "accepted"
@@ -2842,13 +2987,13 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             </div>
 
             {/* 核心描述 */}
-            <div className="text-xs font-sans font-semibold text-neutral-800">
+            <div className="text-xs  font-semibold text-neutral-800">
               {titleText}
             </div>
 
             {/* 附言 */}
             {note && (
-              <p className="text-[11px] font-sans italic text-stone-600 leading-relaxed break-words bg-stone-50/80 p-2 rounded-lg border border-stone-100">
+              <p className="text-[11px]  italic text-stone-600 leading-relaxed break-words bg-stone-50/80 p-2 rounded-lg border border-stone-100">
                 “{note}”
               </p>
             )}
@@ -2863,7 +3008,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       e.stopPropagation();
                       handleDeclineOfflineInvitation(msg.id);
                     }}
-                    className="text-xs font-sans font-medium text-neutral-600 hover:text-neutral-900 px-3 py-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 transition-all active:scale-95 cursor-pointer"
+                    className="text-xs  font-medium text-neutral-600 hover:text-neutral-900 px-3 py-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-50 transition-all active:scale-95 cursor-pointer"
                   >
                     拒绝
                   </button>
@@ -2873,7 +3018,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       e.stopPropagation();
                       handleAcceptOfflineInvitation(msg.id);
                     }}
-                    className="bg-purple-700 hover:bg-purple-800 active:scale-95 text-white font-sans text-xs font-medium rounded-lg px-4 py-1.5 transition-all shadow-xs cursor-pointer"
+                    className="bg-purple-700 hover:bg-purple-800 active:scale-95 text-white  text-xs font-medium rounded-lg px-4 py-1.5 transition-all shadow-xs cursor-pointer"
                   >
                     接受
                   </button>
@@ -2881,7 +3026,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               )}
 
               {status === "pending" && isUserSender && (
-                <span className="text-[11px] text-neutral-400 font-sans italic">
+                <span className="text-[11px] text-neutral-400  italic">
                   等待对方回答...
                 </span>
               )}
@@ -2893,14 +3038,14 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     e.stopPropagation();
                     setShowOfflineMeet(true);
                   }}
-                  className="bg-purple-50 hover:bg-purple-100 text-purple-700 font-sans text-xs font-medium rounded-lg px-3.5 py-1.5 transition-all cursor-pointer flex items-center gap-1"
+                  className="bg-purple-50 hover:bg-purple-100 text-purple-700  text-xs font-medium rounded-lg px-3.5 py-1.5 transition-all cursor-pointer flex items-center gap-1"
                 >
                   <span>进入线下见面</span>
                 </button>
               )}
 
               {status === "declined" && (
-                <span className="text-[11px] text-neutral-400 font-sans italic">
+                <span className="text-[11px] text-neutral-400  italic">
                   已拒绝
                 </span>
               )}
@@ -2940,7 +3085,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     </span>
                     <span className="text-[10px] text-[#A8A090] font-mono">Image</span>
                   </div>
-                  <div className="rounded-xl bg-[#F3EDE3] p-3 border border-[#E3DDD0] text-[#3D372E] text-[12.5px] font-sans leading-relaxed flex flex-col gap-1.5">
+                  <div className="rounded-xl bg-[#F3EDE3] p-3 border border-[#E3DDD0] text-[#3D372E] text-[12.5px]  leading-relaxed flex flex-col gap-1.5">
                     <div className="flex items-start gap-2">
                       <span className="text-base shrink-0 select-none">🖼️</span>
                       <span className="italic font-medium">{imgDesc}</span>
@@ -2985,7 +3130,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
-                  <span className="font-sans font-bold text-base tracking-wide text-neutral-950">消息 (CHATS)</span>
+                  <span className=" font-bold text-base tracking-wide text-neutral-950">消息 (CHATS)</span>
                   <div className="relative">
                     <button
                       onClick={() => setShowGroupPlusMenu(!showGroupPlusMenu)}
@@ -2995,7 +3140,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       <Plus className="w-5 h-5" />
                     </button>
                     {showGroupPlusMenu && (
-                      <div className="absolute right-0 mt-2 w-36 bg-white border border-neutral-200 rounded-xl shadow-lg py-1 z-50 text-xs font-sans">
+                      <div className="absolute right-0 mt-2 w-36 bg-white border border-neutral-200 rounded-xl shadow-lg py-1 z-50 text-xs ">
                         <button
                           onClick={() => {
                             setShowGroupPlusMenu(false);
@@ -3133,7 +3278,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                           placeholder="用第二人称或第三人称详细指定该角色的口吻、身世、说话习惯以及秘密。AI 将绝对遵循此项设定。"
                           value={charSys}
                           onChange={(e) => setCharSys(e.target.value)}
-                          className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white resize-none font-sans leading-relaxed"
+                          className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white resize-none  leading-relaxed"
                         />
                       </div>
 
@@ -3181,7 +3326,9 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                           };
                         });
 
-                      const allItems = [...charItems, ...groupItems].sort((a, b) => b.lastActive - a.lastActive);
+                      const otherItems = [...charItems.filter(i => i.id !== 'char-preset-fafa'), ...groupItems]
+                        .sort((a, b) => b.lastActive - a.lastActive);
+                      const allItems = otherItems;
 
                       return allItems.map(item => {
                         if (item.type === 'char') {
@@ -3197,12 +3344,8 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                               className="p-4 bg-white border border-neutral-200/60 shadow-sm rounded-2xl flex items-center justify-between gap-3 hover:border-neutral-400 cursor-pointer active:scale-[0.99] transition-all relative"
                             >
                               <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                                <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center overflow-hidden text-2xl select-none shadow-inner shrink-0 relative">
-                                  {char.chatAvatar ? (
-                                    <img src={char.chatAvatar} alt={char.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                  ) : (
-                                    char.avatar
-                                  )}
+                                <div className="relative shrink-0">
+                                  <CharacterAvatar character={char} mode="chat" size={48} className="rounded-xl shadow-inner shrink-0" />
                                   {unreads[char.id] && (
                                     <span className="absolute -top-1.5 -right-1.5 w-3 h-3 bg-red-500 rounded-full border border-white" />
                                   )}
@@ -3216,10 +3359,10 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center justify-between">
-                                    <span className="font-sans font-bold text-sm text-neutral-950 truncate max-w-[150px]">{char.name}</span>
+                                    <span className=" font-bold text-sm text-neutral-950 truncate max-w-[150px]">{char.name}</span>
                                     <span className="text-[10px] font-mono text-neutral-400 shrink-0">{displayTime}</span>
                                   </div>
-                                  <p className="text-xs text-neutral-400 truncate max-w-[210px] font-sans mt-0.5">{previewText}</p>
+                                  <p className="text-xs text-neutral-400 truncate max-w-[210px]  mt-0.5">{previewText}</p>
                                 </div>
                               </div>
                             </div>
@@ -3253,10 +3396,10 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center justify-between">
-                                    <span className="font-sans font-bold text-sm text-neutral-950 truncate max-w-[150px]">{group.groupName}</span>
+                                    <span className=" font-bold text-sm text-neutral-950 truncate max-w-[150px]">{group.groupName}</span>
                                     <span className="text-[10px] font-mono text-neutral-400 shrink-0">{displayTime}</span>
                                   </div>
-                                  <p className="text-xs text-neutral-400 truncate max-w-[210px] font-sans mt-0.5">{previewText}</p>
+                                  <p className="text-xs text-neutral-400 truncate max-w-[210px]  mt-0.5">{previewText}</p>
                                 </div>
                               </div>
                             </div>
@@ -3281,7 +3424,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
-                  <span className="font-sans font-bold text-base tracking-wide text-neutral-950">通讯录 (CONTACTS)</span>
+                  <span className=" font-bold text-base tracking-wide text-neutral-950">通讯录 (CONTACTS)</span>
                   <button
                     onClick={() => {
                       setMainTab("chat");
@@ -3311,7 +3454,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 {/* Scrollable List */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
                   {(() => {
-                    const filtered = characters.filter(c => c.name.includes(searchQuery) || (c.description || "").includes(searchQuery));
+                    const filtered = characters.filter(c => c.id !== 'char-preset-fafa' && (c.name.includes(searchQuery) || (c.description || "").includes(searchQuery)));
                     const groups: Record<string, Character[]> = {};
                     
                     filtered.forEach(c => {
@@ -3351,8 +3494,8 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                                   )}
                                 </div>
                                 <div className="min-w-0 flex-1">
-                                  <span className="font-sans font-bold text-xs text-neutral-950 block">{char.name}</span>
-                                  <p className="text-[11px] text-neutral-400 truncate max-w-[180px] font-sans mt-0.5">
+                                  <span className=" font-bold text-xs text-neutral-950 block">{char.name}</span>
+                                  <p className="text-[11px] text-neutral-400 truncate max-w-[180px]  mt-0.5">
                                     {char.description || "无简介"}
                                   </p>
                                 </div>
@@ -3386,7 +3529,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   {/* Empty State */}
                   {characters.filter(c => c.name.includes(searchQuery) || (c.description || "").includes(searchQuery)).length === 0 && (
                     <div className="py-12 text-center">
-                      <p className="text-xs text-neutral-400 font-sans">没有找到符合条件的联系人</p>
+                      <p className="text-xs text-neutral-400 ">没有找到符合条件的联系人</p>
                     </div>
                   )}
                 </div>
@@ -3425,11 +3568,11 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
-                  <span className="font-sans font-bold text-base tracking-wide text-neutral-950">朋友圈</span>
+                  <span className=" font-bold text-base tracking-wide text-neutral-950">朋友圈</span>
                   <button
                     onClick={handleTriggerBatchMoments}
                     disabled={isGeneratingPosts}
-                    className="flex items-center gap-1.5 text-[11px] font-sans font-bold bg-neutral-900 hover:bg-black text-white px-3 py-1.5 rounded-full shadow-xs active:scale-95 transition-all disabled:opacity-50"
+                    className="flex items-center gap-1.5 text-[11px]  font-bold bg-neutral-900 hover:bg-black text-white px-3 py-1.5 rounded-full shadow-xs active:scale-95 transition-all disabled:opacity-50"
                     title="刷新并生成 3-6 条角色动态"
                   >
                     <Sparkles className={`w-3.5 h-3.5 ${isGeneratingPosts ? "animate-spin" : ""}`} />
@@ -3444,15 +3587,16 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       <div className="w-16 h-16 rounded-full bg-neutral-100 border border-neutral-200/60 flex items-center justify-center text-neutral-400 mx-auto">
                         <Compass className="w-7 h-7 stroke-[1.5]" />
                       </div>
-                      <p className="text-xs text-neutral-400 font-sans">暂无朋友圈动态，点击下方 “+” 按钮发布第一条动态吧！</p>
+                      <p className="text-xs text-neutral-400 ">暂无朋友圈动态，点击下方 “+” 按钮发布第一条动态吧！</p>
                     </div>
                   ) : (
                     <div className="divide-y divide-neutral-100">
                       {[...moments]
                         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
                         .map((post) => {
-                          const avatar = post.authorAvatar || post.characterChatAvatar || post.characterAvatar || "👤";
-                          const name = post.authorName || post.characterName || "用户";
+                          const char = characters.find(c => c.id === post.characterId);
+                          const avatar = post.authorAvatar || "👤";
+                          const name = post.authorName || "用户";
 
                           return (
                             <div 
@@ -3470,12 +3614,8 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                               className="p-4 flex gap-3 animate-fade-in border-b border-neutral-100/80 relative select-none hover:bg-neutral-50/50 transition-colors"
                             >
                               {/* Left Column: Avatar */}
-                              <div className="w-10 h-10 rounded-full bg-neutral-100 border border-neutral-200/50 flex items-center justify-center overflow-hidden text-xl select-none shrink-0">
-                                {avatar.startsWith("data:") || avatar.startsWith("http") || avatar.startsWith("/") ? (
-                                  <img src={avatar} alt={name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                ) : (
-                                  <span className="text-xl">{avatar}</span>
-                                )}
+                              <div className="shrink-0">
+                                <CharacterAvatar character={char} avatar={avatar} name={name} mode="real" size={40} className="border border-neutral-200/50" />
                               </div>
 
                               {/* Right Column: Moment Body */}
@@ -3483,7 +3623,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                                 {/* Name, Time, Visibility & Delete Action */}
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
-                                    <span className="font-sans font-bold text-xs text-neutral-900">{name}</span>
+                                    <span className=" font-bold text-xs text-neutral-900">{name}</span>
                                     {post.visibility === "visible_some" && (
                                       <span className="text-[9px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200/60 font-medium">部分可见</span>
                                     )}
@@ -3508,7 +3648,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
                                 {/* Post Text Content */}
                                 {post.content && (
-                                  <p className="text-xs text-neutral-800 leading-relaxed font-sans font-medium break-all whitespace-pre-wrap">
+                                  <p className="text-xs text-neutral-800 leading-relaxed  font-medium break-all whitespace-pre-wrap">
                                     {post.content}
                                   </p>
                                 )}
@@ -3769,7 +3909,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   >
                     <ChevronLeft className="w-5 h-5" />
                   </button>
-                  <span className="font-sans font-bold text-base tracking-wide text-neutral-950">我的 (PROFILE)</span>
+                  <span className=" font-bold text-base tracking-wide text-neutral-950">我的 (PROFILE)</span>
                   <div className="w-7 h-7" /> {/* Spacer */}
                 </div>
 
@@ -3783,7 +3923,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     >
                       <div className="flex items-center gap-2.5">
                         <Wallet className="w-4 h-4 text-neutral-800" />
-                        <span className="font-sans font-bold text-neutral-900">钱包</span>
+                        <span className=" font-bold text-neutral-900">钱包</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-bold text-neutral-900">¥{walletBalance.toFixed(2)}</span>
@@ -3796,7 +3936,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     >
                       <div className="flex items-center gap-2.5">
                         <User className="w-4 h-4 text-neutral-800" />
-                        <span className="font-sans font-bold text-neutral-900">用户设定</span>
+                        <span className=" font-bold text-neutral-900">用户设定</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-neutral-400">{userPersonas.length} 个设定</span>
@@ -3805,11 +3945,11 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     </div>
                     <div className="p-4 flex flex-col gap-1 text-xs">
                       <div className="flex items-center justify-between">
-                        <span className="font-sans font-bold text-neutral-600">版本信息</span>
+                        <span className=" font-bold text-neutral-600">版本信息</span>
                         <span className="font-mono text-neutral-400">v1.4.2 (Monochrome)</span>
                       </div>
                       <div className="flex items-center justify-between mt-1">
-                        <span className="font-sans text-[10px] text-neutral-400">更新于：{
+                        <span className=" text-[10px] text-neutral-400">更新于：{
                           (() => {
                             try {
                               const date = new Date(typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : Date.now());
@@ -3846,7 +3986,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               }`}
             >
               <MessageSquarePlus className={`w-5 h-5 ${mainTab === "chat" ? "stroke-[2.5]" : "stroke-[1.5]"}`} />
-              <span className={`text-[10px] font-sans ${mainTab === "chat" ? "font-bold" : "font-medium"}`}>对话</span>
+              <span className={`text-[10px]  ${mainTab === "chat" ? "font-bold" : "font-medium"}`}>对话</span>
               {/* Show unread dot on tab icon if any character has unread state */}
               {Object.values(unreads).some(val => val) && (
                 <span className="absolute top-1 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white" />
@@ -3864,7 +4004,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               }`}
             >
               <Users className={`w-5 h-5 ${mainTab === "contacts" ? "stroke-[2.5]" : "stroke-[1.5]"}`} />
-              <span className={`text-[10px] font-sans ${mainTab === "contacts" ? "font-bold" : "font-medium"}`}>联系人</span>
+              <span className={`text-[10px]  ${mainTab === "contacts" ? "font-bold" : "font-medium"}`}>联系人</span>
             </button>
 
             {/* Tab 3 Indicator: Moments */}
@@ -3878,7 +4018,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               }`}
             >
               <Compass className={`w-5 h-5 ${mainTab === "moments" ? "stroke-[2.5]" : "stroke-[1.5]"}`} />
-              <span className={`text-[10px] font-sans ${mainTab === "moments" ? "font-bold" : "font-medium"}`}>朋友圈</span>
+              <span className={`text-[10px]  ${mainTab === "moments" ? "font-bold" : "font-medium"}`}>朋友圈</span>
             </button>
 
             {/* Tab 4 Indicator: Me */}
@@ -3892,7 +4032,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               }`}
             >
               <User className={`w-5 h-5 ${mainTab === "me" ? "stroke-[2.5]" : "stroke-[1.5]"}`} />
-              <span className={`text-[10px] font-sans ${mainTab === "me" ? "font-bold" : "font-medium"}`}>我的</span>
+              <span className={`text-[10px]  ${mainTab === "me" ? "font-bold" : "font-medium"}`}>我的</span>
             </button>
           </div>
 
@@ -3924,7 +4064,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 )}
               </div>
               <div className="text-left">
-                <h3 className="font-sans font-bold text-sm text-neutral-950 truncate max-w-[160px]">{activeSession.groupName}</h3>
+                <h3 className=" font-bold text-sm text-neutral-950 truncate max-w-[160px]">{activeSession.groupName}</h3>
                 <span className="text-[10px] text-neutral-400 font-mono block">{activeSession.memberIds?.length || 0}位群成员</span>
               </div>
             </div>
@@ -3946,7 +4086,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               if (msg.isRecalled) {
                 return (
                   <div key={msg.id || idx} className="w-full flex justify-center my-1.5 animate-fade-in select-none">
-                    <span className="text-[10px] text-neutral-400 font-sans bg-neutral-100 px-3 py-1 rounded-full border border-neutral-200/30">
+                    <span className="text-[10px] text-neutral-400  bg-neutral-100 px-3 py-1 rounded-full border border-neutral-200/30">
                       {isUser ? (
                         <>
                           你撤回了一条消息{" "}
@@ -3971,17 +4111,20 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               return (
                 <div key={msg.id || idx} className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
                   {!isUser && (
-                    <div className="w-9 h-9 rounded-xl bg-neutral-200 flex items-center justify-center overflow-hidden text-base shrink-0 select-none shadow-sm mt-0.5">
-                      {msg.senderAvatar ? (
-                        <img src={msg.senderAvatar} alt={msg.senderName || "成员"} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      ) : (
-                        "🤖"
-                      )}
+                    <div className="shrink-0">
+                      <CharacterAvatar 
+                        character={characters.find(c => c.id === (msg.senderId || activeSession.characterId))} 
+                        avatar={msg.senderAvatar} 
+                        name={msg.senderName || "成员"} 
+                        mode="chat" 
+                        size={36} 
+                        className="rounded-xl shadow-sm mt-0.5" 
+                      />
                     </div>
                   )}
                   <div className={`flex flex-col max-w-[75%] ${isUser ? "items-end" : "items-start"}`}>
                     {!isUser && (
-                      <span className="text-[11px] font-bold text-neutral-500 mb-1 ml-1 font-sans">{msg.senderName || "群成员"}</span>
+                      <span className="text-[11px] font-bold text-neutral-500 mb-1 ml-1 ">{msg.senderName || "群成员"}</span>
                     )}
                     <div
                       onMouseDown={() => handleMouseDown(msg)}
@@ -3990,7 +4133,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       onTouchEnd={handleTouchEnd}
                       onContextMenu={(e) => handleContextMenu(e, msg)}
                       onDoubleClick={() => handleDoubleClick(msg)}
-                      className={`p-3.5 rounded-2xl text-xs leading-relaxed font-sans shadow-sm select-text cursor-pointer active:scale-[0.99] transition-all relative ${
+                      className={`p-3.5 rounded-2xl text-xs leading-relaxed  shadow-sm select-text cursor-pointer active:scale-[0.99] transition-all relative ${
                         isUser
                           ? "bg-black text-white rounded-tr-xs"
                           : "bg-white text-neutral-900 border border-neutral-200/60 rounded-tl-xs"
@@ -3999,7 +4142,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     >
                       {/* Quoted item block (inside bubble) in group chat */}
                       {msg.quotedMsg && (
-                        <div className="mb-1.5 p-2 bg-neutral-100/80 border-l-2 border-neutral-400 rounded text-[10px] text-neutral-600 font-sans truncate max-w-full text-left">
+                        <div className="mb-1.5 p-2 bg-neutral-100/80 border-l-2 border-neutral-400 rounded text-[10px] text-neutral-600  truncate max-w-full text-left">
                           <span className="font-bold block text-[9px] uppercase tracking-wider text-neutral-400 mb-0.5">
                             引用:
                           </span>
@@ -4034,7 +4177,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
           {/* Quoted Message thumbnail preview above input area */}
           {quotedMsgState && (
-            <div className="mx-3 mb-2 p-2.5 bg-neutral-50 border border-neutral-200 rounded-xl flex justify-between items-center text-[11px] text-neutral-500 font-sans animate-fade-in shrink-0">
+            <div className="mx-3 mb-2 p-2.5 bg-neutral-50 border border-neutral-200 rounded-xl flex justify-between items-center text-[11px] text-neutral-500  animate-fade-in shrink-0">
               <div className="flex-1 truncate pr-3">
                 <span className="font-bold text-[9px] uppercase tracking-wider text-neutral-400 block">引用消息 (QUOTING)</span>
                 <span className="truncate block italic text-left">
@@ -4116,9 +4259,13 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             
             {/* Active Character Profile Header */}
             <div 
-              onClick={() => setShowProfileModal(true)}
-              className="flex items-center gap-1.5 min-w-0 text-center flex-col cursor-pointer hover:opacity-85 active:scale-[0.98] transition-all"
-              title="点击窥听角色此刻的内心心声"
+              onClick={() => {
+                if (activeChar.id !== 'char-preset-fafa') {
+                  setShowProfileModal(true);
+                }
+              }}
+              className={`flex items-center gap-1.5 min-w-0 text-center flex-col transition-all ${activeChar.id === 'char-preset-fafa' ? '' : 'cursor-pointer hover:opacity-85 active:scale-[0.98]'}`}
+              title={activeChar.id === 'char-preset-fafa' ? "" : "点击窥听角色此刻的内心心声"}
             >
               {(() => {
                 const osParsed = parseOS(activeSession?.currentOS);
@@ -4132,14 +4279,18 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       ) : (
                         <span className="text-lg">{activeChar.avatar}</span>
                       )}
-                      <span className="font-sans font-bold text-sm text-neutral-950 truncate max-w-[200px]">
+                      <span className=" font-bold text-sm text-neutral-950 truncate max-w-[200px]">
                         {activeChar.isSubAccount && activeChar.isBusted 
                           ? `已揭穿 · ${activeChar.parentCharacterName} 的小号` 
                           : activeChar.name}
                       </span>
                       {/* Character mood display */}
-                      <span className="text-[12px] text-[#888] font-sans inline-flex items-center gap-1 shrink-0 bg-neutral-100 px-2 py-0.5 rounded-full border border-neutral-200/20 shadow-sm">
-                        <span>{osParsed.emoji}</span>
+                      <span className="text-[12px] text-[#888]  inline-flex items-center gap-1 shrink-0 bg-neutral-100 px-2 py-0.5 rounded-full border border-neutral-200/20 shadow-sm">
+                        {osParsed.icon ? (
+                          <img src={osParsed.icon} alt={osParsed.emotion} className="w-4 h-4 object-contain shrink-0" referrerPolicy="no-referrer" />
+                        ) : (
+                          <span>{osParsed.emoji}</span>
+                        )}
                         <span>{osParsed.emotion}</span>
                       </span>
                     </div>
@@ -4149,13 +4300,17 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             </div>
 
             {/* Settings Hamburger Menu */}
-            <button
-              onClick={() => setShowSettings(true)}
-              className="p-1.5 text-neutral-500 hover:text-black rounded-lg hover:bg-neutral-50 active:scale-95 transition-all"
-              title="聊天设置"
-            >
-              <Menu className="w-5 h-5" />
-            </button>
+            {activeChar.id !== 'char-preset-fafa' ? (
+              <button
+                onClick={() => setShowSettings(true)}
+                className="p-1.5 text-neutral-500 hover:text-black rounded-lg hover:bg-neutral-50 active:scale-95 transition-all"
+                title="聊天设置"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+            ) : (
+              <div className="w-8" />
+            )}
           </div>
 
           {/* Sub-account Busted Banner */}
@@ -4199,7 +4354,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   )}
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm font-sans font-bold text-neutral-800">
+                  <p className="text-sm  font-bold text-neutral-800">
                     与 {activeChar.name} 的对话
                   </p>
                   <p className="text-xs text-neutral-400 max-w-xs mx-auto px-6 leading-relaxed">
@@ -4215,7 +4370,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 if (msg.isRecalled) {
                   return (
                     <div key={msg.id} className="w-full flex justify-center my-1.5 animate-fade-in select-none">
-                      <span className="text-[10px] text-neutral-400 font-sans bg-neutral-100 px-3 py-1 rounded-full border border-neutral-200/30">
+                      <span className="text-[10px] text-neutral-400  bg-neutral-100 px-3 py-1 rounded-full border border-neutral-200/30">
                         你撤回了一条消息{" "}
                         <button
                           onClick={() => {
@@ -4274,7 +4429,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       )}
                     </div>
                     {/* Optionally display name if they explicitly requested it */}
-                    <span className="text-[9px] text-neutral-400 font-sans truncate max-w-[48px]">{currentUserName}</span>
+                    <span className="text-[9px] text-neutral-400  truncate max-w-[48px]">{currentUserName}</span>
                   </div>
                 ) : null;
 
@@ -4383,7 +4538,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         return (
                           <div key={segIdx} className="w-full flex flex-col py-1.5 my-1 animate-fade-in select-none">
                             <div className="w-full h-[1px] bg-[#EFECE8]" />
-                            <div className="py-[8px] italic text-[#A8A39A] text-[13px] text-center w-full break-words font-sans leading-relaxed">
+                            <div className="py-[8px] italic text-[#A8A39A] text-[13px] text-center w-full break-words  leading-relaxed">
                               {seg.text}
                             </div>
                             <div className="w-full h-[1px] bg-[#EFECE8]" />
@@ -4443,7 +4598,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                                 onDoubleClick={() => {
                                   if (!isMultiSelectMode) handleDoubleClick(msg);
                                 }}
-                                className={`px-4 py-3 rounded-2xl text-xs leading-relaxed font-sans shadow-sm select-text cursor-pointer active:scale-[0.99] transition-all relative ${
+                                className={`px-4 py-3 rounded-2xl text-xs leading-relaxed  shadow-sm select-text cursor-pointer active:scale-[0.99] transition-all relative ${
                                   isBot
                                     ? "bg-white text-neutral-900 border border-neutral-200 rounded-tl-none hover:border-neutral-300"
                                     : "bg-black text-white rounded-tr-none hover:bg-neutral-900"
@@ -4452,7 +4607,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                               >
                                 {/* Quoted item block (inside bubble) */}
                                 {msg.quotedMsg && segIdx === 0 && (
-                                  <div className="mb-1.5 p-2 bg-neutral-100/80 border-l-2 border-neutral-400 rounded text-[10px] text-neutral-600 font-sans truncate max-w-full">
+                                  <div className="mb-1.5 p-2 bg-neutral-100/80 border-l-2 border-neutral-400 rounded text-[10px] text-neutral-600  truncate max-w-full">
                                     <span className="font-bold block text-[9px] uppercase tracking-wider text-neutral-400 mb-0.5">
                                       引用:
                                     </span>
@@ -4517,7 +4672,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
           {/* Quoted Message thumbnail preview above input area */}
           {quotedMsgState && (
-            <div className="mx-3 mb-2 p-2.5 bg-neutral-50 border border-neutral-200 rounded-xl flex justify-between items-center text-[11px] text-neutral-500 font-sans animate-fade-in shrink-0">
+            <div className="mx-3 mb-2 p-2.5 bg-neutral-50 border border-neutral-200 rounded-xl flex justify-between items-center text-[11px] text-neutral-500  animate-fade-in shrink-0">
               <div className="flex-1 truncate pr-3">
                 <span className="font-bold text-[9px] uppercase tracking-wider text-neutral-400 block">引用消息 (QUOTING)</span>
                 <span className="truncate block italic">
@@ -4566,7 +4721,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       onUpdateCharacter({ ...activeCharacter, isBlocked: false, blockedAt: undefined });
                     }
                   }}
-                  className="text-[10px] font-sans font-bold text-neutral-400 underline"
+                  className="text-[10px]  font-bold text-neutral-400 underline"
                 >
                   解除拉黑
                 </button>
@@ -4577,7 +4732,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 {showActionPanel && (
                   <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-t-[20px] shadow-2xl border border-neutral-100 z-30 p-5 animate-slide-up flex flex-col max-h-[45vh]">
                     <div className="flex items-center justify-between pb-3 border-b border-neutral-100 mb-4">
-                      <span className="font-sans font-bold text-sm text-neutral-900">功能</span>
+                      <span className=" font-bold text-sm text-neutral-900">功能</span>
                       <button
                         type="button"
                         onClick={() => setShowActionPanel(false)}
@@ -4599,7 +4754,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
                           <Phone className="w-5 h-5" />
                         </div>
-                        <span className="text-[11px] font-sans text-neutral-600">语音</span>
+                        <span className="text-[11px]  text-neutral-600">语音</span>
                       </button>
 
                       {/* 2. 视频 */}
@@ -4614,7 +4769,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
                           <Video className="w-5 h-5" />
                         </div>
-                        <span className="text-[11px] font-sans text-neutral-600">视频</span>
+                        <span className="text-[11px]  text-neutral-600">视频</span>
                       </button>
 
                       {/* 3. 线下见面 */}
@@ -4646,7 +4801,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <div className="w-11 h-11 rounded-full bg-purple-100 group-hover:bg-purple-900 group-hover:text-white text-purple-800 flex items-center justify-center transition-all shadow-sm">
                           <BookOpen className="w-5 h-5" />
                         </div>
-                        <span className="text-[11px] font-sans font-medium text-neutral-700">线下见面</span>
+                        <span className="text-[11px]  font-medium text-neutral-700">线下见面</span>
                       </button>
 
                       {/* 4. 转账 */}
@@ -4661,7 +4816,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
                           <CreditCard className="w-5 h-5" />
                         </div>
-                        <span className="text-[11px] font-sans text-neutral-600">转账</span>
+                        <span className="text-[11px]  text-neutral-600">转账</span>
                       </button>
 
                       {/* 4. 位置 */}
@@ -4676,7 +4831,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
                           <MapPin className="w-5 h-5" />
                         </div>
-                        <span className="text-[11px] font-sans text-neutral-600">位置</span>
+                        <span className="text-[11px]  text-neutral-600">位置</span>
                       </button>
 
                       {/* 5. 红包 */}
@@ -4691,7 +4846,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
                           <Gift className="w-5 h-5" />
                         </div>
-                        <span className="text-[11px] font-sans text-neutral-600">红包</span>
+                        <span className="text-[11px]  text-neutral-600">红包</span>
                       </button>
 
                       {/* 6. 发照片 */}
@@ -4706,7 +4861,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <div className="w-11 h-11 rounded-full bg-blue-50 group-hover:bg-blue-600 group-hover:text-white text-blue-600 flex items-center justify-center transition-all shadow-sm">
                           <Image className="w-5 h-5" />
                         </div>
-                        <span className="text-[11px] font-sans text-neutral-600">发照片</span>
+                        <span className="text-[11px]  text-neutral-600">发照片</span>
                       </button>
 
                       {/* 7. 发邀请 */}
@@ -4721,7 +4876,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <div className="w-11 h-11 rounded-full bg-emerald-50 group-hover:bg-emerald-600 group-hover:text-white text-emerald-600 flex items-center justify-center transition-all shadow-sm">
                           <Calendar className="w-5 h-5" />
                         </div>
-                        <span className="text-[11px] font-sans text-neutral-600">发邀请</span>
+                        <span className="text-[11px]  text-neutral-600">发邀请</span>
                       </button>
                     </div>
                   </div>
@@ -4846,7 +5001,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               )}
             </div>
             <div className="text-center space-y-1">
-              <h3 className="font-sans font-bold text-lg text-white">{activeChar.name}</h3>
+              <h3 className=" font-bold text-lg text-white">{activeChar.name}</h3>
               <p className="text-xs text-neutral-400 font-mono">
                 {activeCall === "voice" ? "正在呼叫..." : "正在连接视频..."}
               </p>
@@ -4868,7 +5023,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-xs p-5 space-y-4 shadow-2xl border border-neutral-100">
             <div className="flex justify-between items-center border-b border-neutral-100 pb-3">
-              <span className="font-sans font-bold text-sm text-neutral-900">向 {activeChar.name} 转账</span>
+              <span className=" font-bold text-sm text-neutral-900">向 {activeChar.name} 转账</span>
               <button onClick={() => setActiveModal(null)} className="text-neutral-400 hover:text-neutral-900">
                 <X className="w-5 h-5" />
               </button>
@@ -4921,7 +5076,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-xs p-5 space-y-4 shadow-2xl border border-neutral-100">
             <div className="flex justify-between items-center border-b border-neutral-100 pb-3">
-              <span className="font-sans font-bold text-sm text-neutral-900">发送位置</span>
+              <span className=" font-bold text-sm text-neutral-900">发送位置</span>
               <button onClick={() => setActiveModal(null)} className="text-neutral-400 hover:text-neutral-900">
                 <X className="w-5 h-5" />
               </button>
@@ -4963,7 +5118,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-xs p-5 space-y-4 shadow-2xl border border-neutral-100">
             <div className="flex justify-between items-center border-b border-neutral-100 pb-3">
-              <span className="font-sans font-bold text-sm text-neutral-900">发红包给 {activeChar.name}</span>
+              <span className=" font-bold text-sm text-neutral-900">发红包给 {activeChar.name}</span>
               <button onClick={() => setActiveModal(null)} className="text-neutral-400 hover:text-neutral-900">
                 <X className="w-5 h-5" />
               </button>
@@ -5033,7 +5188,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             {/* 1.5 User Persona Binding */}
             <div className="border border-neutral-200/50 rounded-2xl p-4 bg-white space-y-2">
               <div className="space-y-0.5">
-                <span className="text-base font-bold text-neutral-900 block font-sans">更改用户设定</span>
+                <span className="text-base font-bold text-neutral-900 block ">更改用户设定</span>
                 <span className="text-[10px] text-neutral-400 font-mono block">SWITCH USER PERSONA</span>
               </div>
               <select
@@ -5052,13 +5207,93 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               </select>
             </div>
 
+            {/* 1.6 Chat Wallpaper Customization */}
+            <div className="border border-neutral-200/50 rounded-2xl p-4 bg-white space-y-3">
+              <div className="flex justify-between items-center">
+                <div className="space-y-0.5">
+                  <span className="text-base font-bold text-neutral-900 block">聊天壁纸</span>
+                  <span className="text-[10px] text-neutral-400 font-mono block">CHAT WALLPAPER</span>
+                </div>
+                {currentChatWallpaper && (
+                  <button
+                    onClick={() => {
+                      setCurrentChatWallpaper(null);
+                      localStorage.removeItem(`chat_current_wallpaper_${activeCharId}`);
+                    }}
+                    className="text-xs text-neutral-500 hover:text-neutral-900 px-2.5 py-1 rounded-lg border border-neutral-200 bg-neutral-50"
+                  >
+                    取消壁纸
+                  </button>
+                )}
+              </div>
+
+              {/* Wallpaper Grid */}
+              <div className="grid grid-cols-4 gap-2 pt-1">
+                {chatWallpapers.map((wp, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`relative w-[60px] h-[60px] rounded-xl overflow-hidden border-2 cursor-pointer group transition-all ${
+                      currentChatWallpaper === wp ? "border-black shadow-md scale-105" : "border-neutral-200 hover:border-neutral-400"
+                    }`}
+                    onClick={() => {
+                      setCurrentChatWallpaper(wp);
+                      localStorage.setItem(`chat_current_wallpaper_${activeCharId}`, wp);
+                    }}
+                  >
+                    <img src={wp} alt={`wallpaper-${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const updated = chatWallpapers.filter((_, i) => i !== idx);
+                        setChatWallpapers(updated);
+                        localStorage.setItem(`chat_wallpapers_${activeCharId}`, JSON.stringify(updated));
+                        if (currentChatWallpaper === wp) {
+                          setCurrentChatWallpaper(null);
+                          localStorage.removeItem(`chat_current_wallpaper_${activeCharId}`);
+                        }
+                      }}
+                      className="absolute top-1 right-1 w-5 h-5 bg-black/60 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="删除壁纸"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+
+                {/* Upload Button */}
+                <label className="w-[60px] h-[60px] rounded-xl border-2 border-dashed border-neutral-300 hover:border-neutral-400 bg-neutral-50 flex flex-col items-center justify-center cursor-pointer text-neutral-400 hover:text-neutral-600 transition-colors">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={async (e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        const file = e.target.files[0];
+                        const dataUrl = await compressImage(file, 300);
+                        const updated = [...chatWallpapers, dataUrl];
+                        setChatWallpapers(updated);
+                        localStorage.setItem(`chat_wallpapers_${activeCharId}`, JSON.stringify(updated));
+                        if (!currentChatWallpaper) {
+                          setCurrentChatWallpaper(dataUrl);
+                          localStorage.setItem(`chat_current_wallpaper_${activeCharId}`, dataUrl);
+                        }
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                  <span className="text-xl">+</span>
+                  <span className="text-[10px] font-mono">上传</span>
+                </label>
+              </div>
+            </div>
+
             {/* 2. Reply Count (回复条数) */}
             <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
               <div className="space-y-0.5">
-                <span className="text-base font-bold text-neutral-900 block font-sans">回复条数范围</span>
+                <span className="text-base font-bold text-neutral-900 block ">回复条数范围</span>
                 <span className="text-[10px] text-neutral-400 font-mono block">REPLY COUNT RANGE</span>
               </div>
-              <div className="flex items-center gap-2 font-sans">
+              <div className="flex items-center gap-2 ">
                 <input
                   type="number"
                   min="1"
@@ -5149,7 +5384,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             <div className="border border-neutral-200/50 rounded-2xl p-4 space-y-4 bg-white">
               <div className="flex justify-between items-center">
                 <div className="space-y-0.5">
-                  <span className="text-base font-bold text-neutral-900 block font-sans">允许角色主动发消息</span>
+                  <span className="text-base font-bold text-neutral-900 block ">允许角色主动发消息</span>
                   <span className="text-[10px] text-neutral-400 font-mono block">ACTIVE MESSAGING</span>
                 </div>
                 {/* Slide Switch Capsule */}
@@ -5171,7 +5406,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               </div>
 
               {activeMessaging && (
-                <div className="pt-3 border-t border-neutral-100 space-y-3 animate-fade-in font-sans">
+                <div className="pt-3 border-t border-neutral-100 space-y-3 animate-fade-in ">
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-neutral-500 font-medium">离线触发延迟：</span>
                     <select
@@ -5215,9 +5450,9 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             {/* 4. Time Perception */}
             <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
               <div className="space-y-0.5 pr-2">
-                <span className="text-base font-bold text-neutral-900 block font-sans">时间感知</span>
+                <span className="text-base font-bold text-neutral-900 block ">时间感知</span>
                 <span className="text-[10px] text-neutral-400 font-mono block">TIME PERCEPTION</span>
-                <p className="text-[11px] text-neutral-400 font-sans mt-0.5 leading-relaxed">
+                <p className="text-[11px] text-neutral-400  mt-0.5 leading-relaxed">
                   开启后，角色能够清楚知道当前时间，并感知用户离开聊天的时间长度，在回复中自然体现。
                 </p>
               </div>
@@ -5241,7 +5476,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             {/* 5. Delete All Chat History (Renamed from Reset Conversation) */}
             <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
               <div className="space-y-0.5">
-                <span className="text-base font-bold text-neutral-900 block font-sans">删除所有聊天记录</span>
+                <span className="text-base font-bold text-neutral-900 block ">删除所有聊天记录</span>
                 <span className="text-[10px] text-neutral-400 font-mono block">DELETE ALL CHAT HISTORY</span>
               </div>
               <button
@@ -5255,7 +5490,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             {/* 6. Block Character (Moved to the very bottom) */}
             <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
               <div className="space-y-0.5">
-                <span className="text-base font-bold text-neutral-900 block font-sans">拉黑该角色</span>
+                <span className="text-base font-bold text-neutral-900 block ">拉黑该角色</span>
                 <span className="text-[10px] text-neutral-400 font-mono block">BLOCK CHARACTER</span>
               </div>
               <button
@@ -5276,7 +5511,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             <div className="flex justify-center pt-8 pb-4">
               <button
                 onClick={handleExportChat}
-                className="text-xs text-neutral-400 hover:text-neutral-600 underline font-sans"
+                className="text-xs text-neutral-400 hover:text-neutral-600 underline "
               >
                 导出聊天记录 (.txt)
               </button>
@@ -5302,7 +5537,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             {/* Title */}
             <div className="text-center space-y-1 px-4">
               <p className="text-[11px] font-mono text-neutral-400 uppercase tracking-widest font-bold">消息操作 (MESSAGE OPTIONS)</p>
-              <p className="text-xs text-neutral-500 font-sans truncate">"{activeMessage.content}"</p>
+              <p className="text-xs text-neutral-500  truncate">"{activeMessage.content}"</p>
             </div>
 
             {/* Grid container with actions */}
@@ -5320,7 +5555,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
                   <CheckSquare className="w-4.5 h-4.5 stroke-[1.5]" />
                 </div>
-                <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">多选</span>
+                <span className="text-[11px]  font-medium text-neutral-500 group-hover:text-neutral-900">多选</span>
               </button>
               
               {/* Action 1: Delete */}
@@ -5348,7 +5583,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
                   <Trash2 className="w-4.5 h-4.5 stroke-[1.5]" />
                 </div>
-                <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">删除</span>
+                <span className="text-[11px]  font-medium text-neutral-500 group-hover:text-neutral-900">删除</span>
               </button>
 
               {/* Action 2: Recall (User only) */}
@@ -5382,7 +5617,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
                     <CornerUpLeft className="w-4.5 h-4.5 stroke-[1.5]" />
                   </div>
-                  <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">撤回</span>
+                  <span className="text-[11px]  font-medium text-neutral-500 group-hover:text-neutral-900">撤回</span>
                 </button>
               )}
 
@@ -5397,7 +5632,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
                   <Quote className="w-4.5 h-4.5 stroke-[1.5]" />
                 </div>
-                <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">引用</span>
+                <span className="text-[11px]  font-medium text-neutral-500 group-hover:text-neutral-900">引用</span>
               </button>
 
               {/* Action 4: Edit (for user) / Reroll (for assistant) */}
@@ -5413,7 +5648,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
                     <Edit className="w-4.5 h-4.5 stroke-[1.5]" />
                   </div>
-                  <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">编辑</span>
+                  <span className="text-[11px]  font-medium text-neutral-500 group-hover:text-neutral-900">编辑</span>
                 </button>
               ) : (
                 <button
@@ -5423,7 +5658,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
                     <Dices className="w-4.5 h-4.5 stroke-[1.5]" />
                   </div>
-                  <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">重说</span>
+                  <span className="text-[11px]  font-medium text-neutral-500 group-hover:text-neutral-900">重说</span>
                 </button>
               )}
 
@@ -5437,7 +5672,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 <div className="w-11 h-11 rounded-full border border-neutral-200/80 bg-white/50 flex items-center justify-center text-neutral-600 group-hover:bg-black group-hover:text-white group-hover:border-black active:scale-90 transition-all shadow-sm">
                   <Copy className="w-4.5 h-4.5 stroke-[1.5]" />
                 </div>
-                <span className="text-[11px] font-sans font-medium text-neutral-500 group-hover:text-neutral-900">复制</span>
+                <span className="text-[11px]  font-medium text-neutral-500 group-hover:text-neutral-900">复制</span>
               </button>
 
             </div>
@@ -5464,7 +5699,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   <div className="w-12 h-12 rounded-2xl bg-white shadow-xs flex items-center justify-center text-3xl mb-1.5">
                     {activeChar.avatar}
                   </div>
-                  <span className="text-[11px] font-sans text-stone-400">真实面貌立绘</span>
+                  <span className="text-[11px]  text-stone-400">真实面貌立绘</span>
                 </div>
               )}
 
@@ -5521,7 +5756,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     setShowProfileModal(false);
                     setShowAllOsModal(true);
                   }}
-                  className="w-full bg-stone-900 hover:bg-black text-white font-sans font-medium text-xs py-2.5 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
+                  className="w-full bg-stone-900 hover:bg-black text-white  font-medium text-xs py-2.5 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
                 >
                   <span>查看所有心声</span>
                   <span className="text-xs">→</span>
@@ -5531,7 +5766,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 <button
                   type="button"
                   onClick={() => setShowProfileModal(false)}
-                  className="w-full bg-transparent hover:bg-stone-100 text-stone-500 font-sans text-xs py-1.5 rounded-xl transition-all text-center block"
+                  className="w-full bg-transparent hover:bg-stone-100 text-stone-500  text-xs py-1.5 rounded-xl transition-all text-center block"
                 >
                   关闭
                 </button>
@@ -5544,7 +5779,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
       {/* -------------------- OVERLAY TOAST NOTIFICATION -------------------- */}
       {copyToast && (
-        <div className="fixed bottom-12 left-1/2 -translate-x-1/2 bg-stone-900/90 text-white text-xs font-sans px-4 py-2 rounded-full shadow-lg z-[100] animate-fade-in flex items-center gap-1.5 backdrop-blur-md border border-stone-800">
+        <div className="fixed bottom-12 left-1/2 -translate-x-1/2 bg-stone-900/90 text-white text-xs  px-4 py-2 rounded-full shadow-lg z-[100] animate-fade-in flex items-center gap-1.5 backdrop-blur-md border border-stone-800">
           <Check className="w-3.5 h-3.5 text-stone-200 stroke-[2.5]" />
           <span>{copyToast}</span>
         </div>
@@ -5555,23 +5790,23 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
         <div className="fixed inset-0 bg-neutral-950/60 backdrop-blur-sm z-[100] flex items-center justify-center p-6 animate-fade-in select-none">
           <div className="bg-white w-full max-w-[290px] rounded-3xl p-6 shadow-[0_20px_50px_-12px_rgba(0,0,0,0.3)] border border-neutral-100 flex flex-col space-y-4 animate-scale-up">
             <div className="text-center space-y-1.5">
-              <h3 className="text-sm font-bold text-neutral-900 font-sans tracking-wide">
+              <h3 className="text-sm font-bold text-neutral-900  tracking-wide">
                 {confirmDialog.title}
               </h3>
-              <p className="text-[11px] text-neutral-500 leading-relaxed font-sans">
+              <p className="text-[11px] text-neutral-500 leading-relaxed ">
                 {confirmDialog.message}
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 pt-1">
               <button
                 onClick={() => setConfirmDialog(null)}
-                className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-sans font-medium text-xs py-2.5 rounded-xl transition-all active:scale-95"
+                className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-700  font-medium text-xs py-2.5 rounded-xl transition-all active:scale-95"
               >
                 取消
               </button>
               <button
                 onClick={confirmDialog.onConfirm}
-                className="w-full bg-black hover:bg-neutral-900 text-white font-sans font-bold text-xs py-2.5 rounded-xl transition-all active:scale-95"
+                className="w-full bg-black hover:bg-neutral-900 text-white  font-bold text-xs py-2.5 rounded-xl transition-all active:scale-95"
               >
                 确定
               </button>
@@ -5595,7 +5830,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <span className="font-sans font-bold text-sm text-neutral-950">
+            <span className=" font-bold text-sm text-neutral-950">
               {isCreatingPersona ? "新建用户设定" : editingPersona ? "编辑用户设定" : "用户设定管理"}
             </span>
             {!isCreatingPersona && !editingPersona ? (
@@ -5607,7 +5842,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   setPersonaError("");
                   setIsCreatingPersona(true);
                 }}
-                className="p-1.5 bg-black hover:bg-neutral-800 text-white rounded-lg active:scale-95 transition-all font-sans font-medium text-xs flex items-center gap-1"
+                className="p-1.5 bg-black hover:bg-neutral-800 text-white rounded-lg active:scale-95 transition-all  font-medium text-xs flex items-center gap-1"
                 title="创建设定"
               >
                 <Plus className="w-4 h-4" />
@@ -5651,7 +5886,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     />
 
                     {/* Image Upload Button */}
-                    <label className="px-3 py-1.5 border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-800 font-sans text-xs rounded-lg shadow-xs cursor-pointer active:scale-95 transition-all">
+                    <label className="px-3 py-1.5 border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-800  text-xs rounded-lg shadow-xs cursor-pointer active:scale-95 transition-all">
                       上传图片
                       <input
                         type="file"
@@ -5709,7 +5944,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     placeholder="请输入对该用户设定的详细描述。你可以写下你的性格、背景故事、与该角色的关系、说话习惯或秘密身世。内容会读取并直接影响 AI 角色的回复风格和回应语气。"
                     value={personaDesc}
                     onChange={(e) => setPersonaDesc(e.target.value)}
-                    className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white resize-none font-sans leading-relaxed"
+                    className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white resize-none  leading-relaxed"
                   />
                 </div>
 
@@ -5720,13 +5955,13 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       setIsCreatingPersona(false);
                       setEditingPersona(null);
                     }}
-                    className="flex-1 py-2.5 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-sans text-xs rounded-xl transition-all active:scale-95"
+                    className="flex-1 py-2.5 border border-neutral-200 hover:bg-neutral-50 text-neutral-700  text-xs rounded-xl transition-all active:scale-95"
                   >
                     取消
                   </button>
                   <button
                     onClick={handleSavePersona}
-                    className="flex-1 py-2.5 bg-black hover:bg-neutral-800 text-white font-sans font-bold text-xs rounded-xl transition-all active:scale-95"
+                    className="flex-1 py-2.5 bg-black hover:bg-neutral-800 text-white  font-bold text-xs rounded-xl transition-all active:scale-95"
                   >
                     保存设定
                   </button>
@@ -5738,7 +5973,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 {userPersonas.length === 0 ? (
                   <div className="bg-white p-8 rounded-2xl border border-neutral-200/50 shadow-sm text-center space-y-3 py-16">
                     <span className="text-4xl block">👤</span>
-                    <h3 className="text-sm font-sans font-bold text-neutral-800">暂无用户设定</h3>
+                    <h3 className="text-sm  font-bold text-neutral-800">暂无用户设定</h3>
                     <p className="text-xs text-neutral-400 max-w-[200px] mx-auto leading-relaxed">
                       用户设定可用于定义你的人格背景和立场，并在绑定后影响AI角色的对话风格。
                     </p>
@@ -5750,7 +5985,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         setPersonaError("");
                         setIsCreatingPersona(true);
                       }}
-                      className="px-4 py-2 bg-black hover:bg-neutral-800 text-white rounded-xl text-xs font-sans font-bold active:scale-95 transition-all inline-block"
+                      className="px-4 py-2 bg-black hover:bg-neutral-800 text-white rounded-xl text-xs  font-bold active:scale-95 transition-all inline-block"
                     >
                       立即创建首个设定
                     </button>
@@ -5776,11 +6011,11 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <div className="flex-1 min-w-0 space-y-1.5">
                           <div className="flex justify-between items-start gap-2">
                             <div>
-                              <h4 className="font-sans font-bold text-xs text-neutral-900 leading-none">
+                              <h4 className=" font-bold text-xs text-neutral-900 leading-none">
                                 {persona.name}
                               </h4>
                               {boundChars.length > 0 && (
-                                <span className="text-[9px] bg-neutral-100 text-neutral-500 px-1.5 py-0.5 rounded-full inline-block mt-1 font-sans">
+                                <span className="text-[9px] bg-neutral-100 text-neutral-500 px-1.5 py-0.5 rounded-full inline-block mt-1 ">
                                   已绑定：{boundChars.map((c) => c.name).join(", ")}
                                 </span>
                               )}
@@ -5816,7 +6051,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                             </div>
                           </div>
 
-                          <p className="text-xs text-neutral-400 font-sans line-clamp-3 leading-relaxed whitespace-pre-wrap">
+                          <p className="text-xs text-neutral-400  line-clamp-3 leading-relaxed whitespace-pre-wrap">
                             {persona.description}
                           </p>
                         </div>
@@ -5841,7 +6076,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <span className="font-sans font-bold text-sm text-neutral-950">钱包</span>
+            <span className=" font-bold text-sm text-neutral-950">钱包</span>
             <div className="w-8" />
           </div>
 
@@ -5849,11 +6084,11 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
           <div className="py-8 px-6 bg-white border-b border-neutral-100 flex flex-col items-center justify-center shrink-0 space-y-4">
             <div className="flex flex-col items-center justify-center">
               <span className="font-mono font-bold text-[32px] text-neutral-950 tracking-tight">¥{walletBalance.toFixed(2)}</span>
-              <span className="text-xs text-neutral-400 font-sans mt-2">可用余额</span>
+              <span className="text-xs text-neutral-400  mt-2">可用余额</span>
             </div>
             <button
               onClick={() => setShowTopUpModal(true)}
-              className="w-full py-2.5 border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-900 font-sans font-medium rounded-xl text-xs shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all"
+              className="w-full py-2.5 border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-900  font-medium rounded-xl text-xs shadow-sm flex items-center justify-center gap-1.5 active:scale-95 transition-all"
             >
               <span>💳</span> 充值
             </button>
@@ -5864,7 +6099,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             {walletTransactions.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-neutral-400 space-y-2">
                 <span className="text-3xl">📭</span>
-                <span className="text-xs font-sans">暂无交易记录</span>
+                <span className="text-xs ">暂无交易记录</span>
               </div>
             ) : (
               ["今天", "昨天", "更早"].map((groupName) => {
@@ -5898,8 +6133,8 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                                 {isIncome ? "收" : "付"}
                               </div>
                               <div>
-                                <span className="font-sans font-bold text-neutral-900 block">{isIncome ? (tx.name === "充值" ? "充值" : `来自 ${tx.name}`) : `向 ${tx.name} 转账`}</span>
-                                <span className="text-[10px] text-neutral-400 font-sans">{tx.note || (isIncome ? "收入" : "转账支出")} · {timeStr}</span>
+                                <span className=" font-bold text-neutral-900 block">{isIncome ? (tx.name === "充值" ? "充值" : `来自 ${tx.name}`) : `向 ${tx.name} 转账`}</span>
+                                <span className="text-[10px] text-neutral-400 ">{tx.note || (isIncome ? "收入" : "转账支出")} · {timeStr}</span>
                               </div>
                             </div>
                             <span className={`font-mono font-bold text-sm ${isIncome ? "text-emerald-600" : "text-neutral-900"}`}>
@@ -5922,17 +6157,17 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-[16px] w-full max-w-xs p-5 space-y-4 shadow-xl border border-neutral-100">
             <div className="flex justify-between items-center border-b border-neutral-100 pb-3">
-              <span className="font-sans font-bold text-sm text-neutral-900">充值</span>
+              <span className=" font-bold text-sm text-neutral-900">充值</span>
               <button onClick={() => setShowTopUpModal(false)} className="text-neutral-400 hover:text-neutral-900">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="space-y-3">
-              <div className="text-xs text-neutral-500 font-sans">
+              <div className="text-xs text-neutral-500 ">
                 当前余额：<span className="font-mono font-bold text-neutral-900">¥{walletBalance.toFixed(2)}</span>
               </div>
               <div>
-                <label className="text-[11px] font-sans font-medium text-neutral-600 block mb-1">充值金额</label>
+                <label className="text-[11px]  font-medium text-neutral-600 block mb-1">充值金额</label>
                 <input
                   type="number"
                   step="0.01"
@@ -5944,13 +6179,13 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 />
               </div>
               <div>
-                <label className="text-[11px] font-sans font-medium text-neutral-600 block mb-1">备注 (选填)</label>
+                <label className="text-[11px]  font-medium text-neutral-600 block mb-1">备注 (选填)</label>
                 <input
                   type="text"
                   placeholder="如：工资到账"
                   value={topUpNoteInput}
                   onChange={(e) => setTopUpNoteInput(e.target.value)}
-                  className="w-full text-sm font-sans border border-neutral-200 focus:border-black p-2.5 rounded-xl bg-white outline-none"
+                  className="w-full text-sm  border border-neutral-200 focus:border-black p-2.5 rounded-xl bg-white outline-none"
                 />
               </div>
               <div className="flex gap-2 pt-2">
@@ -5980,7 +6215,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
           <div className="bg-white w-full max-w-[340px] rounded-[32px] overflow-hidden shadow-2xl border border-neutral-200/50 flex flex-col max-h-[85vh] animate-scale-up">
             <div className="p-6 space-y-4 flex flex-col min-h-0">
               <div className="flex justify-between items-center shrink-0">
-                <h3 className="font-sans font-bold text-base text-neutral-950">创建角色小号</h3>
+                <h3 className=" font-bold text-base text-neutral-950">创建角色小号</h3>
                 <button 
                   onClick={() => setSubAccountParentId(null)}
                   className="text-neutral-400 hover:text-neutral-600 font-bold"
@@ -5996,25 +6231,25 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
                 {/* Nickname input */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-sans font-bold text-neutral-400 uppercase tracking-wide block">小号昵称 (必填)</label>
+                  <label className="text-[10px]  font-bold text-neutral-400 uppercase tracking-wide block">小号昵称 (必填)</label>
                   <input
                     type="text"
                     value={subAccountName}
                     onChange={(e) => setSubAccountName(e.target.value)}
-                    className="w-full p-3 bg-neutral-50 border border-neutral-200 focus:border-neutral-400 focus:bg-white rounded-xl text-xs font-sans font-medium outline-none transition-all"
+                    className="w-full p-3 bg-neutral-50 border border-neutral-200 focus:border-neutral-400 focus:bg-white rounded-xl text-xs  font-medium outline-none transition-all"
                     placeholder="请输入小号昵称"
                   />
                 </div>
 
                 {/* Avatar input */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-sans font-bold text-neutral-400 uppercase tracking-wide block">小号头像 (Emoji 或图片 URL)</label>
+                  <label className="text-[10px]  font-bold text-neutral-400 uppercase tracking-wide block">小号头像 (Emoji 或图片 URL)</label>
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={subAccountAvatar}
                       onChange={(e) => setSubAccountAvatar(e.target.value)}
-                      className="flex-1 p-3 bg-neutral-50 border border-neutral-200 focus:border-neutral-400 focus:bg-white rounded-xl text-xs font-sans font-medium outline-none transition-all"
+                      className="flex-1 p-3 bg-neutral-50 border border-neutral-200 focus:border-neutral-400 focus:bg-white rounded-xl text-xs  font-medium outline-none transition-all"
                       placeholder="Emoji(如🤖) 或 http:// 开头的头像链接"
                     />
                     <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center overflow-hidden border border-neutral-200 shrink-0 text-2xl select-none">
@@ -6046,12 +6281,12 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
                 {/* Purpose input */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-sans font-bold text-neutral-400 uppercase tracking-wide block">用途设定 (用途描述作为核心指令)</label>
+                  <label className="text-[10px]  font-bold text-neutral-400 uppercase tracking-wide block">用途设定 (用途描述作为核心指令)</label>
                   <textarea
                     value={subAccountPurpose}
                     onChange={(e) => setSubAccountPurpose(e.target.value)}
                     rows={3}
-                    className="w-full p-3 bg-neutral-50 border border-neutral-200 focus:border-neutral-400 focus:bg-white rounded-xl text-xs font-sans font-medium outline-none transition-all resize-none"
+                    className="w-full p-3 bg-neutral-50 border border-neutral-200 focus:border-neutral-400 focus:bg-white rounded-xl text-xs  font-medium outline-none transition-all resize-none"
                     placeholder="例如：试探用户对我有没有好感、扮演一个陌生人接近ta、假装是ta的旧同学"
                   />
                 </div>
@@ -6061,7 +6296,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 <button
                   type="button"
                   onClick={() => setSubAccountParentId(null)}
-                  className="flex-1 py-3 border border-neutral-200 hover:bg-neutral-50 text-neutral-700 font-sans font-bold text-xs rounded-xl tracking-wider transition-all"
+                  className="flex-1 py-3 border border-neutral-200 hover:bg-neutral-50 text-neutral-700  font-bold text-xs rounded-xl tracking-wider transition-all"
                 >
                   取消
                 </button>
@@ -6082,7 +6317,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       chatAvatar: subAccountAvatar.trim().startsWith("http") ? subAccountAvatar.trim() : undefined,
                       description: `[${parent.name}] 的小号 · 用途: ${subAccountPurpose.trim() || "未设定"}`,
                       systemInstruction: parent.systemInstruction || `你正在扮演 "${subAccountName.trim()}"，是 "${parent.name}" 的小号。`,
-                      model: parent.model || settings?.model || "gemini-2.5-flash",
+                      model: parent.model || settings?.model || "gemini-3.6-flash",
                       group: parent.group || "其它",
                       isSubAccount: true,
                       parentCharacterId: parent.id,
@@ -6093,7 +6328,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     });
                     setSubAccountParentId(null);
                   }}
-                  className="flex-1 py-3 bg-black hover:bg-neutral-900 text-white font-sans font-bold text-xs rounded-xl tracking-wider transition-all"
+                  className="flex-1 py-3 bg-black hover:bg-neutral-900 text-white  font-bold text-xs rounded-xl tracking-wider transition-all"
                 >
                   确认创建
                 </button>
@@ -6136,7 +6371,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             </div>
 
             {/* Message content preview */}
-            <div className="bg-[#F8F6F2] p-3 rounded-[12px] border border-stone-200/60 text-xs text-stone-600 font-sans">
+            <div className="bg-[#F8F6F2] p-3 rounded-[12px] border border-stone-200/60 text-xs text-stone-600 ">
               <span className="text-[10px] font-bold text-[#8C827A] block mb-1">
                 {msgOsModalTarget.role === "assistant" ? `${activeChar.name} 的消息:` : "你的消息:"}
               </span>
@@ -6144,7 +6379,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             </div>
 
             {/* Inner thought content */}
-            <div className="bg-amber-50/70 p-4 rounded-[16px] border border-amber-100 text-xs text-stone-800 font-sans leading-relaxed italic space-y-1.5 shadow-inner">
+            <div className="bg-amber-50/70 p-4 rounded-[16px] border border-amber-100 text-xs text-stone-800  leading-relaxed italic space-y-1.5 shadow-inner">
               {(() => {
                 const targetOs = msgOsModalTarget.os || activeSession?.currentOS;
                 const parsed = parseOS(targetOs);
@@ -6152,7 +6387,11 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   <>
                     <div className="flex items-center justify-between text-[10px] not-italic text-amber-900 font-bold">
                       <span className="flex items-center gap-1">
-                        <span>{parsed.emoji}</span>
+                        {parsed.icon ? (
+                          <img src={parsed.icon} alt={parsed.emotion} className="w-4 h-4 object-contain shrink-0" referrerPolicy="no-referrer" />
+                        ) : (
+                          <span>{parsed.emoji}</span>
+                        )}
                         <span>{activeChar.name} 的真实想法</span>
                       </span>
                       <span className="bg-amber-100/80 text-amber-900 px-1.5 py-0.5 rounded text-[9px]">
@@ -6173,7 +6412,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   setMsgOsModalTarget(null);
                   setShowAllOsModal(true);
                 }}
-                className="w-full bg-amber-500 hover:bg-amber-600 text-white font-sans font-bold text-xs py-2.5 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
+                className="w-full bg-amber-500 hover:bg-amber-600 text-white  font-bold text-xs py-2.5 rounded-xl transition-all active:scale-95 flex items-center justify-center gap-1.5 shadow-xs"
               >
                 <span>💭</span>
                 <span>查看所有历史心声</span>
@@ -6181,7 +6420,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               <button
                 type="button"
                 onClick={() => setMsgOsModalTarget(null)}
-                className="w-full bg-stone-100 hover:bg-stone-200 text-stone-700 font-sans font-medium text-xs py-2 rounded-xl transition-all"
+                className="w-full bg-stone-100 hover:bg-stone-200 text-stone-700  font-medium text-xs py-2 rounded-xl transition-all"
               >
                 关闭
               </button>
@@ -6204,11 +6443,11 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     className="font-bold text-lg text-stone-900 tracking-tight flex items-center gap-2"
                   >
                     历史心声
-                    <span className="text-xs font-normal text-stone-700 bg-stone-100 px-2.5 py-0.5 rounded-full font-sans">
+                    <span className="text-xs font-normal text-stone-700 bg-stone-100 px-2.5 py-0.5 rounded-full ">
                       {activeChar.name}
                     </span>
                   </h3>
-                  <p className="text-[11px] text-stone-400 font-sans">
+                  <p className="text-[11px] text-stone-400 ">
                     按时间顺序记录的角色内心真实想法（从旧到新）
                   </p>
                 </div>
@@ -6229,8 +6468,8 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   return (
                     <div className="py-16 text-center space-y-3">
                       <span className="text-4xl block">💭</span>
-                      <p className="text-xs text-stone-500 font-sans">暂无生成的心声历史</p>
-                      <p className="text-[11px] text-stone-400 font-sans">在对话中角色表达内心想法后即可在此汇总查看</p>
+                      <p className="text-xs text-stone-500 ">暂无生成的心声历史</p>
+                      <p className="text-[11px] text-stone-400 ">在对话中角色表达内心想法后即可在此汇总查看</p>
                     </div>
                   );
                 }
@@ -6251,7 +6490,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       className="bg-white rounded-[12px] shadow-xs border border-stone-200 p-[12px_16px] flex flex-col justify-between transition-all hover:border-stone-400"
                     >
                       {/* Top-left: Corresponding message preview */}
-                      <div className="text-[11px] text-stone-400 font-sans truncate mb-2 flex items-center gap-1.5">
+                      <div className="text-[11px] text-stone-400  truncate mb-2 flex items-center gap-1.5">
                         <span className="font-medium shrink-0">
                           {item.msg.role === "assistant" ? `${activeChar.name}:` : "用户:"}
                         </span>
@@ -6259,10 +6498,14 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       </div>
 
                       {/* Middle: Inner thought content (Playfair Display) */}
-                      <div className="my-1 text-xs md:text-sm text-stone-800 font-sans leading-relaxed whitespace-pre-wrap bg-stone-50 p-3 rounded-[10px] border border-stone-200/80">
+                      <div className="my-1 text-xs md:text-sm text-stone-800  leading-relaxed whitespace-pre-wrap bg-stone-50 p-3 rounded-[10px] border border-stone-200/80">
                         <div className="flex items-center justify-between text-[10px] text-stone-500 font-bold mb-1">
                           <span className="flex items-center gap-1">
-                            <span>{parsed.emoji}</span>
+                            {parsed.icon ? (
+                              <img src={parsed.icon} alt={parsed.emotion} className="w-4 h-4 object-contain shrink-0" referrerPolicy="no-referrer" />
+                            ) : (
+                              <span>{parsed.emoji}</span>
+                            )}
                             <span>内心想法</span>
                           </span>
                           <span className="bg-stone-200/60 text-stone-700 px-1.5 py-0.2 rounded text-[9px]">
@@ -6286,7 +6529,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <button
                           type="button"
                           onClick={() => handleCopyContent(parsed.text)}
-                          className="flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-900 font-sans transition-colors active:scale-95 px-2 py-0.5 rounded hover:bg-stone-100"
+                          className="flex items-center gap-1 text-[11px] text-stone-500 hover:text-stone-900  transition-colors active:scale-95 px-2 py-0.5 rounded hover:bg-stone-100"
                         >
                           <Copy className="w-3 h-3" />
                           <span>复制心声</span>
@@ -6302,7 +6545,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             <div className="p-3.5 border-t border-stone-200 bg-white">
               <button
                 onClick={() => setShowAllOsModal(false)}
-                className="w-full bg-stone-900 hover:bg-black text-white font-sans font-medium text-xs py-2.5 rounded-xl transition-all active:scale-95"
+                className="w-full bg-stone-900 hover:bg-black text-white  font-medium text-xs py-2.5 rounded-xl transition-all active:scale-95"
               >
                 关闭并返回聊天
               </button>
@@ -6316,7 +6559,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
             <div className="flex justify-between items-center pb-3 border-b border-neutral-100">
-              <h3 className="font-sans font-bold text-base text-neutral-950">创建群聊 (CREATE GROUP)</h3>
+              <h3 className=" font-bold text-base text-neutral-950">创建群聊 (CREATE GROUP)</h3>
               <button onClick={() => setShowCreateGroupModal(false)} className="text-neutral-400 hover:text-neutral-700 p-1">
                 <X className="w-5 h-5" />
               </button>
@@ -6373,7 +6616,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   <span className="text-xs font-mono font-bold text-neutral-500">已选: {selectedMemberIds.length}</span>
                 </div>
                 <div className="max-h-52 overflow-y-auto border border-neutral-200 rounded-2xl p-2 space-y-1.5 bg-neutral-50">
-                  {characters.map((char) => {
+                  {characters.filter(c => c.id !== 'char-preset-fafa').map((char) => {
                     const isSelected = selectedMemberIds.includes(char.id);
                     return (
                       <div
@@ -6483,7 +6726,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
             <div className="flex justify-between items-center pb-3 border-b border-neutral-100">
-              <h3 className="font-sans font-bold text-base text-neutral-950">群聊设置 (GROUP SETTINGS)</h3>
+              <h3 className=" font-bold text-base text-neutral-950">群聊设置 (GROUP SETTINGS)</h3>
               <button onClick={() => setShowGroupSettingsModal(false)} className="text-neutral-400 hover:text-neutral-700 p-1">
                 <X className="w-5 h-5" />
               </button>
@@ -6539,7 +6782,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       isGroup: true,
                     });
                   }}
-                  className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none resize-none font-sans"
+                  className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none resize-none "
                 />
                 
                 <div className="space-y-1">
@@ -6560,7 +6803,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                             isGroup: true,
                           });
                         }}
-                        className="text-left text-[11px] text-neutral-600 hover:text-neutral-900 hover:bg-neutral-50 px-2.5 py-1.5 border border-neutral-200/50 rounded-xl transition-all font-sans active:scale-[0.98]"
+                        className="text-left text-[11px] text-neutral-600 hover:text-neutral-900 hover:bg-neutral-50 px-2.5 py-1.5 border border-neutral-200/50 rounded-xl transition-all  active:scale-[0.98]"
                       >
                         · {presetText}
                       </button>
@@ -6572,9 +6815,9 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               {/* Memory Sync Toggle */}
               <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
                 <div className="space-y-0.5 pr-2">
-                  <span className="text-sm font-bold text-neutral-900 block font-sans">单聊记忆互通</span>
+                  <span className="text-sm font-bold text-neutral-900 block ">单聊记忆互通</span>
                   <span className="text-[10px] text-neutral-400 font-mono block">SINGLE-CHAT MEMORY SYNC</span>
-                  <p className="text-[11px] text-neutral-400 font-sans mt-0.5 leading-relaxed">
+                  <p className="text-[11px] text-neutral-400  mt-0.5 leading-relaxed">
                     开启后，群聊消息会自动同步到各成员的单聊记忆中，角色在单聊时也能知道群聊发生过的事。
                   </p>
                 </div>
@@ -6753,7 +6996,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     <span className="text-neutral-400 font-mono">已选 {selectedCharIdsForVisibility.length} 人</span>
                   </div>
                   <div className="space-y-1.5 pt-1">
-                    {characters.map(char => {
+                    {characters.filter(c => c.id !== 'char-preset-fafa').map(char => {
                       const isChecked = selectedCharIdsForVisibility.includes(char.id);
                       return (
                         <label key={char.id} className="flex items-center justify-between p-2 rounded-lg bg-white border border-neutral-100 hover:border-neutral-300 cursor-pointer text-xs">
@@ -6840,10 +7083,10 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
             {/* Characters List */}
             <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
-              {characters.length === 0 ? (
+              {characters.filter(c => c.id !== 'char-preset-fafa').length === 0 ? (
                 <p className="text-xs text-neutral-400 text-center py-4">暂无角色，请先创建或添加角色</p>
               ) : (
-                characters.map((char) => {
+                characters.filter(c => c.id !== 'char-preset-fafa').map((char) => {
                   const avatar = char.chatAvatar || char.avatar || "🤖";
                   return (
                     <div

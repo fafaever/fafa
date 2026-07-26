@@ -69,7 +69,7 @@ export default function DiaryApp({ onClose }: DiaryAppProps) {
             value={diaryText}
             onChange={(e) => setDiaryText(e.target.value)}
             placeholder="写点什么吧..."
-            className="flex-1 w-full resize-none outline-none text-sm leading-relaxed text-neutral-800 font-sans bg-transparent"
+            className="flex-1 w-full resize-none outline-none text-sm leading-relaxed text-neutral-800  bg-transparent"
           />
         </div>
 

@@ -3,6 +3,7 @@ import { ChevronLeft, Volume2, VolumeX, RotateCw, RotateCcw, AlertCircle, Sparkl
 import { apiUnoDialogue, apiUnoMove } from "../lib/api";
 
 import { Character, AppSettings } from "../types";
+import { CharacterAvatar } from "./CharacterAvatar";
 
 // Card Definitions
 export interface UnoCard {
@@ -1103,61 +1104,54 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
 
   // AI Turn Logic Handler with API decision making
   const handleAiTurn = async (aiIndex: number) => {
-    const aiPlayer = playersRef.current[aiIndex];
-    if (!aiPlayer) return;
+    setIsAiProcessing(true);
+    
+    // 1. Gather context
+    const relativeCardsStr = playersRef.current.map(p => `${p.name}剩余${p.cards.length}张`).join("，");
+    const gameContext = `当前局势：其他玩家：${relativeCardsStr}。`;
+    const topCard = discardPileRef.current[discardPileRef.current.length - 1];
 
-    // Find playable cards
-    const playableCards = aiPlayer.cards.filter(c => isCardPlayable(c));
-
-    if (playableCards.length > 0) {
-      try {
-        const relativeCardsStr = playersRef.current.map(p => `${p.name}剩余${p.cards.length}张`).join("，");
-        const gameContext = `当前局势：自己手牌还剩 ${aiPlayer.cards.length} 张牌。其他玩家：${relativeCardsStr}。`;
-        const topCard = discardPileRef.current[discardPileRef.current.length - 1];
-        const moveData = await apiUnoMove({ character: { name: aiPlayer.name, description: aiPlayer.character?.description }, playableCards, topCard, currentColor: currentColorRef.current, context: gameContext, settings });
-        if (moveData && moveData.cardId) {
-          let selectedCard = playableCards.find(c => c.id === moveData.cardId) || playableCards[0];
-          if (moveData.chosenColor && selectedCard.color === "wild") {
-             // We can't mutate the card directly if it's frozen, but let's just assume we can or clone it.
-             selectedCard = { ...selectedCard, chosenColor: moveData.chosenColor as any };
-          }
-          if (moveData.dialogue) updatePlayerDialogueState(aiIndex, moveData.dialogue);
-          executePlayCardAction(aiIndex, selectedCard);
-          return;
-        }
-      } catch (err) {
-        console.warn("AI move decision fetch error, falling back to local heuristic strategy:", err);
-      }
-
-      // Fallback local strategy if API fails
-      playableCards.sort((a, b) => {
-        const priority = { wild_draw_four: 5, draw_two: 4, skip: 3, reverse: 2, wild_color: 1, number: 0 };
-        return (priority[b.type] || 0) - (priority[a.type] || 0);
+    try {
+      // 2. Call API for ALL moves at once
+      const moves: Array<{ playerId: string; cardId: string | null; chosenColor: string | null; dialogue: string }> = await apiUnoMove({ 
+        character: { name: "AI", description: "All AI" }, 
+        topCard, 
+        currentColor: currentColorRef.current, 
+        context: gameContext, 
+        settings,
+        allPlayers: playersRef.current
       });
 
-      const selectedCard = playableCards[0];
-      executePlayCardAction(aiIndex, selectedCard);
-    } else {
-      // AI must draw a card
-      const { newDeck, newPlayers } = drawCardsForPlayer(aiIndex, 1, deckRef.current, playersRef.current);
-      setDeck(newDeck);
-      setPlayers(newPlayers);
+      // 3. Process moves sequentially with delay
+      for (let i = 0; i < moves.length; i++) {
+        const move = moves[i];
+        const playerIndex = playersRef.current.findIndex(p => p.id === move.playerId);
+        
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Delay between moves
 
-      const drawnCard = newPlayers[aiIndex].cards[newPlayers[aiIndex].cards.length - 1];
-      const isPlayableNow = isCardPlayable(drawnCard);
-
-      if (isPlayableNow) {
-        // AI immediately plays the drawn card
-        setTimeout(() => {
-          executePlayCardAction(aiIndex, drawnCard);
-        }, 800);
-      } else {
-        // AI cannot play, say something and pass
-        setTimeout(() => {
-          triggerPlayerDialogue(aiIndex, "DRAW_CARD");
-          advanceTurn(1, newPlayers, aiIndex);
-        }, 800);
+        if (move.cardId) {
+            const player = playersRef.current[playerIndex];
+            const card = player.cards.find(c => c.id === move.cardId);
+            
+            if (card) {
+                if (move.dialogue) updatePlayerDialogueState(playerIndex, move.dialogue);
+                executePlayCardAction(playerIndex, card, move.chosenColor as any, move.dialogue);
+            }
+        } else {
+             // AI draws
+             const { newDeck, newPlayers } = drawCardsForPlayer(playerIndex, 1, deckRef.current, playersRef.current);
+             setDeck(newDeck);
+             setPlayers(newPlayers);
+             triggerPlayerDialogue(playerIndex, "DRAW_CARD");
+             advanceTurn(1, newPlayers, playerIndex);
+        }
       }
+      setIsAiProcessing(false);
+    } catch (err) {
+      console.warn("Bulk AI move generation failed, falling back to sequential:", err);
+      // Fallback: Just process one turn
+      processedTurnRef.current = null;
+      setIsAiProcessing(false);
     }
   };
   const getPlayerContainerClass = (idx: number, total: number) => {
@@ -1232,7 +1226,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#F8F6F3] text-[#1A1A1A] select-none relative overflow-hidden animate-fade-in font-sans">
+    <div className="flex-1 flex flex-col h-full bg-[#F8F6F3] text-[#1A1A1A] select-none relative overflow-hidden animate-fade-in ">
       {/* Header Bar */}
       <div className="h-14 bg-white border-b border-[#E5E2DC] flex items-center justify-between px-3 shrink-0 z-10">
         <button 
@@ -1252,7 +1246,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <span className="font-serif font-bold text-sm tracking-wide text-[#1A1A1A] flex items-center gap-1.5">
+        <span className=" font-bold text-sm tracking-wide text-[#1A1A1A] flex items-center gap-1.5">
           UNO 极简对决 {gameState === "playing" && <span className="font-mono text-[11px] font-normal text-[#A8A39A]">({formatSeconds(gameElapsedSeconds)})</span>}
         </span>
         <div className="flex items-center gap-1">
@@ -1262,7 +1256,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
               playSynthSound("click", soundMuted);
               setHistoryModalOpen(true);
             }}
-            className="px-2.5 py-1.5 text-xs font-sans font-medium text-[#1A1A1A] hover:bg-[#F0EDE8] rounded-[8px] transition flex items-center gap-1 cursor-pointer border border-[#E5E2DC]"
+            className="px-2.5 py-1.5 text-xs  font-medium text-[#1A1A1A] hover:bg-[#F0EDE8] rounded-[8px] transition flex items-center gap-1 cursor-pointer border border-[#E5E2DC]"
             title="历史对局/存档"
           >
             <History className="w-3.5 h-3.5 text-[#1A1A1A]" />
@@ -1278,7 +1272,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
           {gameState === "playing" && (
             <button
               onClick={isPaused ? handleResumeGame : handlePauseGame}
-              className={`px-2.5 py-1.5 text-xs font-sans font-medium rounded-[8px] transition flex items-center gap-1 cursor-pointer border ${
+              className={`px-2.5 py-1.5 text-xs  font-medium rounded-[8px] transition flex items-center gap-1 cursor-pointer border ${
                 isPaused
                   ? "bg-emerald-600 text-white border-emerald-600 hover:bg-emerald-700"
                   : "bg-white text-[#1A1A1A] border-[#E5E2DC] hover:bg-[#F0EDE8]"
@@ -1312,11 +1306,11 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
           <div className="space-y-5">
             {/* Top Logo Card */}
             <div className="text-center py-6 bg-white rounded-[16px] border border-[#E5E2DC] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-              <div className="inline-flex items-center justify-center w-14 h-14 bg-[#1A1A1A] text-white font-serif font-bold text-2xl rounded-[16px] mb-3 shadow-xs">
+              <div className="inline-flex items-center justify-center w-14 h-14 bg-[#1A1A1A] text-white  font-bold text-2xl rounded-[16px] mb-3 shadow-xs">
                 UNO
               </div>
-              <h2 className="text-xl font-serif font-bold text-[#1A1A1A]">UNO 桌游俱乐部</h2>
-              <p className="text-xs text-[#A8A39A] px-4 mt-2 leading-relaxed font-sans">
+              <h2 className="text-xl  font-bold text-[#1A1A1A]">UNO 桌游俱乐部</h2>
+              <p className="text-xs text-[#A8A39A] px-4 mt-2 leading-relaxed ">
                 黑白极简牌桌，邀请角色群落展开一场智谋与策略的 UNO 决斗。
               </p>
             </div>
@@ -1332,7 +1326,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                       playSynthSound("click", soundMuted);
                       setPlayerCount(num);
                     }}
-                    className={`py-2.5 rounded-[8px] font-sans font-bold text-xs transition active:scale-95 cursor-pointer ${
+                    className={`py-2.5 rounded-[8px]  font-bold text-xs transition active:scale-95 cursor-pointer ${
                       playerCount === num
                         ? "bg-[#1A1A1A] text-white shadow-xs"
                         : "bg-white border border-[#E5E2DC] text-[#1A1A1A] hover:bg-[#F0EDE8]"
@@ -1403,7 +1397,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                 playSynthSound("click", soundMuted);
                 setHistoryModalOpen(true);
               }}
-              className="flex-1 py-3.5 bg-white border border-[#E5E2DC] hover:bg-[#F0EDE8] text-[#1A1A1A] font-sans font-bold text-xs rounded-[8px] active:scale-95 transition flex items-center justify-center gap-2 cursor-pointer"
+              className="flex-1 py-3.5 bg-white border border-[#E5E2DC] hover:bg-[#F0EDE8] text-[#1A1A1A]  font-bold text-xs rounded-[8px] active:scale-95 transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <History className="w-4 h-4 text-[#1A1A1A]" />
               历史对局 ({savedGames.length})
@@ -1411,7 +1405,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
             <button
               onClick={handleStartGame}
               disabled={selectedCharIds.length < playerCount - 1 && characters.length >= playerCount - 1}
-              className="flex-1 py-3.5 bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F0EDE8] disabled:text-[#A8A39A] text-white font-sans font-bold text-xs rounded-[8px] shadow-xs active:scale-95 transition flex items-center justify-center gap-2 cursor-pointer"
+              className="flex-1 py-3.5 bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F0EDE8] disabled:text-[#A8A39A] text-white  font-bold text-xs rounded-[8px] shadow-xs active:scale-95 transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <Sparkles className="w-4 h-4" />
               开局发牌
@@ -1431,8 +1425,8 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                 return (
                   <div key={p.id} className={getPlayerContainerClass(idx, players.length)}>
                     <div className="relative">
-                      {p.character?.chatAvatar ? (
-                        <img src={p.character.chatAvatar} alt={p.name} className="w-9 h-9 rounded-full object-cover border border-[#E5E2DC] shrink-0" referrerPolicy="no-referrer" />
+                      {p.character ? (
+                        <CharacterAvatar character={p.character} mode="real" size={36} className="border border-[#E5E2DC] shrink-0" />
                       ) : (
                         <div className="w-9 h-9 rounded-full bg-[#F0EDE8] border border-[#E5E2DC] flex items-center justify-center text-lg select-none shrink-0">
                           {p.avatar}
@@ -1440,13 +1434,13 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                       )}
                       
                       {/* Card count badge */}
-                      <span className="absolute -bottom-1 -right-1 bg-[#1A1A1A] text-white text-[9px] font-serif font-bold w-4.5 h-4.5 rounded-full border border-white flex items-center justify-center">
+                      <span className="absolute -bottom-1 -right-1 bg-[#1A1A1A] text-white text-[9px]  font-bold w-4.5 h-4.5 rounded-full border border-white flex items-center justify-center">
                         {p.cards.length}
                       </span>
 
                       {/* UNO indicator */}
                       {p.cards.length === 1 && p.isUnoCalled && (
-                        <span className="absolute -top-1 -left-1 bg-[#1A1A1A] text-white text-[8px] font-serif font-bold px-1 rounded-[4px] shadow-xs">
+                        <span className="absolute -top-1 -left-1 bg-[#1A1A1A] text-white text-[8px]  font-bold px-1 rounded-[4px] shadow-xs">
                           UNO
                         </span>
                       )}
@@ -1461,7 +1455,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
 
                     {/* Speech/Thought bubble popup */}
                     {p.recentDialogue && (
-                      <div className="absolute top-12 left-1/2 -translate-x-1/2 w-[120px] bg-white text-[#1A1A1A] text-[10px] p-2 rounded-[12px] border border-[#E5E2DC] shadow-lg z-20 font-sans leading-relaxed select-none animate-fade-in">
+                      <div className="absolute top-12 left-1/2 -translate-x-1/2 w-[120px] bg-white text-[#1A1A1A] text-[10px] p-2 rounded-[12px] border border-[#E5E2DC] shadow-lg z-20  leading-relaxed select-none animate-fade-in">
                         <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white rotate-45 border-t border-l border-[#E5E2DC]" />
                         <p className="relative z-10 text-center font-medium break-all">{p.recentDialogue}</p>
                       </div>
@@ -1493,9 +1487,9 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                 } flex flex-col items-center justify-center relative active:scale-95 disabled:opacity-90 disabled:active:scale-100 transition shadow-[0_4px_20px_rgba(0,0,0,0.08)] shrink-0 cursor-pointer`}
               >
                 <div className="w-12 h-18 rounded-[12px] border border-white/20 flex flex-col items-center justify-center text-center p-1">
-                  <span className="font-serif font-bold text-sm tracking-widest text-white">UNO</span>
+                  <span className=" font-bold text-sm tracking-widest text-white">UNO</span>
                 </div>
-                <span className="absolute bottom-1.5 font-sans text-[10px] text-[#A8A39A]">
+                <span className="absolute bottom-1.5  text-[10px] text-[#A8A39A]">
                   {deck.length}张
                 </span>
               </button>
@@ -1522,21 +1516,21 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                       key={card.id}
                       className={`w-22 h-32 rounded-[16px] ${matte.bg} ${matte.text} border-2 ${matte.border} shadow-[0_8px_24px_rgba(0,0,0,0.15)] flex flex-col items-center justify-between p-2.5 shrink-0 select-none z-10`}
                     >
-                      <div className="w-full flex items-center justify-between text-[10px] font-sans font-bold opacity-90">
+                      <div className="w-full flex items-center justify-between text-[10px]  font-bold opacity-90">
                         <span>{matte.tag}</span>
-                        <span className="font-serif">{symbolMap[card.type]}</span>
+                        <span className="">{symbolMap[card.type]}</span>
                       </div>
                       
                       {/* Central Value */}
                       <div className="flex items-center justify-center w-12 h-12 rounded-full bg-black/10 border border-white/20">
-                        <span className={`font-serif text-3xl font-black ${matte.text}`}>
+                        <span className={` text-3xl font-black ${matte.text}`}>
                           {symbolMap[card.type]}
                         </span>
                       </div>
 
-                      <div className="w-full flex items-center justify-between text-[10px] font-sans font-bold opacity-90 rotate-180">
+                      <div className="w-full flex items-center justify-between text-[10px]  font-bold opacity-90 rotate-180">
                         <span>{matte.tag}</span>
-                        <span className="font-serif">{symbolMap[card.type]}</span>
+                        <span className="">{symbolMap[card.type]}</span>
                       </div>
                     </div>
                   );
@@ -1547,7 +1541,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
             {/* Current Active Color overlay badge */}
             {currentColor && (
               <div className="mt-3 z-10">
-                <span className="px-3.5 py-1.5 rounded-full text-xs font-sans font-medium border border-[#E5E2DC] bg-white text-[#1A1A1A] shadow-xs flex items-center gap-2">
+                <span className="px-3.5 py-1.5 rounded-full text-xs  font-medium border border-[#E5E2DC] bg-white text-[#1A1A1A] shadow-xs flex items-center gap-2">
                   <span className="text-[#A8A39A]">当前跟牌:</span>
                   <span className={`px-2 py-0.5 rounded-full text-white text-[11px] font-bold ${
                     currentColor === "red" ? "bg-[#DC2626]" :
@@ -1577,7 +1571,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                 {currentTurn === 0 && (
                   <button
                     onClick={handleUserPass}
-                    className="px-3 py-1.5 bg-[#F0EDE8] hover:bg-[#E5E2DC] text-[#1A1A1A] font-sans text-xs font-medium rounded-[8px] active:scale-95 transition cursor-pointer"
+                    className="px-3 py-1.5 bg-[#F0EDE8] hover:bg-[#E5E2DC] text-[#1A1A1A]  text-xs font-medium rounded-[8px] active:scale-95 transition cursor-pointer"
                   >
                     过牌 / Pass
                   </button>
@@ -1587,7 +1581,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                 {players[0]?.cards.length <= 2 && (
                   <button
                     onClick={handleUserCallUno}
-                    className={`px-3.5 py-1.5 text-xs font-sans font-bold rounded-[8px] transition active:scale-95 cursor-pointer ${
+                    className={`px-3.5 py-1.5 text-xs  font-bold rounded-[8px] transition active:scale-95 cursor-pointer ${
                       players[0].isUnoCalled
                         ? "bg-[#1A1A1A] text-white"
                         : "bg-[#1A1A1A] text-white ring-2 ring-offset-2 ring-[#1A1A1A]"
@@ -1626,27 +1620,27 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                         : "brightness-75 saturate-70 cursor-not-allowed border-gray-400"
                     }`}
                   >
-                    <div className="w-full flex items-center justify-between text-[9px] font-sans font-bold opacity-90">
+                    <div className="w-full flex items-center justify-between text-[9px]  font-bold opacity-90">
                       <span>{matte.tag}</span>
-                      <span className="font-serif">{symbolMap[card.type]}</span>
+                      <span className="">{symbolMap[card.type]}</span>
                     </div>
                     
                     <div className="flex items-center justify-center w-11 h-11 rounded-full bg-black/10 border border-white/20">
-                      <span className={`font-serif text-2xl font-black ${matte.text}`}>
+                      <span className={` text-2xl font-black ${matte.text}`}>
                         {symbolMap[card.type]}
                       </span>
                     </div>
 
-                    <div className="w-full flex items-center justify-between text-[9px] font-sans font-bold opacity-90 rotate-180">
+                    <div className="w-full flex items-center justify-between text-[9px]  font-bold opacity-90 rotate-180">
                       <span>{matte.tag}</span>
-                      <span className="font-serif">{symbolMap[card.type]}</span>
+                      <span className="">{symbolMap[card.type]}</span>
                     </div>
                   </button>
                 );
               })}
             </div>
             
-            <div className="text-center text-[10px] text-[#A8A39A] font-sans">
+            <div className="text-center text-[10px] text-[#A8A39A] ">
               与 {players.filter((_, idx) => idx !== 0).map(p => p.name).join("、")} 对决中 · 手牌余 {players[0]?.cards.length} 张
             </div>
           </div>
@@ -1655,8 +1649,8 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
           {gameBanner && (
             <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 animate-fade-in">
               <div className="bg-[#1A1A1A] text-white border border-neutral-700 px-5 py-3.5 rounded-[16px] shadow-2xl text-center max-w-[280px]">
-                <h3 className="text-sm font-serif font-bold text-white tracking-tight">{gameBanner.title}</h3>
-                <p className="text-[11px] font-sans text-[#A8A39A] mt-0.5">{gameBanner.subtitle}</p>
+                <h3 className="text-sm  font-bold text-white tracking-tight">{gameBanner.title}</h3>
+                <p className="text-[11px]  text-[#A8A39A] mt-0.5">{gameBanner.subtitle}</p>
               </div>
             </div>
           )}
@@ -1666,33 +1660,33 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
             <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-6 animate-fade-in">
               <div className="bg-white border border-[#E5E2DC] p-6 rounded-[16px] w-full max-w-[280px] text-center space-y-4 shadow-2xl">
                 <div className="space-y-1">
-                  <h3 className="text-sm font-serif font-bold text-[#1A1A1A]">
+                  <h3 className="text-sm  font-bold text-[#1A1A1A]">
                     请选择跟牌颜色
                   </h3>
-                  <p className="text-[10px] text-[#A8A39A] font-sans">指定下一步牌局要跟出的卡牌颜色</p>
+                  <p className="text-[10px] text-[#A8A39A] ">指定下一步牌局要跟出的卡牌颜色</p>
                 </div>
                 <div className="grid grid-cols-2 gap-2.5">
                   <button
                     onClick={() => handleColorChoose("red")}
-                    className="py-3 bg-[#C85250] hover:bg-[#B24341] active:scale-95 text-white font-sans text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs"
+                    className="py-3 bg-[#C85250] hover:bg-[#B24341] active:scale-95 text-white  text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs"
                   >
                     ● 红色 (Red)
                   </button>
                   <button
                     onClick={() => handleColorChoose("yellow")}
-                    className="py-3 bg-[#D19B38] hover:bg-[#BD8A2B] active:scale-95 text-white font-sans text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs"
+                    className="py-3 bg-[#D19B38] hover:bg-[#BD8A2B] active:scale-95 text-white  text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs"
                   >
                     ○ 黄色 (Yellow)
                   </button>
                   <button
                     onClick={() => handleColorChoose("green")}
-                    className="py-3 bg-[#458B64] hover:bg-[#397654] active:scale-95 text-white font-sans text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs"
+                    className="py-3 bg-[#458B64] hover:bg-[#397654] active:scale-95 text-white  text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs"
                   >
                     ▲ 绿色 (Green)
                   </button>
                   <button
                     onClick={() => handleColorChoose("blue")}
-                    className="py-3 bg-[#4873A6] hover:bg-[#3A608F] active:scale-95 text-white font-sans text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs"
+                    className="py-3 bg-[#4873A6] hover:bg-[#3A608F] active:scale-95 text-white  text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs"
                   >
                     ■ 蓝色 (Blue)
                   </button>
@@ -1708,10 +1702,10 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                   <Pause className="w-6 h-6 stroke-[2.5]" />
                 </div>
                 <div className="space-y-1">
-                  <h3 className="text-base font-serif font-bold text-[#1A1A1A]">
+                  <h3 className="text-base  font-bold text-[#1A1A1A]">
                     游戏已暂停
                   </h3>
-                  <p className="text-xs text-[#A8A39A] font-sans leading-relaxed">
+                  <p className="text-xs text-[#A8A39A]  leading-relaxed">
                     所有操作按钮已禁用，进度已自动存档至本地。
                   </p>
                 </div>
@@ -1734,7 +1728,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                 <div className="space-y-2 pt-1">
                   <button
                     onClick={handleResumeGame}
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-sans text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white  text-xs font-bold rounded-[8px] transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
                   >
                     <Play className="w-4 h-4 fill-white" />
                     继续对局
@@ -1744,7 +1738,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                       playSynthSound("click", soundMuted);
                       setHistoryModalOpen(true);
                     }}
-                    className="w-full py-2.5 bg-white border border-[#E5E2DC] hover:bg-[#F0EDE8] active:scale-95 text-[#1A1A1A] font-sans text-xs font-bold rounded-[8px] transition cursor-pointer flex items-center justify-center gap-1.5"
+                    className="w-full py-2.5 bg-white border border-[#E5E2DC] hover:bg-[#F0EDE8] active:scale-95 text-[#1A1A1A]  text-xs font-bold rounded-[8px] transition cursor-pointer flex items-center justify-center gap-1.5"
                   >
                     <History className="w-3.5 h-3.5 text-[#1A1A1A]" />
                     历史对局列表
@@ -1760,12 +1754,12 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
       {gameState === "game_over" && (
         <div className="absolute inset-0 bg-[#F8F6F3] flex flex-col justify-between p-6 z-50 overflow-y-auto animate-fade-in">
           <div className="space-y-5 text-center mt-4">
-            <div className="inline-flex items-center justify-center w-14 h-14 bg-[#1A1A1A] text-white font-serif font-bold text-2xl rounded-[16px] shadow-xs mb-1">
+            <div className="inline-flex items-center justify-center w-14 h-14 bg-[#1A1A1A] text-white  font-bold text-2xl rounded-[16px] shadow-xs mb-1">
               🏆
             </div>
             <div className="space-y-1">
-              <h2 className="text-xl font-serif font-bold text-[#1A1A1A]">本局对局结算</h2>
-              <p className="text-xs text-[#A8A39A] font-sans">
+              <h2 className="text-xl  font-bold text-[#1A1A1A]">本局对局结算</h2>
+              <p className="text-xs text-[#A8A39A] ">
                 胜负定局，比赛完整数据及排名汇总
               </p>
             </div>
@@ -1773,11 +1767,11 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
             {/* Match Summary Metrics */}
             <div className="grid grid-cols-2 gap-2.5 max-w-sm mx-auto">
               <div className="p-3 bg-white rounded-[14px] border border-[#E5E2DC] text-center">
-                <span className="text-[10px] text-[#A8A39A] font-sans block">累计出牌</span>
-                <span className="text-sm font-serif font-bold text-[#1A1A1A]">{moveCount} 次</span>
+                <span className="text-[10px] text-[#A8A39A]  block">累计出牌</span>
+                <span className="text-sm  font-bold text-[#1A1A1A]">{moveCount} 次</span>
               </div>
               <div className="p-3 bg-white rounded-[14px] border border-[#E5E2DC] text-center">
-                <span className="text-[10px] text-[#A8A39A] font-sans block">总用时长</span>
+                <span className="text-[10px] text-[#A8A39A]  block">总用时长</span>
                 <span className="text-sm font-mono font-bold text-[#1A1A1A]">{formatSeconds(gameElapsedSeconds)}</span>
               </div>
             </div>
@@ -1808,15 +1802,15 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <span className="font-serif text-sm font-bold text-[#1A1A1A]">{idx + 1}.</span>
+                        <span className=" text-sm font-bold text-[#1A1A1A]">{idx + 1}.</span>
                         <div className="w-8 h-8 rounded-full bg-[#F0EDE8] flex items-center justify-center text-sm shrink-0">
                           {p.avatar}
                         </div>
                         <span className="font-bold text-xs text-[#1A1A1A]">{p.name} {p.id === "user" && "（你）"}</span>
                       </div>
                       <div className="text-right">
-                        <span className="text-xs font-serif font-bold text-[#1A1A1A] block">{rankLabel}</span>
-                        <span className="text-[10px] text-[#A8A39A] font-sans">余 {p.cards.length} 张牌</span>
+                        <span className="text-xs  font-bold text-[#1A1A1A] block">{rankLabel}</span>
+                        <span className="text-[10px] text-[#A8A39A] ">余 {p.cards.length} 张牌</span>
                       </div>
                     </div>
                   );
@@ -1830,7 +1824,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                 playSynthSound("click", soundMuted);
                 setGameState("setup");
               }}
-              className="w-full py-3.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white font-sans font-bold text-xs rounded-[8px] active:scale-95 transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              className="w-full py-3.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white  font-bold text-xs rounded-[8px] active:scale-95 transition shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
             >
               <RotateCw className="w-4 h-4" />
               重新开始 / 再来一局
@@ -1840,14 +1834,14 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                 playSynthSound("click", soundMuted);
                 setHistoryModalOpen(true);
               }}
-              className="w-full py-3 bg-white border border-[#E5E2DC] hover:bg-[#F0EDE8] text-[#1A1A1A] font-sans font-bold text-xs rounded-[8px] active:scale-95 transition cursor-pointer flex items-center justify-center gap-1.5"
+              className="w-full py-3 bg-white border border-[#E5E2DC] hover:bg-[#F0EDE8] text-[#1A1A1A]  font-bold text-xs rounded-[8px] active:scale-95 transition cursor-pointer flex items-center justify-center gap-1.5"
             >
               <History className="w-4 h-4 text-[#1A1A1A]" />
               查看历史对局记录
             </button>
             <button
               onClick={onClose}
-              className="w-full py-2.5 text-[#A8A39A] hover:text-[#1A1A1A] font-sans text-xs transition cursor-pointer"
+              className="w-full py-2.5 text-[#A8A39A] hover:text-[#1A1A1A]  text-xs transition cursor-pointer"
             >
               返回主屏幕
             </button>
@@ -1860,7 +1854,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
         <div className="absolute inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white border border-[#E5E2DC] p-5 rounded-[20px] w-full max-w-[340px] shadow-2xl flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between border-b border-[#E5E2DC] pb-3 mb-3 shrink-0">
-              <span className="text-sm font-serif font-bold text-[#1A1A1A] flex items-center gap-1.5">
+              <span className="text-sm  font-bold text-[#1A1A1A] flex items-center gap-1.5">
                 <History className="w-4 h-4 text-[#1A1A1A]" />
                 历史对局存档 ({savedGames.length})
               </span>
@@ -1902,7 +1896,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                       <div className="flex items-start justify-between">
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-serif font-bold text-xs text-[#1A1A1A]">{save.title}</span>
+                            <span className=" font-bold text-xs text-[#1A1A1A]">{save.title}</span>
                             {save.status === "completed" ? (
                               <span className="px-1.5 py-0.5 text-[9px] bg-[#F0EDE8] text-[#1A1A1A] font-bold rounded-[4px]">
                                 已结束
@@ -1953,7 +1947,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
         <div className="absolute inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white border border-[#E5E2DC] p-5 rounded-[16px] w-full max-w-[320px] shadow-2xl flex flex-col max-h-[85%] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[#E5E2DC] pb-2.5 mb-3">
-              <span className="text-xs font-serif font-bold text-[#1A1A1A] flex items-center gap-1.5">
+              <span className="text-xs  font-bold text-[#1A1A1A] flex items-center gap-1.5">
                 <HelpCircle className="w-4 h-4 text-[#1A1A1A]" />
                 UNO 游戏规则说明
               </span>
@@ -1964,7 +1958,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
                 关闭
               </button>
             </div>
-            <div className="text-xs text-[#1A1A1A]/80 space-y-2.5 leading-relaxed font-sans">
+            <div className="text-xs text-[#1A1A1A]/80 space-y-2.5 leading-relaxed ">
               <p>
                 1. <b>核心目标</b>：谁先将手上的全部卡牌打完，谁就能赢得本轮比赛胜利。
               </p>

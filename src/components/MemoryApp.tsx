@@ -15,7 +15,7 @@ export default function MemoryApp({ characters, settings, sessions, onClose }: M
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-neutral-50 relative overflow-hidden font-sans">
+    <div className="flex-1 flex flex-col h-full bg-neutral-50 relative overflow-hidden ">
       <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-neutral-100 shrink-0 shadow-sm z-10 relative">
         <button
           onClick={() => selectedCharacterId ? setSelectedCharacterId(null) : onClose()}

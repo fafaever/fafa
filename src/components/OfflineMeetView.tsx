@@ -133,8 +133,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // View Mode: 'chat' | 'visual_settings' | 'mode_settings' | 'history_replay'
-  const [viewMode, setViewMode] = useState<"chat" | "visual_settings" | "mode_settings" | "history_replay">("chat");
+  // View Mode: 'chat' | 'settings_view' | 'history_replay'
+  const [viewMode, setViewMode] = useState<"chat" | "settings_view" | "history_replay">("chat");
 
   // Context menu & action states
   const [selectedMsgForMenu, setSelectedMsgForMenu] = useState<OfflineStoryMessage | null>(null);
@@ -145,6 +145,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   const [wordLimit, setWordLimit] = useState<number>(600);
   const [meetMode, setMeetMode] = useState<MeetModeType>(forcedMode || "shared");
   const [showSetupModal, setShowSetupModal] = useState<boolean>(false);
+  const [showExitModal, setShowExitModal] = useState<boolean>(false);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
 
   // Customization & Style states
   const [activeTheme, setActiveTheme] = useState<VisualThemeType>("warm_grey");
@@ -864,7 +866,7 @@ ${onlineContextStr}
     return (
       <div
         key={id}
-        className="w-full bg-white rounded-[12px] px-[16px] py-[12px] shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-stone-100/60 mb-[10px] group relative text-left select-text"
+        className="w-full bg-white/60 backdrop-blur-md rounded-[16px] px-[16px] py-[12px] shadow-[0_4px_12px_rgba(0,0,0,0.03)] border border-white/40 mb-[12px] group relative text-left select-text"
         onTouchStart={() => handleTouchStart(msg)}
         onTouchEnd={handleTouchEnd}
         onTouchMove={handleTouchEnd}
@@ -881,17 +883,32 @@ ${onlineContextStr}
           <span className="text-[11px] font-bold text-[#99948E]">
             {nameLabel}
           </span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedMsgForMenu(msg);
-            }}
-            className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-[#99948E] hover:text-[#1A1A1A] rounded cursor-pointer"
-            title={role === "user" ? "操作菜单" : "重roll"}
-          >
-            <MoreHorizontal className="w-3 h-3" />
-          </button>
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            {role === "assistant" && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRerollMessage(id);
+                }}
+                className="p-0.5 text-[#99948E] hover:text-[#1A1A1A] rounded cursor-pointer"
+                title="重新生成"
+              >
+                <RotateCcw className="w-3 h-3" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedMsgForMenu(msg);
+              }}
+              className="p-0.5 text-[#99948E] hover:text-[#1A1A1A] rounded cursor-pointer"
+              title={role === "user" ? "操作菜单" : "菜单"}
+            >
+              <MoreHorizontal className="w-3 h-3" />
+            </button>
+          </div>
         </div>
 
         {/* Card Body: Narrative (#1A1A1A) vs Dialogue (#4A4A4A), left-aligned */}
@@ -988,14 +1005,27 @@ ${onlineContextStr}
     <div
       style={{
         fontFamily: KAITI_FONT,
-        backgroundColor: currentTheme.bg,
+        background: 'linear-gradient(135deg, #F3E7FF 0%, #FFE7F3 100%)',
         color: currentTheme.text,
       }}
-      className="offline-meet-container fixed inset-0 z-50 flex flex-col max-w-md mx-auto sm:max-w-md sm:rounded-[32px] overflow-hidden border-none shadow-2xl animate-fade-in transition-colors duration-200"
+      className="offline-meet-container fixed inset-0 z-50 flex flex-col max-w-md mx-auto sm:max-w-md sm:rounded-[32px] overflow-hidden shadow-2xl animate-fade-in transition-colors duration-200"
     >
       {/* Dynamic Custom CSS Injection */}
       {customCss && (
         <style dangerouslySetInnerHTML={{ __html: customCss }} />
+      )}
+
+      {/* Exit Confirmation Modal */}
+      {showExitModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
+            <h3 className="font-bold text-stone-900 text-sm">确认退出见面？</h3>
+            <div className="space-y-2">
+              <button onClick={() => { setIsPaused(true); setShowExitModal(false); onClose(); }} className="w-full py-3 bg-stone-100 hover:bg-stone-200 text-stone-900 text-xs font-bold rounded-xl">保存并退出（暂停）</button>
+              <button onClick={() => { archiveCurrentSession(messages, meetMode); setShowExitModal(false); onClose(); }} className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl">结束见面</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Toast Notification */}
@@ -1008,8 +1038,7 @@ ${onlineContextStr}
 
       {/* Header Bar */}
       <div
-        style={{ backgroundColor: currentTheme.headerBg }}
-        className="h-12 px-4 flex items-center justify-between shrink-0 z-10 border-b border-black/5"
+        className="h-12 px-4 flex items-center justify-between shrink-0 z-10 border-b border-black/5 bg-white/40 backdrop-blur-md"
       >
         <button
           type="button"
@@ -1017,10 +1046,10 @@ ${onlineContextStr}
             if (viewMode === "history_replay") {
               setViewMode("mode_settings");
               setReplayingRecord(null);
-            } else if (viewMode === "visual_settings" || viewMode === "mode_settings") {
+            } else if (viewMode === "settings_view") {
               setViewMode("chat");
             } else {
-              onClose();
+              setShowExitModal(true);
             }
           }}
           className="p-1.5 -ml-1 rounded-full hover:bg-black/5 active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
@@ -1040,32 +1069,21 @@ ${onlineContextStr}
             ? "模式设置"
             : viewMode === "history_replay"
             ? "历史见面回放"
-            : "线下见面"}
+            : "线下界面"}
         </span>
 
         <div className="flex items-center gap-1">
           {viewMode === "chat" && (
             <>
-              {/* 齿轮图标：视觉设置 */}
+              {/* 整合设置入口 */}
               <button
                 type="button"
-                onClick={() => setViewMode("visual_settings")}
+                onClick={() => setViewMode("settings_view")}
                 className="p-1.5 rounded-full hover:bg-black/5 active:scale-95 transition-all cursor-pointer"
-                title="视觉设置"
+                title="设置"
                 style={{ color: currentTheme.subText }}
               >
                 <Settings className="w-5 h-5" />
-              </button>
-
-              {/* 三条线图标：模式设置 */}
-              <button
-                type="button"
-                onClick={() => setViewMode("mode_settings")}
-                className="p-1.5 -mr-1 rounded-full hover:bg-black/5 active:scale-95 transition-all cursor-pointer"
-                title="模式设置"
-                style={{ color: currentTheme.subText }}
-              >
-                <Menu className="w-5 h-5" />
               </button>
             </>
           )}
@@ -1088,335 +1106,102 @@ ${onlineContextStr}
       </div>
 
       {/* Main Content Area depending on ViewMode */}
-      {viewMode === "visual_settings" ? (
-        /* 视觉设置页面 (齿轮图标) */
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 font-sans">
-          {/* 板块一：视觉主题切换 */}
-          <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
-            <div className="flex items-center gap-2 border-b border-black/5 pb-2">
-              <Palette className="w-4 h-4 text-purple-700" />
-              <h3 className="font-bold text-xs text-stone-800">板块一：视觉主题切换</h3>
+      {viewMode === "settings_view" ? (
+        /* 统一设置页面 */
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6 ">
+          <div className="space-y-6">
+            {/* Visual Settings */}
+            <div className="bg-white rounded-2xl p-4 shadow-xs border border-neutral-200 space-y-3">
+                <h3 className=" font-bold text-sm text-neutral-900">视觉主题</h3>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {(Object.keys(THEME_STYLES) as VisualThemeType[]).map((tKey) => {
+                    const tObj = THEME_STYLES[tKey];
+                    const isActive = activeTheme === tKey;
+                    return (
+                      <button key={tKey} type="button" onClick={() => setActiveTheme(tKey)}
+                              className={`p-3 rounded-xl border text-left flex flex-col gap-2 transition-all cursor-pointer ${isActive ? "border-black ring-1 ring-black bg-neutral-100" : "border-neutral-200 hover:border-neutral-300 bg-white"}`}>
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-neutral-900">{tObj.name}</span>
+                            {isActive && <Check className="w-4 h-4 text-black shrink-0" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
-              {(Object.keys(THEME_STYLES) as VisualThemeType[]).map((tKey) => {
-                const tObj = THEME_STYLES[tKey];
-                const isActive = activeTheme === tKey;
-
-                return (
-                  <button
-                    key={tKey}
-                    type="button"
-                    onClick={() => {
-                      setActiveTheme(tKey);
-                      saveAllConfig({ theme: tKey });
-                    }}
-                    className={`p-3 rounded-xl border text-left flex flex-col gap-2 transition-all cursor-pointer relative ${
-                      isActive
-                        ? "border-purple-600 ring-2 ring-purple-600/20 bg-purple-50/30"
-                        : "border-stone-200 hover:border-stone-300 bg-white"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-stone-800">{tObj.name}</span>
-                      {isActive && <Check className="w-4 h-4 text-purple-700 shrink-0" />}
-                    </div>
-
-                    {/* Color Preview Pills */}
-                    <div className="flex items-center gap-1.5">
-                      <div
-                        className="w-4 h-4 rounded-full border border-black/10"
-                        style={{ backgroundColor: tObj.bg }}
-                        title="背景色"
-                      />
-                      <div
-                        className="w-4 h-4 rounded-full border border-black/10"
-                        style={{ backgroundColor: tObj.cardBg }}
-                        title="卡片色"
-                      />
-                      <div
-                        className="w-4 h-4 rounded-full border border-black/10"
-                        style={{ backgroundColor: tObj.text }}
-                        title="文字色"
-                      />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 板块二：界面美化自定义（CSS代码） */}
-          <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
-            <div className="flex items-center justify-between border-b border-black/5 pb-2">
-              <div className="flex items-center gap-2">
-                <Code className="w-4 h-4 text-purple-700" />
-                <h3 className="font-bold text-xs text-stone-800">板块二：界面美化自定义（CSS）</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setCustomCss("");
-                  saveAllConfig({ customCss: "" });
-                }}
-                className="text-[11px] text-stone-500 hover:text-stone-800 font-medium cursor-pointer"
-              >
-                重置为默认
-              </button>
-            </div>
-
-            {/* Presets buttons */}
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-stone-600 block">选择示例 CSS：</label>
-              <div className="flex flex-wrap gap-1.5">
-                {CSS_PRESETS.map((p) => (
-                  <button
-                    key={p.name}
-                    type="button"
-                    onClick={() => setCustomCss(p.code)}
-                    className="text-[10px] bg-stone-100 hover:bg-purple-50 hover:text-purple-700 text-stone-700 px-2.5 py-1 rounded-lg border border-stone-200 transition-all cursor-pointer font-medium"
-                  >
-                    +{p.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* CSS Textarea */}
-            <textarea
-              rows={5}
-              placeholder="/* 在此处输入自定义 CSS 代码，只作用于线下见面界面 */"
-              value={customCss}
-              onChange={(e) => setCustomCss(e.target.value)}
-              className="w-full text-[11px] font-mono border border-stone-200 rounded-xl p-3 bg-stone-900 text-emerald-400 outline-none focus:border-purple-600 resize-none"
-            />
-
-            {/* Apply & Save Buttons */}
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => {
-                  saveAllConfig({ customCss });
-                  alert("自定义 CSS 样式已应用生效！");
-                }}
-                className="flex-1 py-2 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>应用样式</span>
-              </button>
-            </div>
-
-            {/* Save CSS Preset with name */}
-            <div className="pt-2 border-t border-stone-100 space-y-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  placeholder="方案名称（如：暗黑朋克）"
-                  value={newPresetName}
-                  onChange={(e) => setNewPresetName(e.target.value)}
-                  className="flex-1 text-xs border border-stone-200 rounded-xl px-3 py-1.5 bg-white outline-none focus:border-purple-600"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!newPresetName.trim() || !customCss.trim()) {
-                      alert("请输入方案名称并填写 CSS 内容");
-                      return;
-                    }
-                    const newPreset: CustomCssPreset = {
-                      id: `preset-${Date.now()}`,
-                      name: newPresetName.trim(),
-                      css: customCss,
-                    };
-                    const updatedPresets = [...savedCssPresets, newPreset];
-                    setSavedCssPresets(updatedPresets);
-                    saveAllConfig({ savedCssPresets: updatedPresets });
-                    setNewPresetName("");
-                    alert(`样式方案 “${newPreset.name}” 已保存！`);
-                  }}
-                  className="px-3 py-1.5 bg-stone-800 hover:bg-black text-white text-xs font-bold rounded-xl cursor-pointer shrink-0"
-                >
-                  保存方案
-                </button>
-              </div>
-
-              {savedCssPresets.length > 0 && (
-                <div className="space-y-1.5 pt-1">
-                  <span className="text-[11px] font-bold text-stone-600 block">已保存方案：</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {savedCssPresets.map((sp) => (
-                      <div
-                        key={sp.id}
-                        className="flex items-center gap-1 bg-stone-100 px-2.5 py-1 rounded-lg text-[10px] text-stone-700 border border-stone-200"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setCustomCss(sp.css)}
-                          className="hover:text-purple-700 font-bold cursor-pointer"
-                        >
-                          {sp.name}
+            {/* Narrative Perspective */}
+            <div className="bg-white rounded-2xl p-4 shadow-xs border border-neutral-200 space-y-3">
+                <h3 className=" font-bold text-sm text-neutral-900">叙述视角</h3>
+                <div className="space-y-2">
+                    {[
+                        { id: "first", title: "第一人称", desc: "从角色自身视角出发，用“我”来叙述，代入感强。" },
+                        { id: "second", title: "第二人称", desc: "叙述中直接称呼用户为“你”，拉近距离。" },
+                        { id: "third", title: "第三人称", desc: "上帝视角，用“他/她”来叙述角色，客观观察。" },
+                    ].map((pOpt) => (
+                        <button key={pOpt.id} type="button" onClick={() => setPerspective(pOpt.id as PerspectiveType)}
+                                className={`w-full p-3 rounded-xl border text-left transition-all ${perspective === pOpt.id ? "border-black bg-neutral-100" : "border-neutral-200 hover:border-neutral-300"}`}>
+                            <span className="text-xs font-bold text-neutral-900 block mb-1">{pOpt.title}</span>
+                            <span className="text-[10px] text-neutral-500 block leading-tight">{pOpt.desc}</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const updated = savedCssPresets.filter((p) => p.id !== sp.id);
-                            setSavedCssPresets(updated);
-                            saveAllConfig({ savedCssPresets: updated });
-                          }}
-                          className="text-stone-400 hover:text-rose-600 ml-1 cursor-pointer"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
                     ))}
-                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* 板块三：叙述视角选择 */}
-          <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
-            <div className="flex items-center gap-2 border-b border-black/5 pb-2">
-              <UserCheck className="w-4 h-4 text-purple-700" />
-              <h3 className="font-bold text-xs text-stone-800">板块三：叙述视角选择</h3>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: "first", title: "第一人称", desc: "从角色视角用“我”叙述" },
-                { id: "second", title: "第二人称", desc: "直接称呼用户为“你”" },
-                { id: "third", title: "第三人称", desc: "上帝视角用“他/她”（默认）" },
-              ].map((pOpt) => {
-                const isActive = perspective === pOpt.id;
-
-                return (
-                  <button
-                    key={pOpt.id}
-                    type="button"
-                    onClick={() => {
-                      setPerspective(pOpt.id as PerspectiveType);
-                      saveAllConfig({ perspective: pOpt.id as PerspectiveType });
-                    }}
-                    className={`p-2.5 rounded-xl border text-left flex flex-col justify-between gap-1 transition-all cursor-pointer ${
-                      isActive
-                        ? "border-purple-600 bg-purple-50/50 ring-2 ring-purple-600/20"
-                        : "border-stone-200 hover:border-stone-300 bg-white"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-stone-800">{pOpt.title}</span>
-                      {isActive && <Check className="w-3.5 h-3.5 text-purple-700 shrink-0" />}
-                    </div>
-                    <p className="text-[10px] text-stone-500 leading-tight">{pOpt.desc}</p>
-                  </button>
-                );
-              })}
+            {/* Writing Tone */}
+            <div className="bg-white rounded-2xl p-4 shadow-xs border border-neutral-200 space-y-3">
+                <h3 className=" font-bold text-sm text-neutral-900">文风偏好</h3>
+                <div className="space-y-2">
+                    {[
+                        { id: "daily_plain", name: "日常白描", desc: "句子短，动作具体，不加修饰，像在讲身边发生的事。" },
+                        { id: "literary", name: "文艺细腻", desc: "注重氛围和感官描写，句子稍长，有呼吸感。" },
+                        { id: "cold_restrained", name: "冷淡克制", desc: "用词少，情绪收着，不渲染，不煽情。" },
+                        { id: "warm_soft", name: "温暖柔和", desc: "语气软，细节暖，节奏慢，适合温馨场景。" },
+                    ].map((tOpt) => (
+                        <button key={tOpt.id} type="button" onClick={() => setWritingTone(tOpt.id as ToneType)}
+                                className={`w-full p-3 rounded-xl border text-left transition-all ${writingTone === tOpt.id ? "border-black bg-neutral-100" : "border-neutral-200 hover:border-neutral-300"}`}>
+                            <span className="text-xs font-bold text-neutral-900 block mb-1">{tOpt.name}</span>
+                            <span className="text-[10px] text-neutral-500 block leading-tight">{tOpt.desc}</span>
+                        </button>
+                    ))}
+                </div>
             </div>
-          </div>
 
-          {/* 板块四：文风选择 */}
-          <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
-            <div className="flex items-center justify-between border-b border-black/5 pb-2">
-              <div className="flex items-center gap-2">
-                <Feather className="w-4 h-4 text-purple-700" />
-                <h3 className="font-bold text-xs text-stone-800">板块四：文风偏好选择</h3>
-              </div>
-              <button
+            {/* CSS Customization */}
+            <div className="bg-white rounded-2xl p-4 shadow-xs border border-neutral-200 space-y-3">
+                <h3 className=" font-bold text-sm text-neutral-900">界面美化 (CSS)</h3>
+                <textarea rows={5} value={customCss} onChange={(e) => setCustomCss(e.target.value)} className="w-full text-xs font-mono border border-neutral-200 rounded-xl p-3 bg-neutral-50 outline-none resize-none" />
+                <button type="button" className="w-full py-2 border border-neutral-300 text-neutral-700 font-bold text-xs rounded-xl hover:bg-neutral-50 transition-all cursor-pointer">
+                    上传自定义美化 (CSS)
+                </button>
+                <button type="button" className="w-full py-2 bg-black text-white font-bold text-xs rounded-xl transition-all cursor-pointer">
+                    保存当前预设
+                </button>
+            </div>
+
+             <button
                 type="button"
                 onClick={() => {
-                  setPerspective("third");
-                  setWritingTone("daily_plain");
-                  setCustomToneKeywords("");
-                  saveAllConfig({
-                    perspective: "third",
-                    writingTone: "daily_plain",
-                    customToneKeywords: "",
-                  });
-                  alert("已恢复默认视角与文风（第三人称 + 日常白描）");
+                  if (window.confirm("确定保存当前设置吗？")) {
+                    saveAllConfig({
+                        theme: activeTheme,
+                        perspective: perspective,
+                        writingTone: writingTone,
+                        customCss: customCss
+                    });
+                    alert("设置已应用");
+                    setViewMode("chat");
+                  }
                 }}
-                className="text-[11px] text-stone-500 hover:text-purple-700 font-medium cursor-pointer"
-              >
-                恢复默认
-              </button>
-            </div>
-
-            {/* Presets Grid */}
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { id: "daily_plain", name: "日常白描", desc: "句子短，动作具体，干净流畅（默认）" },
-                { id: "literary", name: "文艺细腻", desc: "句子稍长，注重氛围与光影细节" },
-                { id: "cold_restrained", name: "冷淡克制", desc: "用词少，情绪收着，隐晦真实" },
-                { id: "warm_soft", name: "温暖柔和", desc: "语气软，细节暖，温柔包容" },
-              ].map((tOpt) => {
-                const isActive = writingTone === tOpt.id;
-
-                return (
-                  <button
-                    key={tOpt.id}
-                    type="button"
-                    onClick={() => {
-                      setWritingTone(tOpt.id as ToneType);
-                      saveAllConfig({ writingTone: tOpt.id as ToneType });
-                    }}
-                    className={`p-2.5 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
-                      isActive
-                        ? "border-purple-600 bg-purple-50/50 ring-2 ring-purple-600/20"
-                        : "border-stone-200 hover:border-stone-300 bg-white"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-stone-800">{tOpt.name}</span>
-                      {isActive && <Check className="w-3.5 h-3.5 text-purple-700 shrink-0" />}
-                    </div>
-                    <p className="text-[10px] text-stone-500 leading-tight">{tOpt.desc}</p>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Custom Tone Keywords */}
-            <div className="space-y-1.5 pt-1">
-              <label className="text-[11px] font-bold text-stone-700 block">
-                自定义文风关键词 <span className="text-[10px] font-normal text-stone-400">（可选）</span>
-              </label>
-              <input
-                type="text"
-                placeholder="如：像日本电影一样安静、带一点幽默感、阴雨天感的沉静..."
-                value={customToneKeywords}
-                onChange={(e) => setCustomToneKeywords(e.target.value)}
-                className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-purple-600"
-              />
-              <div className="flex items-center justify-between pt-1">
-                <div className="flex flex-wrap gap-1">
-                  {["像日本电影一样安静", "带一点幽默感", "阴雨天般的沉静"].map((tag) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => setCustomToneKeywords(tag)}
-                      className="text-[10px] bg-stone-100 hover:bg-stone-200 text-stone-600 px-2 py-0.5 rounded cursor-pointer"
-                    >
-                      +{tag}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    saveAllConfig({ customToneKeywords });
-                    alert("文风关键词设置已保存！");
-                  }}
-                  className="px-3 py-1.5 bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer shrink-0"
-                >
-                  保存文风
-                </button>
-              </div>
-            </div>
+                className="w-full py-3 bg-white border border-black text-black hover:bg-neutral-50 font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+             >
+                保存并设置
+             </button>
           </div>
         </div>
-      ) : viewMode === "mode_settings" ? (
+      ) : viewMode === "history_replay" ? (
         /* 模式设置页面 (三条线图标) */
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 font-sans">
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 ">
           {/* 板块一：模式选择 */}
           {!forcedMode && (
             <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
@@ -1730,7 +1515,7 @@ ${onlineContextStr}
         </div>
       ) : viewMode === "history_replay" && replayingRecord ? (
         /* History Replay Mode View */
-        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3 font-sans">
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3 ">
           <div className="p-3 bg-stone-100 border border-stone-200 rounded-2xl text-xs space-y-1 text-stone-700">
             <div className="flex items-center justify-between font-bold">
               <span>见面时间：{new Date(replayingRecord.timestamp).toLocaleString()}</span>
@@ -1859,7 +1644,7 @@ ${onlineContextStr}
           onClick={() => setSelectedMsgForMenu(null)}
         >
           <div
-            className="bg-white border border-stone-200 rounded-3xl p-4 w-full max-w-xs shadow-2xl space-y-2 font-sans text-stone-800 animate-scale-up"
+            className="bg-white border border-stone-200 rounded-3xl p-4 w-full max-w-xs shadow-2xl space-y-2  text-stone-800 animate-scale-up"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between pb-2 border-b border-stone-100">
@@ -1942,7 +1727,7 @@ ${onlineContextStr}
       {/* Edit User Message Modal */}
       {editingMsg && (
         <div className="fixed inset-0 z-70 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in">
-          <div className="bg-white border border-stone-200 rounded-3xl p-5 w-full max-w-sm shadow-2xl space-y-3 font-sans text-stone-800">
+          <div className="bg-white border border-stone-200 rounded-3xl p-5 w-full max-w-sm shadow-2xl space-y-3  text-stone-800">
             <div className="flex items-center justify-between pb-2 border-b border-stone-100">
               <span className="font-bold text-sm text-stone-800 flex items-center gap-1.5">
                 <Pencil className="w-4 h-4 text-purple-600" />
@@ -1961,7 +1746,7 @@ ${onlineContextStr}
               rows={4}
               value={editingMsg.content}
               onChange={(e) => setEditingMsg({ ...editingMsg, content: e.target.value })}
-              className="w-full text-xs border border-stone-200 rounded-2xl p-3 bg-stone-50 outline-none focus:border-purple-600 resize-none font-sans"
+              className="w-full text-xs border border-stone-200 rounded-2xl p-3 bg-stone-50 outline-none focus:border-purple-600 resize-none "
             />
 
             <div className="flex items-center gap-2 pt-1">
@@ -1987,7 +1772,7 @@ ${onlineContextStr}
       {/* Opening Setup Modal */}
       {showSetupModal && (
         <div className="fixed inset-0 z-60 bg-black/55 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in">
-          <div className="bg-[#FAF8F5] border border-[#E8E2D7] rounded-3xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto shadow-2xl space-y-4 font-sans text-[#2B2723]">
+          <div className="bg-[#FAF8F5] border border-[#E8E2D7] rounded-3xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto shadow-2xl space-y-4  text-[#2B2723]">
             {/* Header */}
             <div className="flex items-center justify-between pb-2 border-b border-[#EFECE5]">
               <div className="flex items-center gap-2">

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600;1,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600;1,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Nunito:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -108,8 +108,36 @@ html, body, #root {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
-.scrollbar-none {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+/* Solid Font Color Utility */
+.font-solid-active,
+.font-solid-active h1,
+.font-solid-active h2,
+.font-solid-active h3,
+.font-solid-active h4,
+.font-solid-active h5,
+.font-solid-active h6,
+.font-solid-active p,
+.font-solid-active span:not(.keep-color),
+.font-solid-active label,
+.font-solid-active a {
+  color: var(--global-font-color) !important;
+}
+
+/* Font Gradient Utility */
+.font-gradient-active h1,
+.font-gradient-active h2,
+.font-gradient-active h3,
+.font-gradient-active h4,
+.font-gradient-active h5,
+.font-gradient-active h6,
+.font-gradient-active p,
+.font-gradient-active span:not(:has(svg)):not(:has(img)),
+.font-gradient-active label,
+.font-gradient-active a {
+  background: var(--global-font-gradient) !important;
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
 }
 

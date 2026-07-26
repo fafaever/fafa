@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { Character, AppSettings } from "../types";
 import { callLLM } from "../lib/api";
+import { CharacterAvatar } from "./CharacterAvatar";
 
 interface UniverseAppProps {
   characters: Character[];
@@ -2269,11 +2270,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 }}
                 className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer transition border ${isSelected ? "border-amber-500 bg-amber-500/10" : "border-neutral-800 bg-neutral-900 hover:border-neutral-700"}`}
               >
-                {char.avatar.startsWith('data:') || char.avatar.startsWith('http') ? (
-                  <img src={char.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
-                ) : (
-                  <span className="w-6 h-6 flex items-center justify-center text-[10px] bg-neutral-800 rounded-full">{char.avatar}</span>
-                )}
+                <CharacterAvatar avatar={char.avatar} name={char.name} size={24} className="rounded-full shadow-xs shrink-0" />
                 <span className="text-[11px] font-bold text-white flex-1 truncate">{char.name}</span>
                 {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />}
               </div>
@@ -2299,7 +2296,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
   }, [activeTab, activeWorld?.id, activeWorld?.messages?.length, isGenerating]);
 
   return (
-    <div className="flex flex-col h-full bg-[#FAFAF9] text-[#1A1A1A] relative font-sans">
+    <div className="flex flex-col h-full bg-[#FAFAF9] text-[#1A1A1A] relative ">
       
       {/* 1. MAIN UNIVERSE CATALOG LIST */}
       {activeTab === "main" && (
@@ -2313,12 +2310,12 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             >
               <ChevronLeft className="w-5 h-5 stroke-[1.5]" />
             </button>
-            <h1 className="font-serif font-semibold text-base text-[#1A1A1A] tracking-tight">
+            <h1 className=" font-semibold text-base text-[#1A1A1A] tracking-tight">
               宇宙目录
             </h1>
             <button
               onClick={() => setShowCreatePickerModal(true)}
-              className="px-3.5 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs font-sans font-medium flex items-center gap-1 transition cursor-pointer shadow-xs"
+              className="px-3.5 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs  font-medium flex items-center gap-1 transition cursor-pointer shadow-xs"
             >
               <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
               <span>新建</span>
@@ -2328,7 +2325,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
           <div className="flex-1 overflow-y-auto p-4 space-y-6">
             {/* Universe Mode Cards Directory (Requirement 1) */}
             <div className="space-y-3">
-              <h2 className="text-xs font-sans font-semibold text-[#78716C] uppercase tracking-wider px-1">
+              <h2 className="text-xs  font-semibold text-[#78716C] uppercase tracking-wider px-1">
                 宇宙玩法模式
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -2342,11 +2339,11 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                       <span className="w-9 h-9 rounded-full bg-[#F5F3F0] flex items-center justify-center text-lg group-hover:bg-[#1A1A1A] group-hover:text-white transition">
                         🌸
                       </span>
-                      <span className="px-2 py-0.5 rounded-full bg-[#F5F3F0] text-[#78716C] text-[10px] font-sans font-medium border border-[#EFECE8]">
+                      <span className="px-2 py-0.5 rounded-full bg-[#F5F3F0] text-[#78716C] text-[10px]  font-medium border border-[#EFECE8]">
                         {worlds.length} 个世界
                       </span>
                     </div>
-                    <h3 className="font-serif font-semibold text-base text-[#1A1A1A]">快穿世界</h3>
+                    <h3 className=" font-semibold text-base text-[#1A1A1A]">快穿世界</h3>
                     <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed">
                       高维身份扮演、对立阵营攻略与多结局重构
                     </p>
@@ -2367,11 +2364,11 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                       <span className="w-9 h-9 rounded-full bg-[#F5F3F0] flex items-center justify-center text-lg group-hover:bg-[#1A1A1A] group-hover:text-white transition">
                         👁️
                       </span>
-                      <span className="px-2 py-0.5 rounded-full bg-[#F5F3F0] text-[#78716C] text-[10px] font-sans font-medium border border-[#EFECE8]">
+                      <span className="px-2 py-0.5 rounded-full bg-[#F5F3F0] text-[#78716C] text-[10px]  font-medium border border-[#EFECE8]">
                         {instances.length} 个副本
                       </span>
                     </div>
-                    <h3 className="font-serif font-semibold text-base text-[#1A1A1A]">规则怪谈</h3>
+                    <h3 className=" font-semibold text-base text-[#1A1A1A]">规则怪谈</h3>
                     <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed">
                       禁忌法则探索、心理压迫感与生还结局
                     </p>
@@ -2392,11 +2389,11 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                       <span className="w-9 h-9 rounded-full bg-[#F5F3F0] flex items-center justify-center text-lg group-hover:bg-[#1A1A1A] group-hover:text-white transition">
                         🎭
                       </span>
-                      <span className="px-2 py-0.5 rounded-full bg-[#F5F3F0] text-[#78716C] text-[10px] font-sans font-medium border border-[#EFECE8]">
+                      <span className="px-2 py-0.5 rounded-full bg-[#F5F3F0] text-[#78716C] text-[10px]  font-medium border border-[#EFECE8]">
                         {scripts.length} 个剧本
                       </span>
                     </div>
-                    <h3 className="font-serif font-semibold text-base text-[#1A1A1A]">悬疑剧场</h3>
+                    <h3 className=" font-semibold text-base text-[#1A1A1A]">悬疑剧场</h3>
                     <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed">
                       5幕大剧、角色专属彩蛋与推理演绎
                     </p>
@@ -2424,10 +2421,10 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             >
               <ChevronLeft className="w-5 h-5 stroke-[1.5]" />
             </button>
-            <h1 className="font-serif font-semibold text-base text-[#1A1A1A]">快穿 · 世界列表</h1>
+            <h1 className=" font-semibold text-base text-[#1A1A1A]">快穿 · 世界列表</h1>
             <button
               onClick={() => setShowCreateWorldModal(true)}
-              className="px-3 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs font-sans font-medium transition flex items-center gap-1 cursor-pointer shadow-2xs border border-[#1A1A1A]"
+              className="px-3 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs  font-medium transition flex items-center gap-1 cursor-pointer shadow-2xs border border-[#1A1A1A]"
             >
               <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
               <span>新建世界</span>
@@ -2453,12 +2450,12 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                     <div className="flex items-start justify-between gap-2">
                       <div className="space-y-1 flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h3 className="font-serif font-semibold text-sm text-[#1A1A1A] truncate">{world.name}</h3>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full border font-sans ${statusObj.color}`}>
+                          <h3 className=" font-semibold text-sm text-[#1A1A1A] truncate">{world.name}</h3>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full border  ${statusObj.color}`}>
                             {statusObj.text}
                           </span>
                         </div>
-                        <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed font-sans">
+                        <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed ">
                           {world.background || "暂无背景描述"}
                         </p>
                       </div>
@@ -2478,7 +2475,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                     </div>
 
                     <div className="space-y-2 pt-2 border-t border-[#EFECE8]">
-                      <div className="flex items-center justify-between text-xs font-sans text-[#78716C]">
+                      <div className="flex items-center justify-between text-xs  text-[#78716C]">
                         <div className="flex items-center gap-1.5">
                           <Users className="w-3.5 h-3.5 text-[#A8A39A]" />
                           <span>参与角色: {world.characterIds?.length || 0} 位</span>
@@ -2496,7 +2493,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                             setActiveTab("transmigration_play");
                             setActivePlayTab("history");
                           }}
-                          className="px-3.5 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs font-sans font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-2xs border border-[#1A1A1A]"
+                          className="px-3.5 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs  font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-2xs border border-[#1A1A1A]"
                         >
                           <Play className="w-3.5 h-3.5 stroke-[1.5]" />
                           <span>进入世界</span>
@@ -2514,7 +2511,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             <button
               type="button"
               onClick={() => setShowCreateWorldModal(true)}
-              className="w-full py-2.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs font-sans font-medium transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-[0.99] border border-[#1A1A1A]"
+              className="w-full py-2.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs  font-medium transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-[0.99] border border-[#1A1A1A]"
             >
               <Plus className="w-4 h-4 stroke-[1.5]" />
               <span>创建新世界</span>
@@ -2538,7 +2535,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             >
               <ChevronLeft className="w-5 h-5 stroke-[1.5]" />
             </button>
-            <span className="font-serif font-semibold text-base text-[#1A1A1A] truncate max-w-[180px]">
+            <span className=" font-semibold text-base text-[#1A1A1A] truncate max-w-[180px]">
               {activeWorld.name}
             </span>
             <button
@@ -2610,7 +2607,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                     >
                       <ChevronLeft className="w-5 h-5" />
                     </button>
-                    <h2 className="font-serif font-bold text-sm text-[#1A1A1A]">快穿世界设置与记忆卡片</h2>
+                    <h2 className=" font-bold text-sm text-[#1A1A1A]">快穿世界设置与记忆卡片</h2>
                   </div>
                   <button
                     onClick={handleSaveWorldSettings}
@@ -2729,7 +2726,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                   {activeWorld.memoryCard ? (
                     <div className="p-4 bg-[#F9F8F6] rounded-xl border border-[#EFECE8] space-y-3">
                       <div className="flex items-center justify-between border-b border-[#EFECE8] pb-2">
-                        <h4 className="font-serif font-bold text-xs text-[#1A1A1A]">{activeWorld.memoryCard.title}</h4>
+                        <h4 className=" font-bold text-xs text-[#1A1A1A]">{activeWorld.memoryCard.title}</h4>
                         <span className={`text-[10px] px-2 py-0.5 rounded-full ${activeWorld.memoryCard.shared ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
                           {activeWorld.memoryCard.shared ? "已分享给角色" : "本地存档中"}
                         </span>
@@ -2867,12 +2864,12 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                                 {/* Content area */}
                                 <div className="space-y-1 pt-0.5">
                                   {card.action && (
-                                    <p className="text-[15px] text-[#1A1A1A] font-sans text-left leading-relaxed">
+                                    <p className="text-[15px] text-[#1A1A1A]  text-left leading-relaxed">
                                       {card.action}
                                     </p>
                                   )}
                                   {card.dialogue && (
-                                    <p className="text-[15px] text-[#1A1A1A] font-sans text-left leading-relaxed">
+                                    <p className="text-[15px] text-[#1A1A1A]  text-left leading-relaxed">
                                       {card.dialogue.replace(/^[“""]|[”""]$/g, "")}
                                     </p>
                                   )}
@@ -2934,7 +2931,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                             type="button"
                             onClick={handleRefreshActionOptions}
                             disabled={isGenerating || isRefreshingOptions}
-                            className="text-xs font-sans text-[#78716C] hover:text-[#1A1A1A] hover:bg-[#F5F3F0] flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-[#E5E2DC] transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs active:scale-95"
+                            className="text-xs  text-[#78716C] hover:text-[#1A1A1A] hover:bg-[#F5F3F0] flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-[#E5E2DC] transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs active:scale-95"
                             title="刷新行动选项"
                           >
                             <RefreshCw className={`w-3 h-3 ${isRefreshingOptions ? "animate-spin text-[#1A1A1A]" : "text-[#78716C]"}`} />
@@ -2944,7 +2941,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                             type="button"
                             onClick={() => handleTransmigrationUserSend("【AI推进】：请继续推进当前世界的剧情发展的关键节点！")}
                             disabled={isGenerating || activeWorld.status === "completed"}
-                            className="px-3 py-1 rounded-full bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F5F3F0] disabled:text-[#A8A39A] text-white text-xs font-sans font-medium transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50 shadow-xs active:scale-95 border border-[#1A1A1A]"
+                            className="px-3 py-1 rounded-full bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F5F3F0] disabled:text-[#A8A39A] text-white text-xs  font-medium transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50 shadow-xs active:scale-95 border border-[#1A1A1A]"
                             title="AI自动推进剧情"
                           >
                             {isGenerating ? (
@@ -2977,7 +2974,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                             type="button"
                             onClick={() => handleTransmigrationUserSend(optText)}
                             disabled={isGenerating || isRefreshingOptions}
-                            className="text-left px-3.5 py-2 bg-white border border-[#E5E2DC] hover:border-[#1A1A1A] hover:bg-[#F5F3F0] rounded-xl text-xs font-sans text-[#1A1A1A] transition flex items-center gap-2.5 cursor-pointer disabled:opacity-50 active:scale-[0.99] group shadow-xs"
+                            className="text-left px-3.5 py-2 bg-white border border-[#E5E2DC] hover:border-[#1A1A1A] hover:bg-[#F5F3F0] rounded-xl text-xs  text-[#1A1A1A] transition flex items-center gap-2.5 cursor-pointer disabled:opacity-50 active:scale-[0.99] group shadow-xs"
                           >
                             <span className="w-4 h-4 rounded-full bg-[#F5F3F0] group-hover:bg-[#1A1A1A] group-hover:text-white flex items-center justify-center text-[10px] font-mono text-[#78716C] shrink-0 transition font-medium border border-[#EFECE8]">
                               {idx + 1}
@@ -2997,7 +2994,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         onChange={(e) => setInputText(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleTransmigrationUserSend()}
                         disabled={isGenerating || activeWorld.status === "completed"}
-                        className="flex-1 bg-white border border-[#E5E2DC] rounded-full px-4 py-2 text-xs sm:text-sm font-sans text-[#1A1A1A] outline-none focus:border-[#1A1A1A] placeholder-[#A8A39A] disabled:opacity-50"
+                        className="flex-1 bg-white border border-[#E5E2DC] rounded-full px-4 py-2 text-xs sm:text-sm  text-[#1A1A1A] outline-none focus:border-[#1A1A1A] placeholder-[#A8A39A] disabled:opacity-50"
                       />
                       <button
                         type="button"
@@ -3034,7 +3031,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         <Shield className="w-3.5 h-3.5 text-[#1A1A1A]" />
                         <span>双阵营加密群聊矩阵</span>
                       </span>
-                      <span className={`text-[10px] font-sans px-2.5 py-0.5 rounded-full border ${
+                      <span className={`text-[10px]  px-2.5 py-0.5 rounded-full border ${
                         isMyFactionViewing 
                           ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
                           : "bg-amber-50 text-amber-700 border-amber-200"
@@ -3102,7 +3099,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                   </div>
 
                   {/* 群聊消息展示区 (按时间倒序排列：最新消息在最上方) */}
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3 font-sans">
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3 ">
                     {(() => {
                       const rawMsgs = activeWorld.factionChats?.[currentFactionId] || [];
                       // 按时间倒序排列 (最新消息置顶)
@@ -3144,13 +3141,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                           : (charState?.avatar || char?.avatar || "👤");
 
                         const avatarEl = (
-                          avatar.startsWith('data:') || avatar.startsWith('http') ? (
-                            <img src={avatar} alt="" className="w-7 h-7 rounded-full object-cover shrink-0 shadow-2xs" />
-                          ) : (
-                            <span className="w-7 h-7 flex items-center justify-center text-xs bg-[#F5F3F0] rounded-full shrink-0 border border-[#EFECE8] shadow-2xs">
-                              {avatar}
-                            </span>
-                          )
+                          <CharacterAvatar character={char} avatar={avatar} name={isMe ? "我" : (char?.name || "角色")} mode="real" size={28} className="rounded-full shadow-2xs shrink-0" />
                         );
 
                         return (
@@ -3161,14 +3152,14 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                             {!isMe && avatarEl}
 
                             <div className={`flex flex-col max-w-[78%] ${isMe ? "items-end" : "items-start"}`}>
-                              <div className="flex items-center gap-1.5 mb-1 px-1 text-[10px] text-[#78716C] font-sans">
+                              <div className="flex items-center gap-1.5 mb-1 px-1 text-[10px] text-[#78716C] ">
                                 <span>{displayName}</span>
                                 <span className="opacity-70 font-mono text-[9px]">
                                   {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </span>
                               </div>
                               <div
-                                className={`p-3 rounded-2xl text-xs leading-relaxed font-sans ${
+                                className={`p-3 rounded-2xl text-xs leading-relaxed  ${
                                   isMe
                                     ? "bg-[#1A1A1A] text-white rounded-tr-none shadow-xs"
                                     : "bg-white text-[#1A1A1A] border border-[#EFECE8] rounded-tl-none shadow-xs"
@@ -3197,7 +3188,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                           onChange={(e) => setFactionChatInput(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && handleSendFactionMessage()}
                           placeholder={`在【${myFaction?.name || "我方"}】群聊发言，向队友打话/分配任务...`}
-                          className="flex-1 rounded-full px-4 py-2.5 text-xs font-sans bg-white border border-[#E5E2DC] text-[#1A1A1A] focus:border-[#1A1A1A] outline-none transition placeholder-[#A8A39A]"
+                          className="flex-1 rounded-full px-4 py-2.5 text-xs  bg-white border border-[#E5E2DC] text-[#1A1A1A] focus:border-[#1A1A1A] outline-none transition placeholder-[#A8A39A]"
                         />
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
@@ -3226,7 +3217,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         </div>
                       </>
                     ) : (
-                      <div className="w-full py-2.5 text-center text-xs text-[#78716C] bg-[#EFECE8]/60 rounded-full font-sans border border-[#EFECE8]">
+                      <div className="w-full py-2.5 text-center text-xs text-[#78716C] bg-[#EFECE8]/60 rounded-full  border border-[#EFECE8]">
                         🔒 只能查看，无法发送
                       </div>
                     )}
@@ -3883,7 +3874,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-[#EFECE8] rounded-[16px] p-6 w-full max-w-lg space-y-5 animate-fade-in text-[#1A1A1A] max-h-[90vh] overflow-y-auto shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
             <div className="flex items-center justify-between border-b border-[#EFECE8] pb-3">
-              <h3 className="font-serif text-lg text-[#1A1A1A] flex items-center gap-2">
+              <h3 className=" text-lg text-[#1A1A1A] flex items-center gap-2">
                 <Zap className="w-4 h-4 stroke-[1.5] text-[#1A1A1A]" />
                 创建快穿新世界
               </h3>
@@ -3895,7 +3886,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             <div className="space-y-4">
               {/* World Preset selection */}
               <div>
-                <label className="text-xs font-sans text-[#1A1A1A] block mb-2 font-medium">选择世界预设主题</label>
+                <label className="text-xs  text-[#1A1A1A] block mb-2 font-medium">选择世界预设主题</label>
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   {PRESET_WORLDS.map((preset) => {
                     const isSelected = newWorldPresetId === preset.id;
@@ -3915,9 +3906,9 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                       >
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs">{preset.icon}</span>
-                          <span className="text-xs font-serif truncate">{preset.name}</span>
+                          <span className="text-xs  truncate">{preset.name}</span>
                         </div>
-                        <p className={`text-[10px] font-sans line-clamp-1 leading-normal ${isSelected ? "text-neutral-300" : "text-[#A8A39A]"}`}>{preset.description}</p>
+                        <p className={`text-[10px]  line-clamp-1 leading-normal ${isSelected ? "text-neutral-300" : "text-[#A8A39A]"}`}>{preset.description}</p>
                       </button>
                     );
                   })}
@@ -3935,27 +3926,27 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                   >
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs">🎲</span>
-                      <span className="text-xs font-serif truncate">自定义世界</span>
+                      <span className="text-xs  truncate">自定义世界</span>
                     </div>
-                    <p className={`text-[10px] font-sans line-clamp-1 leading-normal ${newWorldPresetId === "" ? "text-neutral-300" : "text-[#A8A39A]"}`}>自主拟定全新脑洞背景</p>
+                    <p className={`text-[10px]  line-clamp-1 leading-normal ${newWorldPresetId === "" ? "text-neutral-300" : "text-[#A8A39A]"}`}>自主拟定全新脑洞背景</p>
                   </button>
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-sans text-[#1A1A1A] block mb-1.5 font-medium">世界名称</label>
+                <label className="text-xs  text-[#1A1A1A] block mb-1.5 font-medium">世界名称</label>
                 <input
                   type="text"
                   placeholder="如：修仙破妄界 / 废土避难所"
                   value={newWorldName}
                   onChange={(e) => setNewWorldName(e.target.value)}
-                  className="w-full bg-white border border-[#EFECE8] rounded-[12px] px-4 py-2.5 text-[15px] font-sans text-[#1A1A1A] outline-none focus:border-[#1A1A1A]"
+                  className="w-full bg-white border border-[#EFECE8] rounded-[12px] px-4 py-2.5 text-[15px]  text-[#1A1A1A] outline-none focus:border-[#1A1A1A]"
                 />
               </div>
 
               {/* User Identity Role preference selection */}
               <div>
-                <label className="text-xs font-sans text-[#1A1A1A] block mb-2 font-medium">您的穿越身份标签</label>
+                <label className="text-xs  text-[#1A1A1A] block mb-2 font-medium">您的穿越身份标签</label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
@@ -3966,8 +3957,8 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         : "bg-white border-[#EFECE8] text-[#1A1A1A] hover:border-[#1A1A1A]"
                     }`}
                   >
-                    <div className="text-xs font-serif">🎯 攻略者</div>
-                    <div className={`text-[10px] font-sans mt-0.5 ${newWorldUserTag === "攻略者" ? "text-neutral-300" : "text-[#A8A39A]"}`}>主动出击 推进宿命关系</div>
+                    <div className="text-xs ">🎯 攻略者</div>
+                    <div className={`text-[10px]  mt-0.5 ${newWorldUserTag === "攻略者" ? "text-neutral-300" : "text-[#A8A39A]"}`}>主动出击 推进宿命关系</div>
                   </button>
                   <button
                     type="button"
@@ -3978,8 +3969,8 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         : "bg-white border-[#EFECE8] text-[#1A1A1A] hover:border-[#1A1A1A]"
                     }`}
                   >
-                    <div className="text-xs font-serif">💖 攻略对象</div>
-                    <div className={`text-[10px] font-sans mt-0.5 ${newWorldUserTag === "攻略对象" ? "text-neutral-300" : "text-[#A8A39A]"}`}>被攻略方 试探言语温度</div>
+                    <div className="text-xs ">💖 攻略对象</div>
+                    <div className={`text-[10px]  mt-0.5 ${newWorldUserTag === "攻略对象" ? "text-neutral-300" : "text-[#A8A39A]"}`}>被攻略方 试探言语温度</div>
                   </button>
                 </div>
               </div>
@@ -3989,7 +3980,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
               {/* Faction Assignment Section (Requirement 1) */}
               <div className="space-y-3 pt-3 border-t border-[#EFECE8]">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-sans text-[#1A1A1A] font-medium flex items-center gap-1.5">
+                  <label className="text-xs  text-[#1A1A1A] font-medium flex items-center gap-1.5">
                     <Shield className="w-3.5 h-3.5 text-[#1A1A1A]" />
                     <span>阵营分配与名称自定义</span>
                   </label>
@@ -3999,7 +3990,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 {/* Custom Faction Names */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] font-sans text-[#78716C] block mb-1">阵营 A 自定义名称</label>
+                    <label className="text-[11px]  text-[#78716C] block mb-1">阵营 A 自定义名称</label>
                     <input
                       type="text"
                       placeholder="如：明光 / 正道"
@@ -4009,7 +4000,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                     />
                   </div>
                   <div>
-                    <label className="text-[11px] font-sans text-[#78716C] block mb-1">阵营 B 自定义名称</label>
+                    <label className="text-[11px]  text-[#78716C] block mb-1">阵营 B 自定义名称</label>
                     <input
                       type="text"
                       placeholder="如：暗影 / 魔道"
@@ -4022,7 +4013,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
 
                 {/* Member Faction Allocation */}
                 <div className="space-y-2">
-                  <label className="text-[11px] font-sans text-[#78716C] block font-medium">成员阵营划归</label>
+                  <label className="text-[11px]  text-[#78716C] block font-medium">成员阵营划归</label>
                   
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                     {/* 1. User (Self) */}
@@ -4070,13 +4061,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         return (
                           <div key={cId} className="flex items-center justify-between p-2 rounded-[12px] bg-white border border-[#EFECE8]">
                             <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
-                              {char.avatar.startsWith('data:') || char.avatar.startsWith('http') ? (
-                                <img src={char.avatar} alt="" className="w-5 h-5 rounded-full object-cover shrink-0" />
-                              ) : (
-                                <span className="w-5 h-5 flex items-center justify-center text-[10px] bg-[#F5F3F0] rounded-full shrink-0">
-                                  {char.avatar}
-                                </span>
-                              )}
+                              <CharacterAvatar character={char} mode="real" size={20} className="rounded-full shrink-0" />
                               <span className="text-xs font-medium text-[#1A1A1A] truncate">{char.name}</span>
                             </div>
 
@@ -4116,14 +4101,14 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#EFECE8]">
               <button
                 onClick={() => setShowCreateWorldModal(false)}
-                className="px-4 py-2 border border-[#E5E2DC] text-[#1A1A1A] text-[13px] font-sans rounded-full hover:bg-[#F5F3F0] transition cursor-pointer"
+                className="px-4 py-2 border border-[#E5E2DC] text-[#1A1A1A] text-[13px]  rounded-full hover:bg-[#F5F3F0] transition cursor-pointer"
               >
                 取消
               </button>
               <button
                 onClick={handleCreateWorld}
                 disabled={isGenerating}
-                className="px-5 py-2.5 bg-[#1A1A1A] hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[13px] font-sans font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                className="px-5 py-2.5 bg-[#1A1A1A] hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[13px]  font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-sm"
               >
                 {isGenerating ? (
                   <>
@@ -4385,7 +4370,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-[#EFECE8] rounded-[16px] p-6 w-full max-w-sm space-y-4 animate-fade-in text-[#1A1A1A] shadow-[0_4px_20px_rgba(0,0,0,0.08)]">
             <div className="flex items-center justify-between border-b border-[#EFECE8] pb-3">
-              <h3 className="font-serif font-semibold text-base text-[#1A1A1A]">
+              <h3 className=" font-semibold text-base text-[#1A1A1A]">
                 选择要创建的宇宙类型
               </h3>
               <button
@@ -4408,7 +4393,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                   🌸
                 </div>
                 <div>
-                  <h4 className="font-serif font-semibold text-sm text-[#1A1A1A]">快穿世界</h4>
+                  <h4 className=" font-semibold text-sm text-[#1A1A1A]">快穿世界</h4>
                   <p className="text-[11px] text-[#78716C] mt-0.5">高维身份扮演、对立阵营攻略与多结局重构</p>
                 </div>
               </button>
@@ -4424,7 +4409,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                   👁️
                 </div>
                 <div>
-                  <h4 className="font-serif font-semibold text-sm text-[#1A1A1A]">规则怪谈</h4>
+                  <h4 className=" font-semibold text-sm text-[#1A1A1A]">规则怪谈</h4>
                   <p className="text-[11px] text-[#78716C] mt-0.5">禁忌法则探索、心理压迫感与生还结局</p>
                 </div>
               </button>
@@ -4440,7 +4425,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                   🎭
                 </div>
                 <div>
-                  <h4 className="font-serif font-semibold text-sm text-[#1A1A1A]">悬疑剧场</h4>
+                  <h4 className=" font-semibold text-sm text-[#1A1A1A]">悬疑剧场</h4>
                   <p className="text-[11px] text-[#78716C] mt-0.5">5幕大剧、角色专属彩蛋与推理真相</p>
                 </div>
               </button>
@@ -4457,7 +4442,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
               <div className="w-12 h-12 bg-rose-50 border border-rose-100 rounded-full flex items-center justify-center mx-auto mb-2 text-rose-500">
                 <Trash2 className="w-6 h-6 stroke-[1.5]" />
               </div>
-              <h3 className="font-serif font-semibold text-base text-[#1A1A1A]">删除宇宙？</h3>
+              <h3 className=" font-semibold text-base text-[#1A1A1A]">删除宇宙？</h3>
               <p className="text-xs text-[#78716C]">
                 确定要删除《{itemToDelete.name}》及其所有记录吗？此操作无法撤销。
               </p>
@@ -4465,13 +4450,13 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             <div className="flex gap-3 pt-2">
               <button
                 onClick={() => setItemToDelete(null)}
-                className="flex-1 py-2.5 border border-[#EFECE8] text-[#1A1A1A] text-xs font-sans rounded-full hover:bg-[#F5F3F0] transition cursor-pointer"
+                className="flex-1 py-2.5 border border-[#EFECE8] text-[#1A1A1A] text-xs  rounded-full hover:bg-[#F5F3F0] transition cursor-pointer"
               >
                 取消
               </button>
               <button
                 onClick={handleDeleteCardItem}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-sans font-medium rounded-full transition cursor-pointer"
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs  font-medium rounded-full transition cursor-pointer"
               >
                 确定删除
               </button>

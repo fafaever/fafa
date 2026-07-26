@@ -3,6 +3,7 @@ import { ChevronLeft, UserPlus, Sparkles, AlertCircle, Smile, HelpCircle, Edit3,
 
 import { Character, AppSettings, UserPersona } from "../types";
 import { apiAnalyzeCharacterFile } from "../lib/api";
+import { CharacterAvatar } from "./CharacterAvatar";
 import JSZip from "jszip";
 
 interface CharacterCreatorAppProps {
@@ -724,7 +725,7 @@ ${background.trim() || "暂无背景故事"}
         <form onSubmit={handleCreate} className="flex-1 overflow-y-auto p-5 space-y-4">
           
           {successMsg && (
-            <div className="p-3 bg-neutral-950 text-white text-[11px] font-sans rounded-xl border border-neutral-800 flex items-center gap-2 animate-fade-in">
+            <div className="p-3 bg-neutral-950 text-white text-[11px]  rounded-xl border border-neutral-800 flex items-center gap-2 animate-fade-in">
               <Check className="w-4 h-4 text-white" />
               <span>{successMsg}</span>
             </div>
@@ -742,12 +743,12 @@ ${background.trim() || "暂无背景故事"}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-neutral-950 animate-pulse" />
-                <span className="text-[11px] font-bold font-sans text-neutral-950">智能一键导入人设文档</span>
+                <span className="text-[11px] font-bold  text-neutral-950">智能一键导入人设文档</span>
               </div>
               <span className="text-[9px] font-mono font-medium text-neutral-400 uppercase">.docx / .txt</span>
             </div>
             
-            <p className="text-[10px] text-neutral-500 leading-relaxed font-sans">
+            <p className="text-[10px] text-neutral-500 leading-relaxed ">
               导入现成的角色大纲、设定文本或剧本。人设背景将<b>原封不动地全部倒入</b>，AI 只需自动精准提取识别角色的<b>姓名、年龄与聊天风格</b>，为您省去繁琐填充！
             </p>
 
@@ -812,8 +813,8 @@ ${background.trim() || "暂无背景故事"}
                     <div className="w-7 h-7 rounded-full bg-neutral-100 flex items-center justify-center mb-1 text-neutral-500">
                       <Smile className="w-4 h-4 text-neutral-400" />
                     </div>
-                    <span className="text-[10px] text-neutral-700 font-sans font-bold">上传聊天头像</span>
-                    <span className="text-[8px] text-neutral-400 font-sans">正方形比例最佳</span>
+                    <span className="text-[10px] text-neutral-700  font-bold">上传聊天头像</span>
+                    <span className="text-[8px] text-neutral-400 ">正方形比例最佳</span>
                   </label>
                 )}
               </div>
@@ -845,8 +846,8 @@ ${background.trim() || "暂无背景故事"}
                     <div className="w-7 h-7 rounded-full bg-neutral-100 flex items-center justify-center mb-1 text-neutral-500">
                       <Upload className="w-4 h-4 text-neutral-400" />
                     </div>
-                    <span className="text-[10px] text-neutral-700 font-sans font-bold">上传真实面貌</span>
-                    <span className="text-[8px] text-neutral-400 font-sans">高分辨率半身照</span>
+                    <span className="text-[10px] text-neutral-700  font-bold">上传真实面貌</span>
+                    <span className="text-[8px] text-neutral-400 ">高分辨率半身照</span>
                   </label>
                 )}
               </div>
@@ -887,7 +888,7 @@ ${background.trim() || "暂无背景故事"}
               placeholder="详细描写角色身份、性格特征、过往经历。例如: 曾是机械义体突击队员，因看清集团黑幕而离职，为人冷酷执着，对无辜民众抱有同情心..."
               value={personality}
               onChange={(e) => setPersonality(e.target.value)}
-              className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none resize-none leading-relaxed font-sans"
+              className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none resize-none leading-relaxed "
             />
           </div>
 
@@ -905,7 +906,7 @@ ${background.trim() || "暂无背景故事"}
                   type="button"
                   key={style.name}
                   onClick={() => handleApplyStylePreset(style.placeholder)}
-                  className="text-[9px] font-sans px-2 py-1 bg-neutral-100 hover:bg-neutral-200 border border-neutral-200/50 rounded-lg text-neutral-600 active:scale-95 transition-all"
+                  className="text-[9px]  px-2 py-1 bg-neutral-100 hover:bg-neutral-200 border border-neutral-200/50 rounded-lg text-neutral-600 active:scale-95 transition-all"
                 >
                   {style.name}
                 </button>
@@ -917,7 +918,7 @@ ${background.trim() || "暂无背景故事"}
               placeholder="指定角色的说话习惯和特色语气。例如: 说话经常带有省略号，带着淡淡的疲惫感；在句末喜欢使用『...』；在遇到挑衅时会发出冷笑 *轻抚配枪，冷笑一声*..."
               value={chatStyle}
               onChange={(e) => setChatStyle(e.target.value)}
-              className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none resize-none leading-relaxed font-sans"
+              className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none resize-none leading-relaxed "
             />
           </div>
 
@@ -971,7 +972,7 @@ ${background.trim() || "暂无背景故事"}
           {displayCharacters.length === 0 ? (
             <div className="py-20 text-center space-y-2">
               <Edit3 className="w-8 h-8 text-neutral-300 mx-auto stroke-[1.5]" />
-              <p className="text-xs text-neutral-400 font-sans">
+              <p className="text-xs text-neutral-400 ">
                 还没有建立过任何角色。
               </p>
               <button
@@ -989,16 +990,12 @@ ${background.trim() || "暂无背景故事"}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-neutral-50 border border-neutral-100 flex items-center justify-center overflow-hidden text-xl shadow-inner shrink-0">
-                      {char.chatAvatar ? (
-                        <img src={char.chatAvatar} alt={char.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                      ) : (
-                        char.avatar
-                      )}
+                    <div className="shrink-0">
+                      <CharacterAvatar character={char} mode="real" size={40} className="rounded-xl border border-neutral-100" />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <h3 className="font-sans font-bold text-sm text-neutral-950">{char.name}</h3>
+                        <h3 className=" font-bold text-sm text-neutral-950">{char.name}</h3>
                         {char.isPreset && (
                           <span className="px-1.5 py-0.5 bg-neutral-100 text-neutral-600 text-[9px] font-mono rounded-md border border-neutral-200">
                             内置角色
@@ -1018,7 +1015,7 @@ ${background.trim() || "暂无背景故事"}
                       title="编辑角色"
                     >
                       <Edit3 className="w-4 h-4" />
-                      <span className="text-[10px] font-sans font-bold">编辑</span>
+                      <span className="text-[10px]  font-bold">编辑</span>
                     </button>
                     <button
                       onClick={() => onNavigateToChat(char.id)}
@@ -1026,7 +1023,7 @@ ${background.trim() || "暂无背景故事"}
                       title="开始对话"
                     >
                       <MessageSquare className="w-4 h-4" />
-                      <span className="text-[10px] font-sans font-bold">对话</span>
+                      <span className="text-[10px]  font-bold">对话</span>
                     </button>
                     <button
                       onClick={() => setDeleteConfirmChar(char)}
@@ -1034,17 +1031,17 @@ ${background.trim() || "暂无背景故事"}
                       title="删除角色及记忆"
                     >
                       <Trash2 className="w-4 h-4 text-red-500" />
-                      <span className="text-[10px] font-sans font-bold text-red-600">删除</span>
+                      <span className="text-[10px]  font-bold text-red-600">删除</span>
                     </button>
                   </div>
                 </div>
 
                 <div className="bg-neutral-50 p-2.5 rounded-xl border border-neutral-100 space-y-1.5 text-xs text-neutral-600">
-                  <div className="font-sans text-[11px] leading-relaxed">
+                  <div className=" text-[11px] leading-relaxed">
                     <span className="font-bold text-neutral-800">一句话：</span>
                     {char.description}
                   </div>
-                  <div className="font-sans text-[10px] text-neutral-400 line-clamp-3 leading-relaxed">
+                  <div className=" text-[10px] text-neutral-400 line-clamp-3 leading-relaxed">
                     <span className="font-bold text-neutral-500">人设指令片段：</span>
                     {char.systemInstruction}
                   </div>
@@ -1064,12 +1061,12 @@ ${background.trim() || "暂无背景故事"}
                 <Trash2 className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <h3 className="font-sans font-bold text-sm text-neutral-900">是否删除角色？</h3>
+                <h3 className=" font-bold text-sm text-neutral-900">是否删除角色？</h3>
                 <p className="text-[11px] font-mono text-neutral-500">{deleteConfirmChar.name}</p>
               </div>
             </div>
 
-            <p className="text-xs text-neutral-600 leading-relaxed font-sans bg-neutral-50 p-3 rounded-xl border border-neutral-100">
+            <p className="text-xs text-neutral-600 leading-relaxed  bg-neutral-50 p-3 rounded-xl border border-neutral-100">
               点击<b>【是】</b>可删除该角色的所有记忆和相关内容（包含聊天记录、偏好设置、随手记及衍生信息）。
             </p>
 

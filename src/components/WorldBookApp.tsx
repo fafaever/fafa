@@ -273,7 +273,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
         <div className="flex-1 flex flex-col bg-neutral-50 animate-fade-in overflow-y-auto min-h-0 pb-12">
           <form onSubmit={handleCreate} className="p-5 space-y-4">
             <div className="flex justify-between items-center pb-2 border-b border-neutral-200">
-              <span className="text-xs font-sans font-bold tracking-wider text-neutral-700">
+              <span className="text-xs  font-bold tracking-wider text-neutral-700">
                 {editingId ? "编辑设定条目" : "创建新设定条目"}
               </span>
               <button 
@@ -408,7 +408,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                   <button
                     type="button"
                     onClick={() => setMountType("trigger")}
-                    className={`flex-1 py-1 text-[10px] font-sans rounded-md transition-all ${
+                    className={`flex-1 py-1 text-[10px]  rounded-md transition-all ${
                       mountType === "trigger"
                         ? "bg-white text-neutral-900 font-bold shadow-sm"
                         : "text-neutral-500 hover:text-neutral-800"
@@ -419,7 +419,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                   <button
                     type="button"
                     onClick={() => setMountType("always")}
-                    className={`flex-1 py-1 text-[10px] font-sans rounded-md transition-all ${
+                    className={`flex-1 py-1 text-[10px]  rounded-md transition-all ${
                       mountType === "always"
                         ? "bg-white text-neutral-900 font-bold shadow-sm"
                         : "text-neutral-500 hover:text-neutral-800"
@@ -437,7 +437,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                   <button
                     type="button"
                     onClick={() => setPriority("pre")}
-                    className={`flex-1 py-1 text-[10px] font-sans rounded-md transition-all ${
+                    className={`flex-1 py-1 text-[10px]  rounded-md transition-all ${
                       priority === "pre"
                         ? "bg-black text-white font-bold shadow-sm"
                         : "text-neutral-500 hover:text-neutral-800"
@@ -449,7 +449,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                   <button
                     type="button"
                     onClick={() => setPriority("mid")}
-                    className={`flex-1 py-1 text-[10px] font-sans rounded-md transition-all ${
+                    className={`flex-1 py-1 text-[10px]  rounded-md transition-all ${
                       priority === "mid"
                         ? "bg-black text-white font-bold shadow-sm"
                         : "text-neutral-500 hover:text-neutral-800"
@@ -461,7 +461,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                   <button
                     type="button"
                     onClick={() => setPriority("post")}
-                    className={`flex-1 py-1 text-[10px] font-sans rounded-md transition-all ${
+                    className={`flex-1 py-1 text-[10px]  rounded-md transition-all ${
                       priority === "post"
                         ? "bg-black text-white font-bold shadow-sm"
                         : "text-neutral-500 hover:text-neutral-800"
@@ -483,7 +483,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                 <button
                   type="button"
                   onClick={() => setSelectedCharIds([])}
-                  className={`text-[10px] px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1 font-sans ${
+                  className={`text-[10px] px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1  ${
                     selectedCharIds.length === 0
                       ? "bg-black text-white border-black font-semibold"
                       : "bg-neutral-50 text-neutral-600 border-neutral-200 hover:border-neutral-300"
@@ -504,7 +504,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                           setSelectedCharIds([...selectedCharIds, char.id]);
                         }
                       }}
-                      className={`text-[10px] px-2 py-1 rounded-lg border transition-all flex items-center gap-1 font-sans ${
+                      className={`text-[10px] px-2 py-1 rounded-lg border transition-all flex items-center gap-1  ${
                         isSelected
                           ? "bg-neutral-950 text-white border-neutral-950 font-semibold"
                           : "bg-neutral-50 text-neutral-600 border-neutral-200 hover:border-neutral-300"
@@ -546,7 +546,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
             <div className="space-y-1">
               <div className="flex justify-between items-center">
                 <label className="text-[10px] font-mono font-bold tracking-wider text-neutral-400 uppercase block">设定详情 (Lore Content)</label>
-                <label className="cursor-pointer text-[10px] font-sans text-neutral-700 hover:text-black bg-white border border-neutral-200 hover:border-neutral-400 px-2.5 py-1 rounded-lg shadow-sm flex items-center gap-1.5 transition-all">
+                <label className="cursor-pointer text-[10px]  text-neutral-700 hover:text-black bg-white border border-neutral-200 hover:border-neutral-400 px-2.5 py-1 rounded-lg shadow-sm flex items-center gap-1.5 transition-all">
                   <FileText className="w-3.5 h-3.5 text-neutral-500" />
                   <span className="font-semibold">导入 Word (.docx)</span>
                   <input
@@ -562,7 +562,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                 placeholder="详细描写该设定的历史背景、外貌细节、社会关系、禁忌知识等。支持自由书写，或通过上方按钮直接导入 Word 文档自动填充..."
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white outline-none resize-none leading-relaxed font-sans"
+                className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white outline-none resize-none leading-relaxed "
               />
             </div>
 
@@ -614,7 +614,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
               <button
                 key={cat}
                 onClick={() => setActiveCategory(cat)}
-                className={`px-3 py-1 text-xs rounded-lg whitespace-nowrap tracking-wide font-sans transition-all shrink-0 ${
+                className={`px-3 py-1 text-xs rounded-lg whitespace-nowrap tracking-wide  transition-all shrink-0 ${
                   activeCategory === cat
                     ? "bg-black text-white font-semibold"
                     : "text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100"
@@ -677,7 +677,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
             {filteredList.length === 0 ? (
               <div className="py-16 text-center space-y-2">
                 <BookOpen className="w-8 h-8 text-neutral-200 mx-auto stroke-[1.5]" />
-                <p className="text-xs text-neutral-400 font-sans">
+                <p className="text-xs text-neutral-400 ">
                   {loreList.length === 0 ? "空空如也，快添加一些专属世界设定吧" : "没有找到匹配的设定条目"}
                 </p>
               </div>
@@ -688,35 +688,35 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                     {/* Title, category, priority, mount type */}
                     <div className="space-y-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-sans font-bold text-sm text-neutral-900">{item.title}</span>
-                        <span className="text-[9px] font-semibold text-neutral-500 bg-neutral-100 px-1.5 py-0.5 rounded-md font-sans">
+                        <span className=" font-bold text-sm text-neutral-900">{item.title}</span>
+                        <span className="text-[9px] font-semibold text-neutral-500 bg-neutral-100 px-1.5 py-0.5 rounded-md ">
                           {item.category}
                         </span>
 
                         {/* Priority Badge */}
                         {item.priority === "pre" && (
-                          <span className="text-[9px] font-semibold text-red-600 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded-md font-sans">
+                          <span className="text-[9px] font-semibold text-red-600 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded-md ">
                             前置优先
                           </span>
                         )}
                         {item.priority === "post" && (
-                          <span className="text-[9px] font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-md font-sans">
+                          <span className="text-[9px] font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-md ">
                             后置优先
                           </span>
                         )}
                         {(item.priority === "mid" || !item.priority) && (
-                          <span className="text-[9px] font-semibold text-neutral-500 bg-neutral-50 border border-neutral-200 px-1.5 py-0.5 rounded-md font-sans">
+                          <span className="text-[9px] font-semibold text-neutral-500 bg-neutral-50 border border-neutral-200 px-1.5 py-0.5 rounded-md ">
                             中置优先
                           </span>
                         )}
 
                         {/* Mount Type Badge */}
                         {item.mountType === "always" ? (
-                          <span className="text-[9px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md font-sans">
+                          <span className="text-[9px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded-md ">
                             常规挂载 (始终激活)
                           </span>
                         ) : (
-                          <span className="text-[9px] font-semibold text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-md font-sans">
+                          <span className="text-[9px] font-semibold text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-md ">
                             关键词触发
                           </span>
                         )}
@@ -724,7 +724,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
 
                       {/* Mounted Characters */}
                       <div className="flex items-center gap-1 text-[10px] text-neutral-500">
-                        <span className="font-sans font-medium text-[9px] text-neutral-400">挂载目标:</span>
+                        <span className=" font-medium text-[9px] text-neutral-400">挂载目标:</span>
                         {!item.characterIds || item.characterIds.length === 0 ? (
                           <span className="text-[9px] bg-purple-50 text-purple-600 border border-purple-100 px-1.5 py-0.2 rounded">全部角色通用</span>
                         ) : (
@@ -732,7 +732,7 @@ export default function WorldBookApp({ characters = [], loreList, settings, onSa
                             {item.characterIds.map((charId) => {
                               const char = characters.find((c) => c.id === charId);
                               return char ? (
-                                <span key={charId} className="text-[9px] bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.2 rounded inline-flex items-center gap-0.5 font-sans">
+                                <span key={charId} className="text-[9px] bg-purple-50 text-purple-700 border border-purple-200 px-1.5 py-0.2 rounded inline-flex items-center gap-0.5 ">
                                   <span>{char.avatar}</span>
                                   <span>{char.name}</span>
                                 </span>

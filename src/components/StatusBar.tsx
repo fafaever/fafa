@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Wifi, Signal, Battery, Heart, Bell } from "lucide-react";
+import { Signal, Battery, Heart } from "lucide-react";
 
-export default function StatusBar() {
+export default function StatusBar({ onOpenFafa }: { onOpenFafa?: () => void }) {
   const [time, setTime] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -52,33 +52,29 @@ export default function StatusBar() {
   return (
     <div 
       id="status_bar"
-      className="flex justify-between items-center px-6 py-2.5 text-xs select-none bg-[#1A1A1A] shrink-0"
+      className="flex justify-between items-center px-4 py-2 text-xs select-none bg-[#1A1A1A] shrink-0 h-11"
     >
-      {/* Left side: Time & Heart Toggle */}
-      <div id="status_left" className="flex items-center gap-3">
-        <span id="status_time" className="font-serif font-medium tracking-tight text-white">{time}</span>
+      {/* Left side: Time and black heart icon in the same row */}
+      <div id="status_left" className="flex items-center gap-1.5 text-white">
+        <span id="status_time" className="font-bold tracking-tight text-sm">{time}</span>
         <button
           id="fullscreen_toggle_btn"
           onClick={toggleFullscreen}
-          className="p-1 rounded-full hover:bg-white/20 active:scale-90 transition-all text-white flex items-center justify-center"
+          className="p-1 rounded-full hover:bg-white/20 active:scale-90 transition-all flex items-center justify-center text-white"
           title={isFullscreen ? "退出全屏" : "切至全屏"}
         >
-          <Heart className="w-4 h-4 stroke-[1.5]" />
+          <Heart className="w-3.5 h-3.5 fill-black text-white stroke-[1.5]" />
         </button>
       </div>
       
-      {/* Right side: Phone indicators */}
-      <div id="status_indicators" className="flex items-center gap-3 font-serif text-[12px] font-medium text-white">
-        {/* Network & Bell */}
+      {/* Right side: Signal, Battery */}
+      <div id="status_right" className="flex items-center gap-3 text-white">
         <div className="flex items-center gap-2">
-          <Bell className="w-3.5 h-3.5 stroke-[1.5] text-white/80" />
-          <Signal className="w-4 h-4 stroke-[1.5]" />
-        </div>
-        
-        {/* Battery */}
-        <div className="flex items-center gap-1">
-          <span>88%</span>
-          <Battery className="w-4 h-4 stroke-[1.5]" />
+          <Signal className="w-3.5 h-3.5 stroke-[2] opacity-80" />
+          <div className="flex items-center gap-0.5">
+            <span className="text-[10px] opacity-80 font-medium">88%</span>
+            <Battery className="w-3.5 h-3.5 stroke-[2] opacity-80" />
+          </div>
         </div>
       </div>
     </div>

@@ -76,8 +76,24 @@ export interface ApiPreset {
   apiFormat?: 'openai' | 'gemini';
 }
 
-export type FontOption = 'system' | 'playfair_inter' | 'kaiti' | 'sans';
+export type FontOption = 'system' | 'playfair_inter' | 'kaiti' | 'nunito' | 'sans' | 'custom';
 export type ThemeOption = 'minimal_white' | 'warm_paper' | 'dark_night';
+
+export interface ThemePreset {
+  id: string;
+  name: string;
+  homeWallpaper?: string;
+  homeWallpaper2?: string;
+  appIcons?: Record<string, string>;
+  globalFont?: FontOption;
+  customFontUrl?: string;
+  fontColorMode?: 'black' | 'solid' | 'gradient';
+  fontColor?: string;
+  fontGradient?: string;
+  fontGradientFrom?: string;
+  fontGradientTo?: string;
+  fontGradientDirection?: 'to bottom' | 'to right';
+}
 
 export interface AppSettings {
   apiUrl: string;
@@ -88,11 +104,22 @@ export interface AppSettings {
   activePresetId?: string;
   worldBookGroups?: string[];
   homeWallpaper?: string;
+  homeWallpaper2?: string;
   chatWallpaper?: string;
   globalFont?: FontOption;
+  customFontUrl?: string; // For custom TTF upload
+  fontColorMode?: 'black' | 'solid' | 'gradient';
+  fontColor?: string;
+  fontGradient?: string;
+  fontGradientFrom?: string;
+  fontGradientTo?: string;
+  fontGradientDirection?: 'to bottom' | 'to right';
   globalTheme?: ThemeOption;
   groupChatMinReplies?: number;
   groupChatMaxReplies?: number;
+  appIcons?: Record<string, string>; // appKey -> iconUrl (Base64)
+  themePresets?: ThemePreset[];
+  activeThemePresetId?: string;
 }
 
 export interface ChatSession {

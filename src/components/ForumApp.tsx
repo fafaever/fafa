@@ -6,7 +6,8 @@ import {
   ThumbsUp, ThumbsDown, Share2, Trash2, Edit3, Copy, RotateCcw
 } from "lucide-react";
 import { Character, AppSettings, LoreEntry } from "../types";
-import { apiChat } from "../lib/api";
+import { apiChat, callLLM } from "../lib/api";
+import { CharacterAvatar } from "./CharacterAvatar";
 import { ConfirmModal } from "./ConfirmModal";
 
 interface Board {
@@ -30,6 +31,7 @@ interface ForumComment {
   dislikes?: number;
   isLiked?: boolean;
   isRecalled?: boolean;
+  isOpUpdate?: boolean;
   replyTo?: {
     floor: number;
     authorName: string;
@@ -99,34 +101,15 @@ const DEFAULT_LINE_HANDLES = [
   "微醺小白兔", "幽灵吃货", "高冷咖啡师", "冲浪咸鱼"
 ];
 
-// Black and White Minimalist Line Art Avatar Generator
-const getBlackWhiteLineAvatar = (seed: string) => {
+// Deterministic Luntan Avatar Selector
+const getLuntanAvatar = (name: string) => {
   let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
-  const index = Math.abs(hash) % 8;
-
-  const svgs = [
-    // 0: Cat
-    `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="50" fill="#ffffff" stroke="#e5e5e5" stroke-width="2"/><circle cx="50" cy="55" r="24" fill="none" stroke="#171717" stroke-width="2.5"/><path d="M30 38 L24 18 L42 32" fill="none" stroke="#171717" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M70 38 L76 18 L58 32" fill="none" stroke="#171717" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="42" cy="52" r="2" fill="#171717"/><circle cx="58" cy="52" r="2" fill="#171717"/><path d="M50 57 L48 60 H52 Z M50 60 V63 M46 64 Q50 67 54 64" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/><path d="M25 54 H35 M23 60 H35 M65 54 H75 M65 60 H75" stroke="#171717" stroke-width="2" stroke-linecap="round"/></svg>`,
-    // 1: Dog
-    `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="50" fill="#ffffff" stroke="#e5e5e5" stroke-width="2"/><circle cx="50" cy="50" r="25" fill="none" stroke="#171717" stroke-width="2.5"/><path d="M26 38 C 12 40, 14 68, 28 58" fill="none" stroke="#171717" stroke-width="2.5" stroke-linecap="round"/><path d="M74 38 C 88 40, 86 68, 72 58" fill="none" stroke="#171717" stroke-width="2.5" stroke-linecap="round"/><circle cx="41" cy="46" r="2" fill="#171717"/><circle cx="59" cy="46" r="2" fill="#171717"/><ellipse cx="50" cy="56" rx="7" ry="5" fill="none" stroke="#171717" stroke-width="2"/><ellipse cx="50" cy="54" rx="3" ry="2" fill="#171717"/><path d="M50 56 V60 M46 60 Q50 63 54 60" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/></svg>`,
-    // 2: Flower
-    `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="50" fill="#ffffff" stroke="#e5e5e5" stroke-width="2"/><circle cx="50" cy="45" r="10" fill="none" stroke="#171717" stroke-width="2.5"/><path d="M50 35 C 50 20, 38 20, 42 37" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/><path d="M50 35 C 50 20, 62 20, 58 37" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/><path d="M60 45 C 75 45, 75 33, 58 37" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/><path d="M60 45 C 75 45, 75 57, 58 53" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/><path d="M50 55 C 50 70, 38 70, 42 53" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/><path d="M50 55 C 50 70, 62 70, 58 53" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/><path d="M40 45 C 25 45, 25 33, 42 37" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/><path d="M40 45 C 25 45, 25 57, 42 53" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/><path d="M50 55 V82" stroke="#171717" stroke-width="2.5" stroke-linecap="round"/></svg>`,
-    // 3: Bear
-    `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="50" fill="#ffffff" stroke="#e5e5e5" stroke-width="2"/><circle cx="50" cy="52" r="26" fill="none" stroke="#171717" stroke-width="2.5"/><circle cx="30" cy="30" r="9" fill="none" stroke="#171717" stroke-width="2.5"/><circle cx="70" cy="30" r="9" fill="none" stroke="#171717" stroke-width="2.5"/><ellipse cx="40" cy="48" rx="5" ry="7" fill="none" stroke="#171717" stroke-width="2"/><ellipse cx="60" cy="48" rx="5" ry="7" fill="none" stroke="#171717" stroke-width="2"/><circle cx="40" cy="48" r="2" fill="#171717"/><circle cx="60" cy="48" r="2" fill="#171717"/><ellipse cx="50" cy="58" rx="4" ry="3" fill="#171717"/><path d="M45 64 Q50 68 55 64" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/></svg>`,
-    // 4: Star/Moon
-    `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="50" fill="#ffffff" stroke="#e5e5e5" stroke-width="2"/><path d="M55 22 A28 28 0 1 0 78 68 A22 22 0 1 1 55 22 Z" fill="none" stroke="#171717" stroke-width="2.5" stroke-linejoin="round"/><path d="M30 35 L33 42 L40 43 L35 48 L36 55 L30 51 L24 55 L25 48 L20 43 L27 42 Z" fill="none" stroke="#171717" stroke-width="2" stroke-linejoin="round"/></svg>`,
-    // 5: Coffee Cup
-    `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="50" fill="#ffffff" stroke="#e5e5e5" stroke-width="2"/><path d="M28 42 H72 L66 78 C66 82, 60 84, 50 84 C40 84, 34 82, 34 78 Z" fill="none" stroke="#171717" stroke-width="2.5" stroke-linejoin="round"/><path d="M72 48 C82 48, 82 68, 68 68" fill="none" stroke="#171717" stroke-width="2.5" stroke-linecap="round"/><path d="M40 28 Q44 20 40 14 M50 30 Q54 22 50 16 M60 28 Q64 20 60 14" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/></svg>`,
-    // 6: Rabbit
-    `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="50" fill="#ffffff" stroke="#e5e5e5" stroke-width="2"/><path d="M36 45 C30 18, 44 18, 42 45" fill="none" stroke="#171717" stroke-width="2.5" stroke-linecap="round"/><path d="M64 45 C70 18, 56 18, 58 45" fill="none" stroke="#171717" stroke-width="2.5" stroke-linecap="round"/><circle cx="50" cy="60" r="22" fill="none" stroke="#171717" stroke-width="2.5"/><circle cx="42" cy="56" r="2" fill="#171717"/><circle cx="58" cy="56" r="2" fill="#171717"/><polygon points="50,62 47,65 53,65" fill="#171717"/><path d="M46 68 Q50 71 54 68" fill="none" stroke="#171717" stroke-width="2" stroke-linecap="round"/></svg>`,
-    // 7: Ghost
-    `<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" rx="50" fill="#ffffff" stroke="#e5e5e5" stroke-width="2"/><path d="M28 75 V45 C28 28, 72 28, 72 45 V75 L62 68 L50 75 L38 68 Z" fill="none" stroke="#171717" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="42" cy="46" r="3" fill="#171717"/><circle cx="58" cy="46" r="3" fill="#171717"/><ellipse cx="50" cy="56" rx="4" ry="6" fill="none" stroke="#171717" stroke-width="2"/></svg>`
-  ];
-
-  return `data:image/svg+xml;base64,${btoa(svgs[index])}`;
+  const index = (Math.abs(hash) % 17) + 1;
+  const numStr = index.toString().padStart(2, '0');
+  return `/images/luntan/luntan_${numStr}.jpg`;
 };
 
 // Helper to detect horror / supernatural boards
@@ -165,48 +148,6 @@ const isContentHorrorThemed = (content: string): boolean => {
 };
 
 // Initial Default Posts adhering to the rules
-const INITIAL_DEMO_POSTS: ForumPost[] = [
-  {
-    id: 'demo-post-1',
-    boardId: 'board-2',
-    authorId: 'npc-4',
-    authorName: '夜猫子阿怪',
-    authorAvatar: getBlackWhiteLineAvatar('npc-bear-line'),
-    title: '匿名帖子',
-    tag: '灵异经历',
-    timestamp: Date.now() - 3600000 * 24,
-    likes: 18,
-    dislikes: 0,
-    content: '家人们，你们敢信？我至今想起三年前在大三暑假租老房子的那会，后背还是直冒凉气！那是2023年7月的某个暴雨夜，在老城区一栋七层没电梯的老楼顶层。那天凌晨两点多，我正戴着耳机在书桌前拼命赶论文呢，突然听到客厅卫生间传来一阵特别清晰又慢吞吞的“嗒、嗒、嗒”滴水声。我当时心里还嘀咕是不是水龙头没拧紧，就起身推开卫生间门。结果打开灯一看，地面干干爽爽的，水龙头一滴水都没掉！我当时真的懵了，以为是自己熬夜听错了，正准备转身回屋呢。结果你们猜最后怎么了？我顺眼扫了一下背后的镜子，当时整个人直接麻了——镜子里居然隐隐约约飘着个黑影，紧贴着我的后脖颈吹了一口刺骨的冷气！我脑子瞬间一片空白，连惨叫都卡在喉咙里了。第二天天一亮我就连夜收拾东西退租跑路，后来我才知道那老楼之前出过事……至今我一个人住都得开着灯！',
-    comments: [
-      {
-        id: 'demo-comment-1',
-        authorId: 'npc-2',
-        authorName: '路过的社畜',
-        authorAvatar: getBlackWhiteLineAvatar('npc-dog-line'),
-        content: '看完脊背发凉！老楼顶层确实邪门，我当时看你写的也跟着心跳加速了。',
-        timestamp: Date.now() - 3600000 * 20,
-        floor: 1,
-        likes: 5
-      }
-    ]
-  },
-  {
-    id: 'demo-post-2',
-    boardId: 'board-1',
-    authorId: 'npc-1',
-    authorName: '吃瓜第一线',
-    authorAvatar: getBlackWhiteLineAvatar('npc-cat-line'),
-    title: '匿名帖子',
-    tag: '日常交流',
-    timestamp: Date.now() - 3600000 * 12,
-    likes: 12,
-    dislikes: 0,
-    content: '家人们，昨晚和刚认识不久的女友在海边散步聊天，真的被治愈到了！我们俩是上个月社团活动认识的，上周五晚上在海边吹晚风，不知不觉就聊到了深夜。我跟她坦白了我性格里特别缺乏安全感、有时候爱胡思乱想的小脾气，她也跟我倾诉了最近工作上的各种压力。你们敢信？我们居然坐在沙滩上足足聊了三个多小时！中间聊到一些敏感话题时，我当时心里其实挺紧张的，生怕气氛变尴尬，结果她特别温柔地回应了我。后来我才知道，原来她之前也一直在担心我不够信任她。这次聊完感觉我们俩彻底拉近了距离，直接打破了心防。虽然相处也有磨合，但这种真诚沟通的感觉真的太棒了，忍不住发个帖和大家分享一下！',
-    comments: []
-  }
-];
-
 // Helper to collect all currently used nicknames across the forum
 const getAllUsedNicknames = (posts: ForumPost[] = [], privateContacts: PrivateContact[] = [], currentUserNickname?: string): Set<string> => {
   const set = new Set<string>();
@@ -262,9 +203,12 @@ const getOrInitCharForumProfile = (char: Character, usedSet?: Set<string>): { fo
   } catch (e) {}
 
   if (profiles[char.id]) {
+    const forumAvatar = char.realImage || char.avatar;
+    const isImage = typeof forumAvatar === 'string' && (forumAvatar.startsWith('data:') || forumAvatar.startsWith('http') || forumAvatar.startsWith('/'));
+    
     return {
       forumName: profiles[char.id].forumName,
-      avatar: getBlackWhiteLineAvatar(profiles[char.id].avatarSeed)
+      avatar: isImage ? forumAvatar : getLuntanAvatar(profiles[char.id].forumName)
     };
   }
 
@@ -290,7 +234,7 @@ const getOrInitCharForumProfile = (char: Character, usedSet?: Set<string>): { fo
 
   return {
     forumName: newProfile.forumName,
-    avatar: getBlackWhiteLineAvatar(newProfile.avatarSeed)
+    avatar: getLuntanAvatar(newProfile.forumName)
   };
 };
 
@@ -316,7 +260,7 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
 
   // User Profile State (Avatar, Nickname, Bookmarks)
   const [userAvatar, setUserAvatar] = useState<string>(() => {
-    return localStorage.getItem("mobile_ai_forum_user_avatar") || getBlackWhiteLineAvatar("default-user-line");
+    return localStorage.getItem("mobile_ai_forum_user_avatar") || getLuntanAvatar("用户");
   });
   const [userNickname, setUserNickname] = useState<string>(() => {
     return localStorage.getItem("mobile_ai_forum_user_nickname") || "用户";
@@ -331,8 +275,48 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
   });
 
   const [isEditingNickname, setIsEditingNickname] = useState(false);
+  const [expandedReplies, setExpandedReplies] = useState<Record<string, boolean>>({});
   const [tempNickname, setTempNickname] = useState(userNickname);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleResetAndRegenerateForum = () => {
+    setConfirmDialog({
+      title: "彻底重置论坛",
+      message: "确定要清空所有论坛帖子、评论、私信以及发帖昵称绑定吗？重置后将为您重新生成初始内容。",
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        
+        // Clear all state
+        setPosts([]);
+        setPrivateContacts([]);
+        
+        // Clear all relevant localStorage
+        localStorage.removeItem("mobile_ai_forum_posts");
+        localStorage.removeItem("mobile_ai_forum_contacts");
+        localStorage.removeItem("mobile_ai_forum_char_profiles");
+        localStorage.removeItem("mobile_ai_forum_user_bookmarks");
+        
+        // Remove DM messages
+        const keys = Object.keys(localStorage);
+        keys.forEach(key => {
+          if (key.startsWith("mobile_ai_forum_dm_msgs_")) {
+            localStorage.removeItem(key);
+          }
+        });
+
+        showToast("论坛已重置，正在为您重新生成帖子...");
+        
+        // Short delay to ensure state updates or just ignore state and use empty for generation
+        setTimeout(async () => {
+          // Generate 2 posts for each of the first 3 boards
+          for (const board of boards.slice(0, 3)) {
+            await handleGeneratePosts(board.id, 2, []);
+          }
+          showToast("✨ 论坛已成功重置并生成全新内容");
+        }, 500);
+      }
+    });
+  };
 
   // My Profile Section sub-tab
   const [profileSection, setProfileSection] = useState<'posts' | 'bookmarks' | 'comments'>('posts');
@@ -345,15 +329,34 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
   const [boardEditDesc, setBoardEditDesc] = useState("");
   const [isGeneratingBoardDesc, setIsGeneratingBoardDesc] = useState(false);
 
-  const [boards, setBoards] = useState<Board[]>([
-    { id: 'board-1', name: '不可以涩涩', icon: 'love', description: '关于性爱、xp分享、亲密关系讨论的板块。', keywords: '情感, 亲密, 恋爱' },
-    { id: 'board-2', name: '深夜食堂', icon: 'skull', description: '关于灵异事件、恐怖经历的分享板块。', keywords: '悬疑, 灵异, 故事' },
-    { id: 'board-3', name: '捡手机文学', icon: 'phone', description: '太太们创作的捡手机文学板块。', keywords: '脑洞, 创作, 记录' },
-  ]);
+  const [boards, setBoards] = useState<Board[]>(() => {
+    try {
+      const saved = localStorage.getItem("mobile_ai_forum_boards");
+      if (saved) return JSON.parse(saved);
+    } catch (e) {}
+    return [
+      { id: 'board-1', name: '不可以涩涩', icon: 'love', description: '关于性爱、xp分享、亲密关系讨论的板块。', keywords: '情感, 亲密, 恋爱' },
+      { id: 'board-2', name: '深夜食堂', icon: 'skull', description: '关于灵异事件、恐怖经历的分享板块。', keywords: '悬疑, 灵异, 故事' },
+      { id: 'board-3', name: '捡手机文学', icon: 'phone', description: '太太们创作的捡手机文学板块。', keywords: '脑洞, 创作, 记录' },
+    ];
+  });
 
-  const [posts, setPosts] = useState<ForumPost[]>([]);
+  const [posts, setPosts] = useState<ForumPost[]>(() => {
+    try {
+      const saved = localStorage.getItem("mobile_ai_forum_posts");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
   const [selectedPost, setSelectedPost] = useState<ForumPost | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{title: string, message: string, onConfirm: () => void} | null>(null);
+
+  // Long press / Action menu for user comments
+  const [activeCommentMenu, setActiveCommentMenu] = useState<{ comment: ForumComment, x: number, y: number } | null>(null);
+  const longPressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // User Manual Post State
   const [isUserPostModalOpen, setIsUserPostModalOpen] = useState(false);
@@ -372,6 +375,10 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
   const [isGeneratingPosts, setIsGeneratingPosts] = useState(false);
   const [postGenProgressText, setPostGenProgressText] = useState("");
   const [isGeneratingComments, setIsGeneratingComments] = useState(false);
+  const [isGeneratingOpUpdate, setIsGeneratingOpUpdate] = useState(false);
+  const [isGeneratingOpInteract, setIsGeneratingOpInteract] = useState(false);
+  const [isUserOpUpdate, setIsUserOpUpdate] = useState(false);
+  const [showOpOnly, setShowOpOnly] = useState(false);
 
   // Private Messages Directory & Chat State
   const [privateContacts, setPrivateContacts] = useState<PrivateContact[]>(() => {
@@ -389,35 +396,12 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
   const [isContactTyping, setIsContactTyping] = useState(false);
   const privateChatEndRef = useRef<HTMLDivElement>(null);
 
-  // Load posts and boards from localStorage
-  useEffect(() => {
-    const savedPosts = localStorage.getItem("mobile_ai_forum_posts");
-    if (savedPosts) {
-      try {
-        const parsed = JSON.parse(savedPosts);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setPosts(parsed);
-        } else {
-          setPosts(INITIAL_DEMO_POSTS);
-        }
-      } catch (e) {
-        setPosts(INITIAL_DEMO_POSTS);
-      }
-    } else {
-      setPosts(INITIAL_DEMO_POSTS);
-    }
-    const savedBoards = localStorage.getItem("mobile_ai_forum_boards");
-    if (savedBoards) {
-      try {
-        setBoards(JSON.parse(savedBoards));
-      } catch (e) {}
-    }
-  }, []);
-
   // Save posts, boards, and private contacts to localStorage
   useEffect(() => {
-    localStorage.setItem("mobile_ai_forum_posts", JSON.stringify(posts));
-    localStorage.setItem("mobile_ai_forum_boards", JSON.stringify(boards));
+    if (posts.length > 0 || boards.length > 0) {
+      localStorage.setItem("mobile_ai_forum_posts", JSON.stringify(posts));
+      localStorage.setItem("mobile_ai_forum_boards", JSON.stringify(boards));
+    }
   }, [posts, boards]);
 
   useEffect(() => {
@@ -518,8 +502,6 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
     }
     setIsEditingBoard(true);
   };
-
-  // AI Generate Board Description handler
   const handleAiGenerateBoardDesc = async () => {
     if (!boardEditName.trim()) {
       alert("请先填写板块名称！");
@@ -564,11 +546,17 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
     return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
-  const saveConfig = (p: number, c: number) => {
+  const saveConfig = (p: number, c: number, boardId?: string, loreIds?: string[]) => {
     setPostGenCount(p);
     setCommentGenCount(c);
     localStorage.setItem("mobile_ai_forum_p_count", p.toString());
     localStorage.setItem("mobile_ai_forum_c_count", c.toString());
+    if (boardId) {
+      localStorage.setItem("mobile_ai_forum_gen_board", boardId);
+    }
+    if (loreIds) {
+      localStorage.setItem("mobile_ai_forum_gen_lores", JSON.stringify(loreIds));
+    }
   };
 
   // AI Post Gen Modal State
@@ -578,11 +566,54 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
   const [genCount, setGenCount] = useState<number>(3);
 
   const handleOpenGenModal = (bId?: string) => {
-    const targetId = bId || activeBoardId || boards[0]?.id || '';
+    const savedBoardId = localStorage.getItem("mobile_ai_forum_gen_board");
+    let savedLores: string[] = [];
+    try {
+      const parsedLores = JSON.parse(localStorage.getItem("mobile_ai_forum_gen_lores") || "[]");
+      if (Array.isArray(parsedLores)) {
+        savedLores = parsedLores;
+      }
+    } catch (e) {}
+
+    const targetId = bId || savedBoardId || activeBoardId || boards[0]?.id || '';
     setGenBoardId(targetId);
     setGenCount(postGenCount || 3);
+    setSelectedLoreIds(savedLores);
     setPostGenProgressText("");
     setIsGeneratingPostsModalOpen(true);
+  };
+
+  const checkIsPostTooSimilar = (newContent: string, existingList: ForumPost[]): boolean => {
+    const cleanWords = (text: string) => {
+      return text.toLowerCase()
+        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?"'’。，、？！；：]/g, " ")
+        .split(/\s+/)
+        .filter(w => w.length > 1);
+    };
+
+    const newWords = new Set(cleanWords(newContent));
+    if (newWords.size === 0) return false;
+
+    for (const post of existingList) {
+      const postWords = cleanWords(post.content);
+      if (postWords.length === 0) continue;
+
+      let intersectionSize = 0;
+      for (const w of postWords) {
+        if (newWords.has(w)) {
+          intersectionSize++;
+        }
+      }
+
+      const unionSize = newWords.size + postWords.length - intersectionSize;
+      if (unionSize > 0) {
+        const similarity = intersectionSize / unionSize;
+        if (similarity > 0.3) { // 30% overlap threshold
+          return true;
+        }
+      }
+    }
+    return false;
   };
 
   const handleGeneratePosts = async (boardId: string, count: number, loreIds: string[]) => {
@@ -591,6 +622,12 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
       return;
     }
     if (isGeneratingPosts) return;
+    
+    if (!settings.apiUrl || !settings.apiKey) {
+      alert("请先在设置页配置 API 地址和 API Key，否则无法生成帖子！");
+      return;
+    }
+
     setIsGeneratingPosts(true);
     setPostGenProgressText("AI 正在思考板块话题与灵感...");
     
@@ -599,13 +636,18 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
     const loreContent = selectedLores.map(l => `【${l.title}】:\n${l.content}`).join("\n\n");
     const isHorror = isHorrorBoard(board);
     
+    const existingPostsList = posts.filter(p => p.boardId === boardId);
+    const existingSummaries = existingPostsList.length > 0 
+      ? `【当前板块已有的帖子概要（生成新帖子时，主题、事情经过、故事切入点绝对不能与这些相似，必须完全独立、具有新鲜感和独特设定）：】\n${existingPostsList.slice(-10).map((p, idx) => `${idx + 1}. 作者: ${p.authorName}, 帖子前80字: "${p.content.slice(0, 80)}..."`).join("\n")}`
+      : "【当前板块尚无帖子，请首发新颖独特的倾诉主题。】";
+    
     try {
       const generatedPosts: ForumPost[] = [];
       for (let i = 0; i < count; i++) {
         setPostGenProgressText(`AI 正在撰写第 ${i + 1} / ${count} 篇帖子...`);
 
-        // 70% chance character, 30% chance NPC
-        const useNpc = Math.random() < 0.3;
+        // 50% chance character, 50% chance NPC
+        const useNpc = Math.random() < 0.5;
         let authorId = "";
         let authorName = "";
         let authorAvatar = "";
@@ -616,12 +658,12 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
           authorId = activeChar.id;
           const profile = getOrInitCharForumProfile(activeChar);
           authorName = profile.forumName;
-          authorAvatar = profile.avatar;
+          authorAvatar = getLuntanAvatar(authorName);
         } else {
           const npc = FIXED_NPCS[Math.floor(Math.random() * FIXED_NPCS.length)];
           authorId = npc.id;
           authorName = npc.name;
-          authorAvatar = getBlackWhiteLineAvatar(npc.avatarSeed);
+          authorAvatar = getLuntanAvatar(npc.name);
         }
 
         let validParsed: any = null;
@@ -649,24 +691,37 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
           const generalRequirementNotice = `
 --- 【论坛帖子通用语气与生成规则（最高优先级）】 ---
 1. 【统一第一人称视角】：所有帖子必须 100% 统一使用第一人称视角（“我”）进行叙述，严禁第三人称！
-2. 【口语化与社交媒体讲述语气】：
-   - 语气要像普通人在社交媒体（如贴吧、小红书、朋友圈）上分享经历一样自然、真实、接地气，【绝不能像在写小说或写文章】，避免过度修饰和刻意书面化的气氛描写。
-   - 用词口语化，句子长短结合，就像在和朋友聊天或讲述一件事。
-3. 【个人心理感受与当下反应】：
-   - 必须加入个人心理感受、情绪变化和当下真实反应（如“我当时真的懵了”、“整个人都麻了”、“心跳差点漏了一拍”等）。
-4. 【互动性语气词与社交表达】：
-   - 必须自然融入面对面讲述或发帖时的互动语气词，例如：“你们猜最后怎么了？”、“我当时真的懵了”、“你们敢信？”、“后来我才知道…”、“家人们”、“直接把我给整不会了”等。
-5. 【详细经过与字数要求】：必须详细描述事件完整经过，包含【时间、地点、事件起因、经过、细节和感受】，正文【字数绝对不少于 150 字】（推荐 180 ~ 380 字）。
+2. 【绝对杜绝重复主题和同质套路】：
+   - 【禁止重复发生相同的琐碎日常事件】！如果你是多次发帖，或看到已有其他帖子，必须改变你的发帖主题、表达切入点和叙事角度（例如：你可以倾诉秘密心声、吐槽某人、提问寻求帮助、分享脑洞创想、记录一个诡异而滑稽的真实尴尬瞬间、讲述一段特别的回忆等，严禁全员套用相同的套路）。
+3. 【角色人设决定发帖开头（绝对禁忌：严禁千篇一律开头）】：
+   - 绝不能每条帖子开头都用“家人们”。必须根据你所属的发帖角色性格/人设特征来决定开场白与语气：
+     · 【活泼外向型/元气型角色】：可以使用“家人们”、“友友们”、“大家听我说”、“呜呜呜有人在吗”等高亲和力、热情的互联网开场白。
+     · 【温和内敛型/温柔型/治愈型角色】：开场必须柔和委婉、略带迟疑，可使用“那个…”、“嗯…”、“其实有件事想说…”、“不知道该怎么说…”等，决不能大喊大叫或使用“家人们”。
+     · 【高冷型/傲娇型/沉稳型角色】：直接陈述事件或核心问题，【绝不能加任何套近乎的开场白或多余的互联网语气词】（直接开始描述事情，如：“今天遇到一件极其荒谬的事。”）。
+     · 【NPC成员】：也必须根据其人名/ presumed 性格特征来进行开场，杜绝全员千篇一律“家人们”开局。
+4. 【内容必须100%忠实于角色完整人设】：
+   - 生成的帖子内容、讲述的言行、爱好、习惯、日常困扰、秘密心声都必须与该角色的完整性格、背景人设高度一致，严禁凭空捏造、杜绝生硬凑合。
+   - 【温柔/优雅/知性角色绝对禁止使用恶俗、低俗、露骨、下流网络热梗或带偏激癖好的词汇】：严禁使用如“超级M”、“卑微是最好的嫁妆”、“专属小狗”、“舔狗”等完全割裂人设的词。
+   - 在生成前，必须深入分析该角色的性格描述、行为风格、人设卡片，确保发布的事件和倾诉的内容完美贴合其本身设定。
+5. 【口语化叙事与语气自然委婉化】：
+   - 帖子语言必须像普通人在社交媒体真实发帖倾诉一样，有角色强烈的个人特色，“见字如面”。
+   - 严禁为了刻意追求“论坛感”而一律套用过度网络化、低级庸俗、露骨粗浅的网络词汇或万能模版。
+   - 即使发帖内容发布在偏敏感板块（如“Xp分享”、“深夜树洞”），也必须用符合该角色独特设定（如：傲娇、羞涩、温柔等）的极其隐晦、委婉、甚至可爱或克制的方式进行真诚地心理陈述，绝不能出现低俗、露骨直白的词句。
+6. 【个人心理感受与当下反应】：
+   - 必须加入个人心理感受、情绪变化和当下真实反应。
+7. 【详细经过与字数要求】：必须详细描述事件完整经过，包含【时间、地点、事件起因、经过、细节和感受】，正文【字数绝对不少于 150 字】（推荐 180 ~ 380 字）。
 `;
 
           const prompt = activeChar ? `你是角色：${activeChar.name}。简介：${activeChar.description}。
 ${loreContent ? `以下是本次生成挂载的世界观设定：\n${loreContent}\n` : ""}
 论坛板块：${board?.name}。板块简介/方向：${board?.description}。
 
+${existingSummaries}
+
 ${generalRequirementNotice}
 ${boardRequirementNotice}
 
-请以该角色的口吻，在匿名论坛的该板块下发布一篇详细的论坛帖子（必须使用第一人称“我”，口语化自然接地气，像在和朋友聊天讲述，自然加入“你们猜最后怎么了？”、“我当时真的懵了”、“你们敢信？”等互动语气，字数绝对不少于150字）。
+请扮演该角色并以其口吻，在匿名论坛的该板块下发布一篇详细的论坛帖子。帖子必须使用第一人称“我”，用符合该角色性格特色的口吻口语化自然叙述。活泼外向的角色可以加生动的互动语气，高冷或内敛的角色要保持其高冷或温柔、克制的叙述腔调，避免千篇一律地使用相同的网络套话，字数绝对不少于150字。
 同时，请为该角色生成一个不包含原名“${activeChar.name}”的论坛匿名网名（4-8字，如“深夜听风者”、“赛博咸鱼”）。
 
 要求输出严格的 JSON 格式：
@@ -674,20 +729,22 @@ ${boardRequirementNotice}
   ${isHorror ? `"isHorrorTheme": true,` : ""}
   "forumNickname": "论坛匿名网名",
   "tag": "${isHorror ? "灵异" : "日常"}",
-  "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，像在和朋友聊天讲述，包含时间、地点、起因经过细节、当下情绪反应与自然互动语气词）"
+  "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，以该角色本身的口吻和人设开头，符合其专属性格与人设，像该角色本人在发帖倾诉，包含时间、地点、起因经过细节、当下情绪反应与该性格特有的自然叙事或互动，拒绝千篇一律的网梗或套话）"
 }` : `你是一个网络论坛NPC成员“${authorName}”。
 论坛板块：${board?.name}。板块方向：${board?.description}。
+
+${existingSummaries}
 
 ${generalRequirementNotice}
 ${boardRequirementNotice}
 
-请在该板块发布一篇符合板块氛围的详细帖子（必须使用第一人称“我”，口语化自然接地气，像在和朋友聊天讲述，自然加入“你们猜最后怎么了？”、“我当时真的懵了”、“你们敢信？”等互动语气，字数绝对不少于150字）。
+请在该板块发布一篇符合板块氛围的详细帖子。帖子必须使用第一人称“我”，口语化自然接地气，根据NPC名字或预设的某种性格类型（例如傲娇、随性、温柔等）选择合适独特的语气和开场，字数绝对不少于150字。
 
 要求输出严格的 JSON 格式：
 {
   ${isHorror ? `"isHorrorTheme": true,` : ""}
   "tag": "${isHorror ? "灵异" : "日常"}",
-  "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，像在和朋友聊天讲述，包含时间、地点、起因经过细节、当下情绪反应与自然互动语气词）"
+  "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，以符合该NPC设定的方式开头与叙述，包含时间、地点、起因经过细节、当下情绪反应，杜绝千篇一律）"
 }`;
 
           const response = await apiChat({ 
@@ -713,8 +770,9 @@ ${boardRequirementNotice}
             const hasFirstPerson = text.includes("我");
             const isHorrorValid = !isHorror || (parsed.isHorrorTheme !== false && isContentHorrorThemed(text));
             const isLengthOk = text.length >= 120;
+            const isTooSimilar = checkIsPostTooSimilar(text, [...posts, ...generatedPosts]);
 
-            if ((hasFirstPerson && isHorrorValid && isLengthOk) || attempts >= 3) {
+            if ((hasFirstPerson && isHorrorValid && isLengthOk && !isTooSimilar) || attempts >= 3) {
               validParsed = parsed;
             }
           }
@@ -727,13 +785,15 @@ ${boardRequirementNotice}
             authorName = uniqueName;
             usedNicknames.add(uniqueName);
             saveCharForumNickname(activeChar.id, uniqueName);
+            authorAvatar = getLuntanAvatar(authorName); // Update avatar to match new nickname
           } else if (!activeChar) {
             authorName = makeUniqueNickname(authorName, usedNicknames);
             usedNicknames.add(authorName);
+            authorAvatar = getLuntanAvatar(authorName); // Update avatar to match new nickname
           }
 
-          generatedPosts.push({
-            id: Date.now().toString() + "-" + i,
+          const newPost: ForumPost = {
+            id: Date.now().toString() + "-" + i + "-" + Math.random().toString(36).substr(2, 4),
             boardId: board.id,
             authorId: authorId,
             authorName: authorName,
@@ -744,13 +804,24 @@ ${boardRequirementNotice}
             timestamp: Date.now(),
             likes: Math.floor(Math.random() * 20),
             dislikes: 0,
-            comments: [] as ForumComment[]
-          });
+            comments: []
+          };
+          
+          setPostGenProgressText(`AI 正在为第 ${i + 1} 篇帖子自动生成评论...`);
+          try {
+            const initialComments = await generateCommentsInternal(newPost, "3 到 6");
+            newPost.comments = initialComments;
+          } catch(err) {
+            console.error("Failed to generate initial comments", err);
+          }
+          
+          generatedPosts.push(newPost);
         }
       }
       
       if (generatedPosts.length > 0) {
         setPosts(prev => [...generatedPosts, ...prev]);
+        showToast(`✨ AI 帖子后台生成完毕（新增了 ${generatedPosts.length} 篇新帖子）！`);
       }
       setIsGeneratingPostsModalOpen(false);
     } catch (e) {
@@ -762,7 +833,7 @@ ${boardRequirementNotice}
       setSelectedLoreIds([]);
     }
   };
-
+  
   // Post Actions: Like, Dislike, Delete
   const handleLikePost = (postId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -799,14 +870,31 @@ ${boardRequirementNotice}
     if (e) e.stopPropagation();
     setConfirmDialog({
       title: "删除帖子",
-      message: "确定要彻底删除该帖子吗？删除后不可恢复。",
+      message: "确定要删除此帖吗？删除后不可恢复",
       onConfirm: () => {
+        const postToDelete = posts.find(p => p.id === postId);
+        if (postToDelete) {
+          characters.forEach(char => {
+            const memKey = `mobile_ai_memories_${char.id}`;
+            const memStr = localStorage.getItem(memKey);
+            if (memStr) {
+              try {
+                const mems = JSON.parse(memStr);
+                const filtered = mems.filter((m: any) => m.text !== postToDelete.content && !m.text.includes(postToDelete.content.substring(0, Math.min(20, postToDelete.content.length))));
+                if (filtered.length !== mems.length) {
+                  localStorage.setItem(memKey, JSON.stringify(filtered));
+                }
+              } catch (err) {}
+            }
+          });
+        }
+        
         setPosts(prev => prev.filter(p => p.id !== postId));
         if (selectedPost && selectedPost.id === postId) {
           setSelectedPost(null);
         }
         showToast("帖子已成功删除");
-        setConfirmDialog(null);
+        setTimeout(() => setConfirmDialog(null), 10);
       }
     });
   };
@@ -845,7 +933,7 @@ ${boardRequirementNotice}
     if (!selectedPost) return;
     // 50% probability show "已撤回" mark, 50% remove from UI
     const showRecallMark = Math.random() < 0.5;
-    let updatedComments: ForumComment[];
+    let updatedComments;
     if (showRecallMark) {
       updatedComments = selectedPost.comments.map(c => c.id === commentId ? { ...c, isRecalled: true } : c);
     } else {
@@ -910,7 +998,7 @@ ${boardRequirementNotice}
     let contactId = existingContact ? existingContact.id : `private-char-${char.id}-${Date.now()}`;
 
     if (!existingContact) {
-      const newContact: PrivateContact = {
+      const newContact = {
         id: contactId,
         name: profile.forumName,
         avatar: profile.avatar,
@@ -926,13 +1014,13 @@ ${boardRequirementNotice}
     }
 
     const msgKey = `mobile_ai_forum_dm_msgs_${contactId}`;
-    let existingMsgs: PrivateMessage[] = [];
+    let existingMsgs = [];
     try {
       const stored = localStorage.getItem(msgKey);
       if (stored) existingMsgs = JSON.parse(stored);
     } catch (e) {}
 
-    const shareMsg: PrivateMessage = {
+    const shareMsg = {
       id: `msg-share-${Date.now()}`,
       sender: 'user',
       text: textToShare,
@@ -944,72 +1032,432 @@ ${boardRequirementNotice}
     setShareModalData(null);
   };
 
+  const generateCommentsInternal = async (post: ForumPost, countRange: string): Promise<ForumComment[]> => {
+    const charInfos = characters.map(char => {
+      const profile = getOrInitCharForumProfile(char);
+      return {
+        id: char.id,
+        forumName: profile.forumName,
+        description: char.description,
+        systemInstruction: char.systemInstruction
+      };
+    });
+
+    const npcInfos = FIXED_NPCS.map(npc => ({
+      id: npc.id,
+      name: npc.name,
+      description: "匿名热心网友"
+    }));
+
+    const existingCommentsFormatted = post.comments.length > 0
+      ? post.comments.filter(c => !c.isRecalled).map(c => `[已有评论 floor: #${c.floor}, 作者: ${c.authorName}]内容: "${c.content}"`).join("\n")
+      : "（暂无现有评论）";
+
+    const prompt = `你是匿名社交论坛模拟引擎。你的任务是根据给定的帖子内容、已有评论和可选角色池，批量生成一组数量在 ${countRange} 条之间的互动评论，并以 JSON 数组格式输出。
+
+--- 【帖子信息】 ---
+版块名称: "${boards.find(b => b.id === post.boardId)?.name || ""}"
+版块设定与方向: "${boards.find(b => b.id === post.boardId)?.description || ""}"
+楼主名字: "${post.authorName}"
+帖子正文: "${post.content}"
+帖子点赞数: ${post.likes || 0}
+帖子当前评论数: ${post.comments.length}
+
+--- 【角色池 (Character Pool)】 ---
+以下是论坛的可选发帖角色（如果评论作者为他们之一，请使用对应的 id 和 forumName）：
+${JSON.stringify(charInfos, null, 2)}
+
+--- 【NPC 角色池 (NPC Pool)】 ---
+以下是论坛固定的 NPC 角色（如果选择这些 NPC 发言，使用对应的 id 和 name）：
+${JSON.stringify(npcInfos, null, 2)}
+
+以及以下备用网名（可以作为普通 NPC 用户）：
+${JSON.stringify(DEFAULT_LINE_HANDLES)}
+
+--- 【评论生成核心机制（必须严格执行！）】 ---
+1. 【动态条数 (${countRange}条)】：
+   根据帖子的点赞数和话题热度（如恐怖、日常、XP倾诉、树洞吐槽等），动态决定生成的总评论条数。条数必须在 ${countRange} 条之间。
+
+2. 【构建多层对话链 (Dialogue Chains)】：
+   - 严禁每个评论都是独立发表的观点！
+   - 评论之间必须产生相互回复和吐槽。每条评论要么回复帖子（楼主），要么回复之前已有的评论，要么回复刚刚在数组中生成的更早的评论。
+   - 形成多条深入的回复树/对话链（例如：评论 A 对帖子发表看法 -> 评论 B 回复 A 的看法 -> 评论 C 针对 B 表达不同意见 -> 评论 D 出来吐槽 B 和 C -> 评论 E 又跑出来解答 A 之前的疑问）。
+
+3. 【角色专属语言风格 (Persona Styling)】：
+   当选择角色池中的特定角色发表评论时，他的内容和语气必须完全符合他的人设类型。并且我们将人设语气划分为三类：
+   - 活泼型角色 (如活泼话唠、猫咪女孩、元气少年等)：强烈好奇心，多使用追问细节的问句，语气亢奋，多用感叹号（!）和问号（?）。例如：“哇塞真的吗？！求细节！你当时怎么想的呀？”。
+   - 高冷型角色 (如高冷、内敛、克制、傲娇等)：用语极其简短、高傲、冷酷。不带多余情绪，少用或不用多余表情/标点。例如：“建议报警。” “无聊。” “純屬自找。”。
+   - 温和型角色 (如温柔、成熟、治愈、大姐姐等)：提供补充解释、安抚情绪、科普背景或理性的善意建议。常使用波浪号（~）或平和的省略号。例如：“楼主别太难过，其实这也是难免的~ 下次注意就好啦。”。
+
+4. 【NPC 插话与搞笑吐槽】：
+   - 固定 NPC 或普通网友要善于插话、吐槽其他角色的观点，或者在评论区带节奏、玩梗、当吃瓜群众。
+   - 吐槽要生动有趣，有真正的网民讨论感。例如：“楼上的傲娇退退退，什么都建议报警笑死我了。” “前排围观，这楼里的讨论比原帖还精彩。”。
+
+5. 【绝对禁止】：
+   - 严禁机械在句尾使用句号！多使用自然口语（无标点）、波浪号~、感叹号!、问号?或省略号...。
+   - 不要千篇一律开头。
+   - 输出必须是严格的合法的 JSON 数组，不包含任何 Markdown 代码块包裹（如 json 格式等）或其他文字说明。
+
+--- 【已有评论列表】 ---
+${existingCommentsFormatted}
+
+--- 【输出 JSON 格式要求】 ---
+请仅输出一个 JSON 数组，数组中的每个元素必须符合以下格式：
+[
+  {
+    "authorId": "选用的角色 id（如 char-xxx）或 npc-xxx，或者普通网民使用 'npc-random'",
+    "authorName": "角色对应的 forumName，如果是 FIXED_NPC 使用其 name，如果是普通网民则从备用网名中随机挑选一个，或者你自己根据人设生成一个新潮匿名网名",
+    "content": "评论文本正文（10-60字，口语化，强烈的人设口吻或网民讨论风格，绝对执行句尾标点规范，不带句号）",
+    "replyToType": "post" 或 "existing_comment" 或 "generated_index",
+    "replyToValue": 如果是 post 则为 null；如果是 existing_comment，则填已有评论的 floor 数值（如有）；如果是 generated_index，则填当前正在生成的数组中被回复的那条评论的 0 索引 index（必须严格小于当前评论自身的索引 index）
+  }
+]`;
+
+    const responseText = await callLLM(
+      settings.apiUrl,
+      settings.apiKey,
+      settings.model,
+      [{ role: "user", content: prompt }],
+      0.85
+    );
+
+    const trimmed = (responseText || "").trim();
+    let generatedSpecs = [];
+    try {
+      const jsonMatch = trimmed.match(/\[[\s\S]*\]/);
+      generatedSpecs = JSON.parse(jsonMatch ? jsonMatch[0] : trimmed);
+    } catch (e) {
+      console.error("Failed to parse AI interactive comments JSON", e);
+      return [];
+    }
+
+    if (!Array.isArray(generatedSpecs) || generatedSpecs.length === 0) {
+      return [];
+    }
+
+    const newComments: ForumComment[] = [];
+    const usedNicknames = getAllUsedNicknames(posts, privateContacts, userNickname);
+
+    for (let i = 0; i < generatedSpecs.length; i++) {
+      const spec = generatedSpecs[i];
+      const specAuthorId = spec.authorId;
+      
+      let finalAuthorName = spec.authorName || "普通网友";
+      let finalAuthorAvatar = "";
+      
+      const char = characters.find(ch => ch.id === specAuthorId);
+      if (char) {
+        const profile = getOrInitCharForumProfile(char);
+        finalAuthorName = profile.forumName;
+        finalAuthorAvatar = profile.avatar;
+      } else {
+        const npc = FIXED_NPCS.find(n => n.id === specAuthorId);
+        if (npc) {
+          finalAuthorName = npc.name;
+          finalAuthorAvatar = getLuntanAvatar(npc.name);
+        } else {
+          finalAuthorName = makeUniqueNickname(finalAuthorName, usedNicknames);
+          usedNicknames.add(finalAuthorName);
+          finalAuthorAvatar = getLuntanAvatar(finalAuthorName);
+        }
+      }
+      
+      let replyToObj: any = undefined;
+      if (spec.replyToType === "existing_comment") {
+        const existingC = post.comments.find(c => c.floor === spec.replyToValue);
+        if (existingC) {
+          replyToObj = {
+            floor: existingC.floor,
+            authorName: existingC.authorName,
+            content: existingC.content.length > 30 ? existingC.content.slice(0, 30) + "..." : existingC.content
+          };
+        }
+      } else if (spec.replyToType === "generated_index" && typeof spec.replyToValue === "number" && spec.replyToValue >= 0 && spec.replyToValue < i) {
+        const targetGenerated = newComments[spec.replyToValue];
+        if (targetGenerated) {
+          replyToObj = {
+            floor: targetGenerated.floor,
+            authorName: targetGenerated.authorName,
+            content: targetGenerated.content.length > 30 ? targetGenerated.content.slice(0, 30) + "..." : targetGenerated.content
+          };
+        }
+      }
+      
+      const nextFloor = post.comments.length + newComments.length + 1;
+      
+      newComments.push({
+        id: Date.now().toString() + "-gen-" + i + "-" + Math.random().toString(36).substr(2, 4),
+        authorId: specAuthorId || `npc-random-${i}`,
+        authorName: finalAuthorName,
+        authorAvatar: finalAuthorAvatar,
+        content: spec.content,
+        timestamp: Date.now() + i * 10,
+        floor: nextFloor,
+        replyTo: replyToObj,
+        likes: Math.floor(Math.random() * 8),
+        dislikes: 0
+      });
+    }
+
+    if (newComments.length > 0) {
+      if (post.authorId !== 'user') {
+        let opChar = characters.find(ch => ch.id === post.authorId);
+        let opName = post.authorName;
+        let opDesc = opChar ? opChar.description : "论坛NPC用户";
+        
+        const commentsToConsider = newComments.filter(c => c.authorId !== post.authorId);
+        if (commentsToConsider.length > 0) {
+          const opReplyPrompt = `你现在是该论坛帖子的楼主。
+楼主角色名字：${opName}
+${opChar ? `楼主角色设定：${opDesc}` : ""}
+原帖内容：“${post.content}”
+
+以下是评论区里的新评论列表：
+${commentsToConsider.map((c, idx) => `[评论编号 ${idx + 1}] floor: #${c.floor || (post.comments.length + idx + 1)}, 作者: ${c.authorName}, 内容: "${c.content}"`).join('\n')}
+
+请根据你的人设性格，选择性地决定回复其中某些评论。不需要每条都回复：
+- 如果你是一个活泼、热情、话唠、爱社交的角色，你应该多回复几条评论（比如 3-5 条）。
+- 如果你是一个高冷、冷漠、内敛、克制、安静的角色，你应该回复得极少或不回复（比如 0-1 条）。
+- 其他性格则中等（1-2 条）。
+请用你的口吻和第一人称“我”写回复。
+
+请严格返回以下格式 of JSON 数组（如果决定不回复任何评论，返回空数组 []）：
+[
+  {
+    "commentIndex": 评论编号数字,
+    "replyContent": "你的角色口吻回复内容"
+  }
+]`;
+
+          try {
+            const opResponse = await apiChat({
+              messages: [{ role: "user", content: opReplyPrompt }],
+              character: opChar || { id: "npc", name: opName, description: opDesc } as any,
+              settings,
+              systemInstruction: "你是一个严格按照规则输出JSON数组的API。"
+            });
+            
+            const opResponseText = (opResponse.text || "").trim();
+            let opParsed = [];
+            try {
+              const jsonMatch = opResponseText.match(/\[[\s\S]*\]/);
+              opParsed = JSON.parse(jsonMatch ? jsonMatch[0] : opResponseText);
+            } catch (e) {
+              console.error("Failed to parse OP replies JSON", e);
+            }
+
+            if (Array.isArray(opParsed) && opParsed.length > 0) {
+              opParsed.forEach((rep) => {
+                const idx = rep.commentIndex - 1;
+                const replyContent = rep.replyContent;
+                if (idx >= 0 && idx < commentsToConsider.length && replyContent) {
+                  const targetComment = commentsToConsider[idx];
+                  newComments.push({
+                    id: Date.now().toString() + "-op-reply-" + Math.random().toString(36).substr(2, 4),
+                    authorId: post.authorId,
+                    authorName: post.authorName,
+                    authorAvatar: post.authorAvatar,
+                    content: replyContent,
+                    timestamp: Date.now() + 500 + Math.random() * 50,
+                    floor: post.comments.length + newComments.length + 1,
+                    replyTo: {
+                      floor: targetComment.floor || 0,
+                      authorName: targetComment.authorName,
+                      content: targetComment.content.length > 30 ? targetComment.content.slice(0, 30) + "..." : targetComment.content
+                    }
+                  });
+                }
+              });
+            }
+          } catch (errOp) {
+            console.error("OP interaction reply error:", errOp);
+          }
+        }
+      }
+    }
+    return newComments;
+  };
+
   const handleGenerateComments = async (post: ForumPost) => {
     if (isGeneratingComments || characters.length === 0) return;
     setIsGeneratingComments(true);
     
     try {
-      const newComments: ForumComment[] = [];
-      for (let i = 0; i < commentGenCount; i++) {
-        const useNpc = Math.random() < 0.3;
-        let authorId = "";
-        let authorName = "";
-        let authorAvatar = "";
-        let activeChar: Character | null = null;
-
-        if (!useNpc) {
-          activeChar = characters[Math.floor(Math.random() * characters.length)];
-          authorId = activeChar.id;
-          const profile = getOrInitCharForumProfile(activeChar);
-          authorName = profile.forumName;
-          authorAvatar = profile.avatar;
-        } else {
-          const npc = FIXED_NPCS[Math.floor(Math.random() * FIXED_NPCS.length)];
-          authorId = npc.id;
-          authorName = npc.name;
-          authorAvatar = getBlackWhiteLineAvatar(npc.avatarSeed);
-        }
-
-        const prompt = activeChar 
-          ? `你是角色：${activeChar.name}（你在论坛的匿名网名是：${authorName}）。
-现在你在一个论坛里看到了一篇帖子，内容是：“${post.content}”。
-请以你的口吻写一条简短的回复（10-50字）。输出纯文本，不要包含任何格式。`
-          : `你是论坛热心网民“${authorName}”。看到帖子：“${post.content}”。
-请写一条接地气的评论（10-50字）。输出纯文本。`;
-
-        const response = await apiChat({ 
-          messages: [{ role: "user", content: prompt }], 
-          character: activeChar || { id: "npc", name: authorName, description: "论坛NPC" } as any,
-          memories: activeChar?.memories || [],
-          matchedLore: loreList,
-          settings 
-        });
-        const cleanText = (response.text || "").trim();
-        
-        if (cleanText) {
-          newComments.push({
-            id: Date.now().toString() + "-" + i,
-            authorId: authorId,
-            authorName: authorName,
-            authorAvatar: authorAvatar,
-            content: cleanText,
-            timestamp: Date.now(),
-            floor: post.comments.length + newComments.length + 1
-          });
-        }
+      const newComments = await generateCommentsInternal(post, "15 到 20");
+      if (newComments.length === 0) {
+        alert("AI 评论生成失败或格式解析失败，请重试。");
+        return;
       }
-
-      if (newComments.length > 0) {
-        const updatedPost = { ...post, comments: [...post.comments, ...newComments] };
-        setPosts(prev => prev.map(p => p.id === post.id ? updatedPost : p));
-        if (selectedPost && selectedPost.id === post.id) {
-          setSelectedPost(updatedPost);
-        }
+      const updatedPost = { ...post, comments: [...post.comments, ...newComments] };
+      setPosts(prev => prev.map(p => p.id === post.id ? updatedPost : p));
+      if (selectedPost && selectedPost.id === post.id) {
+        setSelectedPost(updatedPost);
       }
     } catch (e) {
       console.error(e);
+      alert("生成出错：" + (e)?.message);
     } finally {
       setIsGeneratingComments(false);
+    }
+  };
+
+    // Generate subsequent OP Update (story progress)
+  const handleGenerateOpUpdate = async (post: ForumPost) => {
+    if (isGeneratingOpUpdate || post.authorId === 'user') return;
+    setIsGeneratingOpUpdate(true);
+    try {
+      let opChar = characters.find(ch => ch.id === post.authorId);
+      let opName = post.authorName;
+      let opDesc = opChar ? opChar.description : "论坛NPC用户";
+
+      const prompt = `你现在是该论坛帖子的楼主。
+楼主角色名字：${opName}
+${opChar ? `楼主角色设定：${opDesc}` : ""}
+原帖内容：“${post.content}”
+
+已有回复列表：
+${post.comments.filter(c => !c.isRecalled).map(c => `#${c.floor} @${c.authorName}: ${c.content}`).join('\n')}
+
+请根据之前发布的内容和网友评论，以楼主第一人称发布一篇后续更新内容（例如事件的新进展、补充细节、回应大家的疑问等）（100-250字）。
+要求用楼主符合性格设定的独特口吻进行更新，情感真实接地气，不要有AI味或敷衍感。直接输出更新正文纯文本，不要包含任何Markdown包裹或修饰。`;
+
+      const response = await apiChat({
+        messages: [{ role: "user", content: prompt }],
+        character: opChar || { id: "npc", name: opName, description: opDesc } as any,
+        settings,
+        matchedLore: loreList,
+      });
+
+      const cleanText = (response.text || "").trim();
+      if (cleanText) {
+        const newComment: ForumComment = {
+          id: `op-update-${Date.now()}`,
+          authorId: post.authorId,
+          authorName: post.authorName,
+          authorAvatar: post.authorAvatar,
+          content: cleanText,
+          timestamp: Date.now(),
+          floor: post.comments.length + 1,
+          isOpUpdate: true, // Marked as OP Update!
+        };
+
+        const updatedPost = {
+          ...post,
+          comments: [...post.comments, newComment]
+        };
+
+        setPosts(prev => prev.map(p => p.id === post.id ? updatedPost : p));
+        setSelectedPost(updatedPost);
+        showToast("📢 楼主已发布后续更新！");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("生成楼主更新失败，请重试");
+    } finally {
+      setIsGeneratingOpUpdate(false);
+    }
+  };
+
+  // Manual OP Interact to reply to comments in character
+  const handleOpInteract = async (post: ForumPost) => {
+    if (isGeneratingOpInteract || post.authorId === 'user') return;
+    
+    // Check if there are any comments to reply to
+    const commentsToReply = post.comments.filter(c => c.authorId !== post.authorId && !c.isRecalled);
+    if (commentsToReply.length === 0) {
+      alert("评论区还没有其他人的回复，请先让其他角色评论或自己发表回复！");
+      return;
+    }
+
+    setIsGeneratingOpInteract(true);
+    try {
+      let opChar = characters.find(ch => ch.id === post.authorId);
+      let opName = post.authorName;
+      let opDesc = opChar ? opChar.description : "论坛NPC用户";
+
+      const opReplyPrompt = `你现在是该论坛帖子的楼主。
+楼主角色名字：${opName}
+${opChar ? `楼主角色设定：${opDesc}` : ""}
+原帖内容：“${post.content}”
+
+以下是整个评论区里的评论列表：
+${commentsToReply.map((c, idx) => `[评论编号 ${idx + 1}] floor: #${c.floor}, 作者: ${c.authorName}, 内容: "${c.content}"`).join('\n')}
+
+请根据你的人设性格，选择性地决定回复其中某些评论。不需要每条都回复：
+- 如果你是一个活泼、热情、话唠、爱社交的角色，你应该多回复几条评论（比如 2-3 条）。
+- 如果你是一个高冷、冷漠、内敛、克制、安静的角色，你应该回复得极少或不回复（比如 0-1 条）。
+- 其他性格则中等（1-2 条）。
+请用你作为该角色的口吻和第一人称“我”写回复。
+
+请严格返回以下格式 of JSON 数组（如果决定不回复任何评论，返回空数组 []）：
+[
+  {
+    "commentIndex": 评论编号数字,
+    "replyContent": "你的角色口吻回复内容"
+  }
+]`;
+
+      const response = await apiChat({
+        messages: [{ role: "user", content: opReplyPrompt }],
+        character: opChar || { id: "npc", name: opName, description: opDesc } as any,
+        settings,
+        matchedLore: loreList,
+        systemInstruction: "你是一个严格按照规则输出JSON数组的API。"
+      });
+
+      const responseText = (response.text || "").trim();
+      let opParsed = [];
+      try {
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        opParsed = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);
+      } catch (e) {
+        console.error("Failed to parse OP replies JSON", e);
+      }
+
+      if (Array.isArray(opParsed) && opParsed.length > 0) {
+        const newComments: ForumComment[] = [];
+        opParsed.forEach((rep: any) => {
+          const idx = rep.commentIndex - 1;
+          const replyContent = rep.replyContent;
+          if (idx >= 0 && idx < commentsToReply.length && replyContent) {
+            const targetComment = commentsToReply[idx];
+            
+            newComments.push({
+              id: Date.now().toString() + "-op-reply-" + Math.random().toString(36).substr(2, 4),
+              authorId: post.authorId,
+              authorName: post.authorName,
+              authorAvatar: post.authorAvatar,
+              content: replyContent,
+              timestamp: Date.now() + 50,
+              floor: post.comments.length + newComments.length + 1,
+              replyTo: {
+                floor: targetComment.floor || 0,
+                authorName: targetComment.authorName,
+                content: targetComment.content.length > 30 ? targetComment.content.slice(0, 30) + "..." : targetComment.content
+              }
+            });
+          }
+        });
+
+        if (newComments.length > 0) {
+          const updatedPost = {
+            ...post,
+            comments: [...post.comments, ...newComments]
+          };
+          setPosts(prev => prev.map(p => p.id === post.id ? updatedPost : p));
+          setSelectedPost(updatedPost);
+          showToast(`💬 楼主互动完毕，新增了 ${newComments.length} 条楼主回复！`);
+        } else {
+          showToast("楼主看了一眼评论区，高冷地选择了不予回复 🤫");
+        }
+      } else {
+        showToast("楼主看了一眼评论区，感觉没什么好回复的 🤫");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("楼主互动失败，请重试");
+    } finally {
+      setIsGeneratingOpInteract(false);
     }
   };
 
@@ -1051,6 +1499,7 @@ ${boardRequirementNotice}
       content: replyText.trim(),
       timestamp: Date.now(),
       floor: selectedPost.comments.length + 1,
+      isOpUpdate: (selectedPost.authorId === 'user' && isUserOpUpdate) ? true : undefined,
       replyTo: replyingToComment ? {
         floor: replyingToComment.floor,
         authorName: replyingToComment.authorName,
@@ -1067,6 +1516,47 @@ ${boardRequirementNotice}
     setSelectedPost(updatedPost);
     setReplyText("");
     setReplyingToComment(null);
+    setIsUserOpUpdate(false);
+  };
+
+  const handleCommentTouchStart = (e: React.TouchEvent | React.MouseEvent, comment: ForumComment) => {
+    if (comment.authorId !== 'user') return;
+    
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+    }
+    
+    let clientX = 0;
+    let clientY = 0;
+    if ('touches' in e) {
+      if (e.touches.length > 0) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      }
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+
+    longPressTimeoutRef.current = setTimeout(() => {
+      setActiveCommentMenu({ comment, x: clientX, y: clientY });
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+    }, 500);
+  };
+
+  const handleCommentTouchEnd = () => {
+    if (longPressTimeoutRef.current) {
+      clearTimeout(longPressTimeoutRef.current);
+      longPressTimeoutRef.current = null;
+    }
+  };
+
+  const handleCommentContextMenu = (e: React.MouseEvent, comment: ForumComment) => {
+    if (comment.authorId !== 'user') return;
+    e.preventDefault();
+    setActiveCommentMenu({ comment, x: e.clientX, y: e.clientY });
   };
 
   // Refresh Private Message Requests (AI Generate Contact DM)
@@ -1093,7 +1583,7 @@ ${boardRequirementNotice}
         const npc = FIXED_NPCS[Math.floor(Math.random() * FIXED_NPCS.length)];
         contactId = `private-npc-${npc.id}-${Date.now()}`;
         contactName = npc.name;
-        contactAvatar = getBlackWhiteLineAvatar(npc.avatarSeed);
+        contactAvatar = getLuntanAvatar(npc.name);
         isNpc = true;
       }
 
@@ -1308,6 +1798,20 @@ ${historyContext}
     }
   };
 
+  const handleDeleteContact = (contactId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirmDialog({
+      title: "删除私信",
+      message: "确定要删除这条私信记录吗？删除后不可恢复",
+      onConfirm: () => {
+        setPrivateContacts(prev => prev.filter(c => c.id !== contactId));
+        localStorage.removeItem(`mobile_ai_forum_dm_msgs_${contactId}`);
+        showToast("已删除私信记录");
+        setTimeout(() => setConfirmDialog(null), 10);
+      }
+    });
+  };
+
   const renderBoardIcon = (icon: Board['icon']) => {
     switch (icon) {
       case 'love': return <HeartIcon className="w-6 h-6 text-neutral-900" />;
@@ -1323,13 +1827,13 @@ ${historyContext}
   );
 
   return (
-    <div className="flex-1 flex flex-col bg-neutral-50 text-neutral-900 select-none animate-slide-up h-full min-h-0 relative font-sans overflow-hidden">
+    <div className="flex-1 flex flex-col bg-neutral-50 text-neutral-900 select-none animate-slide-up h-full min-h-0 relative  overflow-hidden">
       
       {/* Detail View Overlay for Post */}
       {selectedPost && (
         <div className="absolute inset-0 bg-white z-50 flex flex-col animate-slide-left">
           <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 bg-white shrink-0">
-            <button onClick={() => { setSelectedPost(null); setReplyingToComment(null); setReplyText(""); }} className="p-1 -ml-1 text-neutral-500 hover:text-black">
+            <button onClick={() => { setSelectedPost(null); setReplyingToComment(null); setReplyText(""); setShowOpOnly(false); setIsUserOpUpdate(false); }} className="p-1 -ml-1 text-neutral-500 hover:text-black">
               <ChevronLeft className="w-6 h-6" />
             </button>
             <span className="font-bold text-sm">帖子详情</span>
@@ -1346,7 +1850,13 @@ ${historyContext}
             <div className="bg-white rounded-2xl p-4 shadow-sm border border-neutral-100 space-y-3 max-w-2xl mx-auto">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <img src={selectedPost.authorAvatar} alt="" className="w-10 h-10 rounded-full object-cover bg-neutral-100 border border-neutral-200/50" />
+                  <CharacterAvatar 
+                    character={characters.find(ch => ch.id === selectedPost.authorId)} 
+                    avatar={selectedPost.authorAvatar} 
+                    name={selectedPost.authorName} 
+                    size={40} 
+                    className="rounded-full border border-neutral-200/50" 
+                  />
                   <div>
                     <div className="text-sm font-bold text-neutral-900">{selectedPost.authorName}</div>
                     <div className="text-[10px] text-neutral-400">{formatTime(selectedPost.timestamp)}</div>
@@ -1399,8 +1909,7 @@ ${historyContext}
                   </button>
                 </div>
 
-                {selectedPost.authorId === 'user' && (
-                  <button 
+                <button 
                     onClick={(e) => handleDeletePost(selectedPost.id, e)} 
                     className="flex items-center gap-1 text-red-500 hover:text-red-700 font-medium transition-colors"
                     title="删除帖子"
@@ -1408,160 +1917,224 @@ ${historyContext}
                     <Trash2 className="w-4 h-4" />
                     <span>删除</span>
                   </button>
-                )}
               </div>
             </div>
 
-            <div className="flex items-center justify-between px-1 pt-2 max-w-2xl mx-auto">
-              <span className="font-bold text-sm text-neutral-900">全部回复 ({selectedPost.comments.filter(c => !c.isRecalled).length})</span>
-              <button 
-                onClick={() => handleGenerateComments(selectedPost)}
-                disabled={isGeneratingComments}
-                className="text-[11px] font-bold bg-neutral-900 hover:bg-black text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all disabled:opacity-50"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                {isGeneratingComments ? "生成中..." : "AI 生成评论"}
-              </button>
+            <div className="flex flex-col gap-2 px-1 pt-2 max-w-2xl mx-auto">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-sm text-neutral-900">全部回复 ({selectedPost.comments.filter(c => !c.isRecalled).length})</span>
+                  <button
+                    onClick={() => setShowOpOnly(prev => !prev)}
+                    className={`text-[11px] font-bold px-2.5 py-1.5 rounded-full border transition-all ${
+                      showOpOnly
+                        ? 'bg-neutral-900 text-white border-neutral-900 shadow-xs'
+                        : 'bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-50'
+                    }`}
+                  >
+                    {showOpOnly ? "🟢 只看楼主" : "只看楼主"}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button 
+                    onClick={() => handleGenerateComments(selectedPost)}
+                    disabled={isGeneratingComments}
+                    className="text-[11px] font-bold bg-neutral-900 hover:bg-black text-white px-2.5 py-1.5 rounded-full flex items-center gap-1 transition-all disabled:opacity-50"
+                  >
+                    <Sparkles className={`w-3.5 h-3.5 ${isGeneratingComments ? 'animate-spin' : ''}`} />
+                    {isGeneratingComments ? "生成中..." : "AI评论"}
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="space-y-3 pb-4 max-w-2xl mx-auto">
-              {[...selectedPost.comments].reverse().map(c => {
-                if (c.isRecalled) {
+              {(() => {
+                const map = new Map<number, any>();
+                const topLevel: any[] = [];
+                
+                const sorted = [...selectedPost.comments].sort((a, b) => a.floor - b.floor);
+                sorted.forEach(c => map.set(c.floor, { ...c, children: [], level: 0 }));
+                
+                sorted.forEach(c => {
+                  const tc = map.get(c.floor)!;
+                  if (c.replyTo && map.has(c.replyTo.floor)) {
+                    const parent = map.get(c.replyTo.floor)!;
+                    tc.level = Math.min(parent.level + 1, 3);
+                    parent.children.push(tc);
+                  } else {
+                    topLevel.push(tc);
+                  }
+                });
+                
+                const renderCommentNode = (c: any) => {
+                  if (showOpOnly && c.authorId !== selectedPost.authorId && !c.isOpUpdate) {
+                    return null;
+                  }
+                  
+                  const isExpanded = expandedReplies[c.id];
+                  
                   return (
-                    <div key={c.id} className="bg-white rounded-xl p-3 shadow-xs border border-neutral-100 text-xs text-neutral-400 italic flex items-center justify-between">
-                      <span>#{c.floor} [该评论已被作者撤回]</span>
-                      <span className="text-[10px]">{formatTime(c.timestamp)}</span>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div 
-                    key={c.id} 
-                    className="bg-white rounded-xl p-3 shadow-xs border border-neutral-100 flex gap-3 relative hover:border-neutral-300 transition-colors"
-                  >
-                    <img src={c.authorAvatar} alt="" className="w-8 h-8 rounded-full object-cover bg-neutral-100 shrink-0 border border-neutral-200/50" />
-                    <div className="flex-1 space-y-2.5 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-neutral-900">{c.authorName}</span>
-                        <span className="text-[10px] text-neutral-400">#{c.floor}</span>
-                      </div>
-
-                      {c.replyTo && (
-                        <div className="bg-neutral-50 border-l-2 border-neutral-300 px-2 py-1 rounded text-[11px] text-neutral-500 flex items-center gap-1 my-1">
-                          <CornerDownRight className="w-3 h-3 text-neutral-400 shrink-0" />
-                          <span>回复 #{c.replyTo.floor} @{c.replyTo.authorName}: {c.replyTo.content}</span>
-                        </div>
-                      )}
-
-                      {/* Inline Comment Edit Mode */}
-                      {editingCommentId === c.id ? (
-                        <div className="space-y-2">
-                          <textarea 
-                            value={editingCommentText}
-                            onChange={(e) => setEditingCommentText(e.target.value)}
-                            className="w-full bg-neutral-50 p-2 text-xs border border-neutral-300 rounded-lg outline-none resize-none"
-                            rows={2}
-                          />
-                          <div className="flex gap-2 justify-end">
-                            <button 
-                              onClick={() => setEditingCommentId(null)}
-                              className="text-[11px] px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 rounded font-medium text-neutral-600"
-                            >
-                              取消
-                            </button>
-                            <button 
-                              onClick={() => handleSaveEditComment(c.id)}
-                              className="text-[11px] px-2.5 py-1 bg-black text-white rounded font-medium"
-                            >
-                              保存
-                            </button>
+                    <div key={c.id} className={`${c.level > 0 ? (c.level === 1 ? 'ml-6' : c.level === 2 ? 'ml-10' : 'ml-14') : ''}`}>
+                      {(() => {
+                        if (c.isRecalled) {
+                          return (
+                            <div className="bg-white rounded-xl p-3 shadow-xs border border-neutral-100 text-xs text-neutral-400 italic flex items-center justify-between mb-3">
+                              <span>#{c.floor} [该评论已被作者撤回]</span>
+                              <span className="text-[10px]">{formatTime(c.timestamp)}</span>
+                            </div>
+                          );
+                        }
+                        const isUserComment = c.authorId === 'user';
+                        return (
+                          <div 
+                            onMouseDown={(e) => handleCommentTouchStart(e, c)}
+                            onMouseUp={handleCommentTouchEnd}
+                            onMouseLeave={handleCommentTouchEnd}
+                            onTouchStart={(e) => handleCommentTouchStart(e, c)}
+                            onTouchEnd={handleCommentTouchEnd}
+                            onContextMenu={(e) => handleCommentContextMenu(e, c)}
+                            className={`bg-white rounded-xl p-3 shadow-xs border flex gap-3 relative transition-all mb-3 ${
+                              isUserComment 
+                                ? 'border-neutral-200 hover:border-neutral-400 cursor-pointer hover:shadow-sm select-none' 
+                                : 'border-neutral-100 hover:border-neutral-300'
+                            }`}
+                            title={isUserComment ? "长按或右键弹出编辑/复制/删除菜单" : undefined}
+                          >
+                            <CharacterAvatar 
+                              character={characters.find(ch => ch.id === c.authorId)} 
+                              avatar={c.authorAvatar} 
+                              name={c.authorName} 
+                              size={32} 
+                              className="rounded-full shrink-0 border border-neutral-200/50" 
+                            />
+                            <div className="flex-1 space-y-2.5 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-xs font-bold text-neutral-900">{c.authorName}</span>
+                                  {c.authorId === selectedPost.authorId && (
+                                    <span className="text-[9px] bg-neutral-900 text-white px-1.5 py-0.5 rounded-sm font-bold shrink-0">
+                                      楼主
+                                    </span>
+                                  )}
+                                  {c.isOpUpdate && (
+                                    <span className="text-[9px] bg-amber-500 text-white px-1.5 py-0.5 rounded-sm font-bold flex items-center gap-0.5 shrink-0 animate-pulse">
+                                      📢 楼主更新
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-neutral-400">#{c.floor}</span>
+                              </div>
+                              
+                              {c.replyTo && c.level === 0 && (
+                                <div className="bg-neutral-50 border-l-2 border-neutral-300 px-2 py-1 rounded text-[11px] text-neutral-500 flex items-center gap-1 my-1">
+                                  <CornerDownRight className="w-3 h-3 text-neutral-400 shrink-0" />
+                                  <span>回复 #{c.replyTo.floor} @{c.replyTo.authorName}: {c.replyTo.content}</span>
+                                </div>
+                              )}
+                              
+                              {editingCommentId === c.id ? (
+                                <div className="space-y-2">
+                                  <textarea 
+                                    value={editingCommentText}
+                                    onChange={(e) => setEditingCommentText(e.target.value)}
+                                    className="w-full bg-neutral-50 p-2 text-xs border border-neutral-300 rounded-lg outline-none resize-none"
+                                    rows={2}
+                                  />
+                                  <div className="flex gap-2 justify-end">
+                                    <button 
+                                      onClick={() => setEditingCommentId(null)}
+                                      className="text-[11px] px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 rounded font-medium text-neutral-600"
+                                    >
+                                      取消
+                                    </button>
+                                    <button 
+                                      onClick={() => handleSaveEditComment(c.id)}
+                                      className="text-[11px] px-2.5 py-1 bg-black text-white rounded font-medium"
+                                    >
+                                      保存
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="text-xs text-neutral-800 font-medium break-all whitespace-pre-wrap leading-relaxed">
+                                  {c.content}
+                                </p>
+                              )}
+                              <div className="text-[11px] text-neutral-400 pt-1 flex items-center justify-between border-t border-neutral-50">
+                                <span>{formatTime(c.timestamp)}</span>
+                                <div className="flex items-center gap-3">
+                                  <button 
+                                    onClick={() => handleLikeComment(c.id)}
+                                    className={`flex items-center gap-1 font-medium transition-colors ${c.isLiked ? 'text-neutral-900 font-bold' : 'text-neutral-400 hover:text-black'}`}
+                                    title={c.isLiked ? "取消点赞" : "点赞评论"}
+                                  >
+                                    <ThumbsUp className={`w-3.5 h-3.5 ${c.isLiked ? 'fill-neutral-900 text-neutral-900' : ''}`} />
+                                    <span>{c.likes || 0}</span>
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDislikeComment(c.id)}
+                                    className="flex items-center gap-1 text-neutral-400 hover:text-black font-medium transition-colors"
+                                    title="点踩评论"
+                                  >
+                                    <ThumbsDown className="w-3.5 h-3.5" />
+                                    <span>{c.dislikes || 0}</span>
+                                  </button>
+                                  <button 
+                                    onClick={() => setReplyingToComment(c)}
+                                    className="flex items-center gap-1 text-neutral-400 hover:text-black font-medium transition-colors"
+                                    title="回复此评论"
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5" />
+                                    <span>回复</span>
+                                  </button>
+                                  <button 
+                                    onClick={() => setShareModalData({ type: 'comment', itemContent: c.content, postId: selectedPost.id, commentId: c.id })}
+                                    className="flex items-center gap-1 text-neutral-400 hover:text-black font-medium transition-colors"
+                                    title="分享给角色"
+                                  >
+                                    <Share2 className="w-3.5 h-3.5" />
+                                    <span>分享</span>
+                                  </button>
+                                  {!isUserComment && (
+                                    <button 
+                                      onClick={() => handleCopyComment(c.content)}
+                                      className="text-neutral-400 hover:text-black transition-colors"
+                                      title="复制内容"
+                                    >
+                                      <Copy className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-neutral-800 font-medium break-all whitespace-pre-wrap leading-relaxed">
-                          {c.content}
-                        </p>
-                      )}
-
-                      {/* Comment Toolbar */}
-                      <div className="text-[11px] text-neutral-400 pt-1 flex items-center justify-between border-t border-neutral-50">
-                        <span>{formatTime(c.timestamp)}</span>
-                        
-                        <div className="flex items-center gap-3">
-                          <button 
-                            onClick={() => handleLikeComment(c.id)}
-                            className={`flex items-center gap-1 font-medium transition-colors ${c.isLiked ? 'text-neutral-900 font-bold' : 'text-neutral-400 hover:text-black'}`}
-                            title={c.isLiked ? "取消点赞" : "点赞评论"}
+                        );
+                      })()}
+                      
+                      {c.children.length > 0 && (
+                        <div className="mb-2 mt-[-4px]">
+                          <button
+                            onClick={() => setExpandedReplies(prev => ({ ...prev, [c.id]: !prev[c.id] }))}
+                            className="text-[11px] font-bold text-neutral-500 hover:text-black transition-colors flex items-center gap-1 mb-2 bg-neutral-100/50 px-2 py-1 rounded-md"
                           >
-                            <ThumbsUp className={`w-3.5 h-3.5 ${c.isLiked ? 'fill-neutral-900 text-neutral-900' : ''}`} />
-                            <span>{c.likes || 0}</span>
+                            <span className="w-4 h-0.5 bg-neutral-400 rounded inline-block" />
+                            {isExpanded ? "收起回复" : `展开 ${c.children.length} 条回复`}
                           </button>
-                          <button 
-                            onClick={() => handleDislikeComment(c.id)}
-                            className="flex items-center gap-1 text-neutral-400 hover:text-black font-medium transition-colors"
-                            title="点踩评论"
-                          >
-                            <ThumbsDown className="w-3.5 h-3.5" />
-                            <span>{c.dislikes || 0}</span>
-                          </button>
-                          <button 
-                            onClick={() => setReplyingToComment(c)}
-                            className="flex items-center gap-1 text-neutral-400 hover:text-black font-medium transition-colors"
-                            title="回复此评论"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            <span>回复</span>
-                          </button>
-                          <button 
-                            onClick={() => setShareModalData({ type: 'comment', itemContent: c.content, postId: selectedPost.id, commentId: c.id })}
-                            className="flex items-center gap-1 text-neutral-400 hover:text-black font-medium transition-colors"
-                            title="分享给角色"
-                          >
-                            <Share2 className="w-3.5 h-3.5" />
-                            <span>分享</span>
-                          </button>
-
-                          {/* User's own comment controls */}
-                          {c.authorId === 'user' && (
-                            <div className="flex items-center gap-2 pl-2 border-l border-neutral-200">
-                              <button 
-                                onClick={() => handleRecallComment(c.id)}
-                                className="text-amber-600 hover:text-amber-800 font-medium transition-colors"
-                                title="撤回评论"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                              </button>
-                              <button 
-                                onClick={() => { setEditingCommentId(c.id); setEditingCommentText(c.content); }}
-                                className="text-blue-600 hover:text-blue-800 font-medium transition-colors"
-                                title="编辑评论"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteComment(c.id)}
-                                className="text-red-500 hover:text-red-700 font-medium transition-colors"
-                                title="删除评论"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                          {isExpanded && (
+                            <div className="space-y-1">
+                              {c.children.map((child: any) => renderCommentNode(child))}
                             </div>
                           )}
-
-                          <button 
-                            onClick={() => handleCopyComment(c.content)}
-                            className="text-neutral-400 hover:text-black transition-colors"
-                            title="复制内容"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
                         </div>
-                      </div>
+                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                };
+
+                return topLevel.reverse().map(renderCommentNode);
+              })()}
               {selectedPost.comments.length === 0 && (
                 <div className="text-center py-8 text-neutral-400 text-xs">
                   暂无回复，在下方输入内容回复帖子或点击右上角 AI 生成
@@ -1579,6 +2152,19 @@ ${historyContext}
                   <button onClick={() => setReplyingToComment(null)} className="p-0.5 hover:text-black shrink-0">
                     <X className="w-3.5 h-3.5" />
                   </button>
+                </div>
+              )}
+              {selectedPost.authorId === 'user' && (
+                <div className="flex items-center gap-1.5 mb-2 text-xs">
+                  <label className="flex items-center gap-1.5 cursor-pointer text-neutral-600 hover:text-black select-none">
+                    <input
+                      type="checkbox"
+                      checked={isUserOpUpdate}
+                      onChange={(e) => setIsUserOpUpdate(e.target.checked)}
+                      className="rounded border-neutral-300 text-neutral-900 focus:ring-neutral-900 w-3.5 h-3.5 cursor-pointer accent-black"
+                    />
+                    <span className="font-medium text-[11px]">标记为「楼主更新」📢</span>
+                  </label>
                 </div>
               )}
               <div className="flex items-center gap-2">
@@ -1612,10 +2198,11 @@ ${historyContext}
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
-        <span className="font-sans font-bold text-base tracking-wide text-neutral-950">
+        <span className=" font-bold text-base tracking-wide text-neutral-950">
           {activeTab === 'public' ? '匿名论坛' : activeTab === 'private' ? '论坛私信' : '我的'}
         </span>
-        <div className="w-8" />
+        <div className="w-8 flex items-center justify-end">
+        </div>
       </div>
 
       {/* Main Content Area */}
@@ -1661,11 +2248,12 @@ ${historyContext}
                       <span className="font-bold text-sm text-neutral-900">{boards.find(b => b.id === activeBoardId)?.name}</span>
                       <button 
                         onClick={() => handleOpenGenModal(activeBoardId)}
-                        className="text-xs font-bold bg-neutral-900 hover:bg-black text-white px-2.5 py-1 rounded-full flex items-center gap-1 transition-all shadow-xs"
+                        disabled={isGeneratingPosts}
+                        className="text-xs font-bold bg-neutral-900 hover:bg-black text-white px-2.5 py-1 rounded-full flex items-center gap-1 transition-all shadow-xs disabled:opacity-50"
                         title="AI 生成帖子"
                       >
-                        <Sparkles className="w-3 h-3 text-white" />
-                        <span>AI 生成</span>
+                        <Sparkles className={`w-3 h-3 text-white ${isGeneratingPosts ? 'animate-spin' : ''}`} />
+                        <span>{isGeneratingPosts ? "生成中..." : "AI 生成"}</span>
                       </button>
                     </div>
                     <button onClick={() => openEditBoardModal(boards.find(b => b.id === activeBoardId) || null)} className="text-xs font-bold text-neutral-500 hover:text-black">
@@ -1682,7 +2270,13 @@ ${historyContext}
                       >
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-2">
-                             <img src={post.authorAvatar} alt="" className="w-7 h-7 rounded-full object-cover bg-neutral-100 border border-neutral-200/50" />
+                             <CharacterAvatar 
+                               character={characters.find(ch => ch.id === post.authorId)} 
+                               avatar={post.authorAvatar} 
+                               name={post.authorName} 
+                               size={28} 
+                               className="rounded-full border border-neutral-200/50" 
+                             />
                              <div className="text-xs font-bold text-neutral-900">{post.authorName}</div>
                           </div>
                           <div className="flex items-center gap-2">
@@ -1692,8 +2286,16 @@ ${historyContext}
                             <button 
                               onClick={(e) => toggleBookmark(post.id, e)}
                               className="p-1 text-neutral-400 hover:text-amber-500 transition-colors"
+                              title="收藏"
                             >
                               <Bookmark className={`w-4 h-4 ${userBookmarks.includes(post.id) ? 'fill-amber-500 text-amber-500' : ''}`} />
+                            </button>
+                            <button 
+                              onClick={(e) => handleDeletePost(post.id, e)}
+                              className="p-1 text-neutral-400 hover:text-red-500 transition-colors"
+                              title="删除帖子"
+                            >
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         </div>
@@ -1732,10 +2334,11 @@ ${historyContext}
                           </button>
                           <button 
                             onClick={() => handleOpenGenModal(activeBoardId)}
-                            className="text-xs font-bold bg-neutral-900 hover:bg-black text-white px-4 py-2 rounded-full flex items-center gap-1.5 transition-all"
+                            disabled={isGeneratingPosts}
+                            className="text-xs font-bold bg-neutral-900 hover:bg-black text-white px-4 py-2 rounded-full flex items-center gap-1.5 transition-all disabled:opacity-50"
                           >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            AI 生成帖子
+                            <Sparkles className={`w-3.5 h-3.5 ${isGeneratingPosts ? 'animate-spin' : ''}`} />
+                            {isGeneratingPosts ? "生成中..." : "AI 生成帖子"}
                           </button>
                         </div>
                       </div>
@@ -1762,7 +2365,13 @@ ${historyContext}
                     <span>返回私信</span>
                   </button>
                   <div className="flex items-center gap-2">
-                    <img src={activePrivateContact.avatar} alt="" className="w-7 h-7 rounded-full object-cover border border-neutral-200/50 bg-neutral-100" />
+                    <CharacterAvatar 
+                      character={activePrivateContact.character} 
+                      avatar={activePrivateContact.avatar} 
+                      name={activePrivateContact.name} 
+                      size={28} 
+                      className="rounded-full border border-neutral-200/50" 
+                    />
                     <div className="text-center">
                       <div className="text-xs font-bold text-neutral-900">{activePrivateContact.name}</div>
                       {activePrivateContact.subtitle && (
@@ -1801,7 +2410,13 @@ ${historyContext}
 
                   {isContactTyping && (
                     <div className="flex gap-2.5 mr-auto max-w-[85%] items-center">
-                      <img src={activePrivateContact.avatar} alt="" className="w-8 h-8 rounded-full object-cover shrink-0 border border-neutral-200/50 bg-neutral-100" />
+                      <CharacterAvatar 
+                        character={activePrivateContact.character} 
+                        avatar={activePrivateContact.avatar} 
+                        name={activePrivateContact.name} 
+                        size={32} 
+                        className="shrink-0 border border-neutral-200/50" 
+                      />
                       <div className="bg-white border border-neutral-100 px-3 py-2 rounded-2xl rounded-tl-xs text-xs text-neutral-400 flex items-center gap-1.5 shadow-xs">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-neutral-500" />
                         <span>对方正在输入...</span>
@@ -1836,10 +2451,14 @@ ${historyContext}
                     <button 
                       onClick={handleTriggerAiReply}
                       disabled={isContactTyping}
-                      className="bg-rose-50 hover:bg-rose-100 text-rose-600 p-2.5 rounded-full text-xs font-bold disabled:opacity-40 active:scale-95 transition-all shrink-0 flex items-center justify-center w-9 h-9 border border-rose-100"
+                      className="bg-rose-50 hover:bg-rose-100 text-rose-600 p-2.5 rounded-full text-xs font-bold disabled:opacity-75 disabled:cursor-not-allowed active:scale-95 transition-all shrink-0 flex items-center justify-center w-9 h-9 border border-rose-100"
                       title="触发 AI 回复"
                     >
-                      <HeartIcon className="w-3.5 h-3.5 fill-rose-600" />
+                      {isContactTyping ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-rose-600" />
+                      ) : (
+                        <Sparkles className="w-3.5 h-3.5 text-rose-600 fill-rose-600" />
+                      )}
                     </button>
                   </div>
                 </div>
@@ -1853,18 +2472,10 @@ ${historyContext}
                     <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center text-neutral-400 border border-neutral-200/80 shadow-sm">
                       <Mail className="w-7 h-7 stroke-[1.5]" />
                     </div>
-                    <p className="text-base font-bold text-neutral-800">暂无私信</p>
+                    <p className="text-base font-bold text-neutral-800">暂时没有人来私信你</p>
                     <p className="text-xs text-neutral-400 max-w-xs leading-relaxed">
-                      点击右上角的 🔄 刷新按钮，可接收来自论坛网友或角色的私信沟通~
+                      别担心，当你活跃在论坛中发表评论或动态时，会有志同道合的网友或角色主动找你聊天哒~
                     </p>
-                    <button 
-                      onClick={handleRefreshPrivateMessages}
-                      disabled={isGeneratingPrivateRequest}
-                      className="mt-2 text-xs font-bold bg-neutral-900 hover:bg-black text-white px-5 py-2.5 rounded-full flex items-center gap-2 shadow-sm active:scale-95 transition-all disabled:opacity-50"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingPrivateRequest ? 'animate-spin' : ''}`} />
-                      <span>{isGeneratingPrivateRequest ? "接收私信中..." : "接收新私信"}</span>
-                    </button>
                   </div>
                 ) : (
                   /* Private messages list */
@@ -1880,7 +2491,13 @@ ${historyContext}
                         className="bg-white p-4 rounded-2xl shadow-sm border border-neutral-100 flex items-center justify-between cursor-pointer active:scale-[0.99] transition-all hover:border-neutral-300"
                       >
                         <div className="flex items-center gap-3 min-w-0 flex-1 pr-3">
-                          <img src={contact.avatar} alt="" className="w-11 h-11 rounded-full object-cover border border-neutral-200/50 bg-neutral-100 shrink-0" />
+                          <CharacterAvatar 
+                            character={contact.character} 
+                            avatar={contact.avatar} 
+                            name={contact.name} 
+                            size={44} 
+                            className="border border-neutral-200/50 shrink-0" 
+                          />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between">
                               <div className="text-sm font-bold text-neutral-900 truncate flex items-center gap-2">
@@ -1900,7 +2517,16 @@ ${historyContext}
                             </p>
                           </div>
                         </div>
-                        <MessageCircle className="w-5 h-5 text-neutral-300 shrink-0" />
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button 
+                            onClick={(e) => handleDeleteContact(contact.id, e)}
+                            className="p-2 text-neutral-300 hover:text-red-500 transition-colors"
+                            title="删除私信"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <MessageCircle className="w-5 h-5 text-neutral-300" />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1922,7 +2548,12 @@ ${historyContext}
                   className="relative group cursor-pointer shrink-0"
                   title="点击更换头像"
                 >
-                  <img src={userAvatar} className="w-16 h-16 rounded-full border-2 border-neutral-200/70 object-cover bg-neutral-100" />
+                  <CharacterAvatar 
+                    avatar={userAvatar} 
+                    name="用户" 
+                    size={64} 
+                    className="border-2 border-neutral-200/70" 
+                  />
                   <div className="absolute inset-0 bg-black/30 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <Camera className="w-5 h-5 text-white" />
                   </div>
@@ -1969,6 +2600,14 @@ ${historyContext}
                   <div className="text-xs text-neutral-400">点击头像可自定义上传图片</div>
                 </div>
               </div>
+              
+              <button 
+                onClick={handleResetAndRegenerateForum}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-red-100 text-red-500 hover:bg-red-50 transition-colors text-[11px] font-bold shrink-0"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>重置论坛</span>
+              </button>
             </div>
 
             {/* Profile Content Sub-tabs */}
@@ -2025,7 +2664,12 @@ ${historyContext}
                             <span className="text-[10px] bg-neutral-200 text-neutral-700 px-2 py-0.5 rounded font-medium">
                               {post.tag}
                             </span>
-                            <span className="text-[10px] text-neutral-400">{formatTime(post.timestamp)}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] text-neutral-400">{formatTime(post.timestamp)}</span>
+                              <button onClick={(e) => handleDeletePost(post.id, e)} className="text-neutral-400 hover:text-red-500">
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
                           </div>
                           <p className="text-xs text-neutral-800 font-medium line-clamp-2 leading-relaxed">
                             {post.content}
@@ -2056,7 +2700,13 @@ ${historyContext}
                         >
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
-                              <img src={post.authorAvatar} alt="" className="w-5 h-5 rounded-full object-cover" />
+                              <CharacterAvatar 
+                                character={characters.find(ch => ch.id === post.authorId)} 
+                                avatar={post.authorAvatar} 
+                                name={post.authorName} 
+                                size={20} 
+                                className="rounded-full" 
+                              />
                               <span className="text-xs font-bold text-neutral-800">{post.authorName}</span>
                             </div>
                             <button 
@@ -2198,9 +2848,14 @@ ${historyContext}
                 <span>AI 批量生成帖子</span>
               </div>
               <button 
-                disabled={isGeneratingPosts}
-                onClick={() => setIsGeneratingPostsModalOpen(false)} 
-                className="text-neutral-400 hover:text-black disabled:opacity-30"
+                onClick={() => {
+                  setIsGeneratingPostsModalOpen(false);
+                  if (isGeneratingPosts) {
+                    showToast("⏳ AI 正在后台生成帖子，生成完毕后将自动提醒您~");
+                  }
+                }} 
+                className="text-neutral-400 hover:text-black transition-colors"
+                title="最小化到后台生成"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -2273,7 +2928,7 @@ ${historyContext}
                 <div className="flex gap-2 pt-2">
                   <button 
                     onClick={() => {
-                      saveConfig(genCount, commentGenCount);
+                      saveConfig(genCount, commentGenCount, genBoardId, selectedLoreIds);
                       showToast("已保存");
                       setTimeout(() => {
                         setIsGeneratingPostsModalOpen(false);
@@ -2288,8 +2943,8 @@ ${historyContext}
                     disabled={isGeneratingPosts}
                     className="flex-1 bg-black text-white py-3 rounded-xl text-xs font-bold disabled:opacity-50 transition-all flex items-center justify-center gap-1.5 active:scale-95"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>开始生成</span>
+                    <Sparkles className={`w-3.5 h-3.5 ${isGeneratingPosts ? 'animate-spin' : ''}`} />
+                    <span>{isGeneratingPosts ? "生成中..." : "开始生成"}</span>
                   </button>
                 </div>
               </>
@@ -2448,7 +3103,7 @@ ${historyContext}
                     className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-neutral-100 text-left transition-colors border border-neutral-100"
                   >
                     <img 
-                      src={char.avatar || getBlackWhiteLineAvatar(char.id)} 
+                      src={char.avatar || getLuntanAvatar(char.name)} 
                       alt="" 
                       className="w-9 h-9 rounded-full object-cover bg-neutral-100 border border-neutral-200"
                     />
@@ -2470,6 +3125,77 @@ ${historyContext}
             <button 
               onClick={() => setShareModalData(null)}
               className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-700 py-2.5 rounded-xl text-xs font-bold transition-colors"
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Comment Action Menu Modal */}
+      {activeCommentMenu && (
+        <div 
+          className="fixed inset-0 bg-black/40 z-[150] flex items-end sm:items-center justify-center p-4 animate-fade-in"
+          onClick={() => setActiveCommentMenu(null)}
+        >
+          <div 
+            className="bg-white w-full max-w-sm rounded-t-2xl sm:rounded-2xl p-4 space-y-3 shadow-2xl animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-center border-b border-neutral-100 pb-3">
+              <div className="text-xs font-bold text-neutral-400 uppercase tracking-wider">评论操作</div>
+              <div className="text-xs text-neutral-500 mt-1 truncate px-4">“{activeCommentMenu.comment.content}”</div>
+            </div>
+            <div className="space-y-1">
+              <button 
+                onClick={() => {
+                  setEditingCommentId(activeCommentMenu.comment.id);
+                  setEditingCommentText(activeCommentMenu.comment.content);
+                  setActiveCommentMenu(null);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-neutral-700 hover:bg-neutral-50 rounded-xl transition-colors"
+              >
+                <Edit3 className="w-4 h-4 text-blue-500" />
+                <span>编辑评论</span>
+              </button>
+              
+              <button 
+                onClick={() => {
+                  handleCopyComment(activeCommentMenu.comment.content);
+                  setActiveCommentMenu(null);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-neutral-700 hover:bg-neutral-50 rounded-xl transition-colors"
+              >
+                <Copy className="w-4 h-4 text-neutral-500" />
+                <span>复制内容</span>
+              </button>
+
+              <button 
+                onClick={() => {
+                  handleRecallComment(activeCommentMenu.comment.id);
+                  setActiveCommentMenu(null);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-amber-600 hover:bg-amber-50 rounded-xl transition-colors"
+              >
+                <RotateCcw className="w-4 h-4 text-amber-500" />
+                <span>撤回评论</span>
+              </button>
+
+              <button 
+                onClick={() => {
+                  handleDeleteComment(activeCommentMenu.comment.id);
+                  setActiveCommentMenu(null);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-red-600 hover:bg-red-50 rounded-xl transition-colors"
+              >
+                <Trash2 className="w-4 h-4 text-red-500" />
+                <span>删除评论</span>
+              </button>
+            </div>
+            
+            <button 
+              onClick={() => setActiveCommentMenu(null)}
+              className="w-full py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-600 rounded-xl text-xs font-bold transition-colors"
             >
               取消
             </button>

@@ -21,7 +21,14 @@ function getGenAI() {
   if (!genAIClient) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey) {
-      genAIClient = new GoogleGenAI({ apiKey });
+      genAIClient = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          }
+        }
+      });
     }
   }
   return genAIClient;
@@ -98,7 +105,7 @@ app.post("/api/proxy", handleProxyRequest);
 
 // Server-side Gemini API route
 async function generateGeminiResponse(ai: GoogleGenAI, contents: any[], systemInstruction?: string, temperature: number = 0.8) {
-  const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+  const modelsToTry = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
   let lastErr = null;
   for (const model of modelsToTry) {
     try {
@@ -121,6 +128,33 @@ async function generateGeminiResponse(ai: GoogleGenAI, contents: any[], systemIn
   throw lastErr || new Error("Gemini generation failed for all models");
 }
 
+function formatGeminiContents(chatMsgs: any[]): Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> {
+  const formattedContents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [];
+  for (const m of chatMsgs) {
+    const role = (m.role === "assistant" || m.role === "model") ? "model" : "user";
+    const text = typeof m.content === "string" 
+      ? m.content 
+      : (Array.isArray(m.parts) ? m.parts.map((p: any) => p.text || "").join("\n") : String(m.content || ""));
+    if (!text || !text.trim()) continue;
+
+    if (formattedContents.length > 0 && formattedContents[formattedContents.length - 1].role === role) {
+      formattedContents[formattedContents.length - 1].parts.push({ text });
+    } else {
+      formattedContents.push({ role, parts: [{ text }] });
+    }
+  }
+
+  if (formattedContents.length > 0 && formattedContents[0].role === "model") {
+    formattedContents.unshift({ role: "user", parts: [{ text: "（开启剧情对话）" }] });
+  }
+
+  if (formattedContents.length === 0) {
+    formattedContents.push({ role: "user", parts: [{ text: "开始小剧场或对话" }] });
+  }
+
+  return formattedContents;
+}
+
 app.post("/api/gemini", async (req, res) => {
   try {
     const { messages = [], temperature = 0.8 } = req.body || {};
@@ -131,11 +165,7 @@ app.post("/api/gemini", async (req, res) => {
 
     const sysMsg = messages.find((m: any) => m.role === "system");
     const chatMsgs = messages.filter((m: any) => m.role !== "system");
-
-    const contents = chatMsgs.map((m: any) => ({
-      role: m.role === "assistant" || m.role === "model" ? "model" : "user",
-      parts: [{ text: m.content || "" }],
-    }));
+    const contents = formatGeminiContents(chatMsgs);
 
     const text = await generateGeminiResponse(ai, contents, sysMsg?.content || undefined, temperature);
     return res.json({ text });
@@ -203,6 +233,8 @@ app.post("/api/chat", async (req, res) => {
         model: settings.model || "gpt-3.5-turbo",
         messages,
         temperature: temperature || 0.8,
+        max_tokens: 2048,
+        stream: false,
       },
     };
     return handleProxyRequest(req, res);
@@ -217,11 +249,7 @@ app.post("/api/chat", async (req, res) => {
   try {
     const sysMsg = (messages || []).find((m: any) => m.role === "system");
     const chatMsgs = (messages || []).filter((m: any) => m.role !== "system");
-
-    const contents = chatMsgs.map((m: any) => ({
-      role: m.role === "assistant" || m.role === "model" ? "model" : "user",
-      parts: [{ text: m.content || "" }],
-    }));
+    const contents = formatGeminiContents(chatMsgs);
 
     const text = await generateGeminiResponse(ai, contents, sysMsg?.content || undefined, temperature);
     return res.json({ text });

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ChevronLeft, Edit, MessageSquare } from "lucide-react";
 import { Character, UserPersona } from "../types";
+import { CharacterAvatar } from "./CharacterAvatar";
 
 interface ProfileViewProps {
   character: Character;
@@ -52,13 +53,7 @@ export default function ProfileView({ character, allCharacters, onBack, onUpdate
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {/* Profile Card */}
         <div className="bg-white rounded-2xl p-6 flex flex-col items-center gap-4 shadow-sm border border-neutral-200">
-          <div className="w-24 h-24 rounded-full overflow-hidden bg-neutral-100 border border-neutral-200 flex items-center justify-center text-4xl shadow-inner shrink-0">
-            {character.chatAvatar ? (
-              <img src={character.chatAvatar} alt={character.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-            ) : (
-              character.avatar || "🤖"
-            )}
-          </div>
+          <CharacterAvatar character={character} mode="real" size={96} className="shadow-inner" />
           <h2 className="text-xl font-bold text-neutral-950">{character.name}</h2>
           <p className="text-sm text-neutral-500 text-center">{character.description}</p>
         </div>
@@ -89,7 +84,7 @@ export default function ProfileView({ character, allCharacters, onBack, onUpdate
                   userPersonaId: val ? val : undefined
                 });
               }}
-              className="text-xs border border-neutral-200 rounded-lg p-1 bg-white font-sans text-neutral-800 focus:outline-none max-w-[180px] truncate"
+              className="text-xs border border-neutral-200 rounded-lg p-1 bg-white  text-neutral-800 focus:outline-none max-w-[180px] truncate"
             >
               <option value="">（未绑定设定）</option>
               {userPersonas.map(p => (

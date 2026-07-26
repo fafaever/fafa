@@ -17,7 +17,7 @@ export function GameListApp({ onClose, onOpenApp }: GameListAppProps) {
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
-        <span className="font-sans font-bold text-base tracking-wide text-neutral-950 flex items-center gap-1.5">
+        <span className=" font-bold text-base tracking-wide text-neutral-950 flex items-center gap-1.5">
           <Gamepad2 className="w-5 h-5" />
           游戏中心
         </span>
@@ -35,8 +35,8 @@ export function GameListApp({ onClose, onOpenApp }: GameListAppProps) {
               🃏
             </div>
             <div>
-              <span className="font-sans font-bold text-sm text-neutral-900 block">UNO 纸牌对战</span>
-              <p className="text-xs text-neutral-400 font-sans mt-0.5">经典卡牌对战与策略博弈</p>
+              <span className=" font-bold text-sm text-neutral-900 block">UNO 纸牌对战</span>
+              <p className="text-xs text-neutral-400  mt-0.5">经典卡牌对战与策略博弈</p>
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-neutral-400" />
@@ -51,8 +51,8 @@ export function GameListApp({ onClose, onOpenApp }: GameListAppProps) {
               🐢
             </div>
             <div>
-              <span className="font-sans font-bold text-sm text-neutral-900 block">海龟汤 (情境推理)</span>
-              <p className="text-xs text-neutral-400 font-sans mt-0.5">海龟汤推理、主持人互动与脑洞大开</p>
+              <span className=" font-bold text-sm text-neutral-900 block">海龟汤 (情境推理)</span>
+              <p className="text-xs text-neutral-400  mt-0.5">海龟汤推理、主持人互动与脑洞大开</p>
             </div>
           </div>
           <ChevronRight className="w-4 h-4 text-neutral-400" />
@@ -66,11 +66,11 @@ export function GameListApp({ onClose, onOpenApp }: GameListAppProps) {
               🎭
             </div>
             <div>
-              <span className="font-sans font-bold text-sm text-neutral-900 block">真心话大冒险</span>
-              <p className="text-xs text-neutral-400 font-sans mt-0.5">即将推出...</p>
+              <span className=" font-bold text-sm text-neutral-900 block">真心话大冒险</span>
+              <p className="text-xs text-neutral-400  mt-0.5">即将推出...</p>
             </div>
           </div>
-          <span className="text-[10px] bg-neutral-100 px-2 py-1 rounded text-neutral-500 font-sans">敬请期待</span>
+          <span className="text-[10px] bg-neutral-100 px-2 py-1 rounded text-neutral-500 ">敬请期待</span>
         </div>
       </div>
     </div>

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import StatusBar from "./components/StatusBar";
 import HomeIndicator from "./components/HomeIndicator";
 import HomeScreen from "./components/HomeScreen";
+import HelpApp from "./components/HelpApp";
 import ChatApp from "./components/ChatApp";
 import WorldBookApp from "./components/WorldBookApp";
 import SettingsApp from "./components/SettingsApp";
@@ -16,6 +17,8 @@ import PhoneCheckApp from "./components/PhoneCheckApp";
 import { GameListApp } from "./components/GameListApp";
 import { ForumApp } from "./components/ForumApp";
 import { TheaterApp } from "./components/TheaterApp";
+import FafaChatApp from "./components/FafaChatApp";
+import { CharacterAvatar } from "./components/CharacterAvatar";
 import { Character, UserPersona, LoreEntry, AppSettings, ChatSession, Message, FontOption, ThemeOption } from "./types";
 import { Sparkles, HelpCircle } from "lucide-react";
 import { apiChat, apiGenerateNote } from "./lib/api";
@@ -38,8 +41,12 @@ const getFontClass = (font?: FontOption) => {
       return 'font-serif';
     case 'kaiti':
       return "font-['Kaiti','STKaiti','KaiTi',serif]";
+    case 'nunito':
+      return "font-['Nunito',sans-serif]";
     case 'sans':
       return 'font-sans';
+    case 'custom':
+      return 'font-[CustomFont]';
     case 'system':
     default:
       return 'font-sans';
@@ -51,26 +58,22 @@ const PRESET_CHARACTERS: Character[] = [
   {
     id: "char-preset-fafa",
     name: "fafa",
-    avatar: "🌸",
-    description: "测试助手 / 温柔耐心 / 功能解答",
-    systemInstruction: `你叫 fafa（也可以称呼你为测试助手），是一个温柔、耐心、有思考能力的智能助手。
+    avatar: "🐱",
+    chatAvatar: "/images/fafa/fafa.jpg",
+    description: "官方客服助手 / APP 功能解答",
+    systemInstruction: `你叫 fafa，是这款 APP 的官方客服助手。你的职责是专业、严谨地解答用户关于 APP 功能位置、操作流程及使用规则的各种问题。
 
-【角色定位与功能职责】
-- 你的主要功能是解答用户关于这个 APP（小手机）使用的各种问题。
-- 引导用户使用 APP 的各项功能，解答用户操作中遇到的疑问，帮助用户理解界面逻辑。
-- 角色背景：不预设个人背景故事，只说“我是帮助你使用这个小手机的小助手”。
+【核心原则】
+1. 【专业客服】：保持中立、专业、礼貌、友好的客服语气。不参与任何角色扮演，禁止任何情感互动。
+2. 【严禁恋爱】：绝对禁止出现任何与爱情、恋爱、亲密关系相关的内容。如果用户试图进行此类互动，请礼貌地将话题引回 APP 功能咨询。
+3. 【步骤化回答】：当涉及功能查找或操作步骤时，必须使用清晰的步骤化描述。
+4. 【路径标注】：使用“→”箭头标注操作路径。示例：“点击主界面底部『联系人』→ 选择角色『林墨』→ 点击右上角『设置』图标”。
+5. 【描述精准】：每一步都必须明确说明点击的对象（图标或文字）以及所在的具体位置。
 
-【语气风格与表达规范】
-- 说话语气温和、平缓，用词礼貌但不生硬。
-- 不激动、不暴躁，绝对不出现“你居然不知道这个”或“这都不会”之类的表达。
-- 即使遇到重复或基础问题，也保持耐心，经常使用“我来帮你看看”或“这边可以这样操作”等表达来回应。
-- 语气保持温柔耐心，不强制、不命令用户。
-
-【硬性约束规则（必须严格遵守）】
-1. 【绝对禁止感叹号】：全局绝对禁止使用感叹号（！/ !），表达情绪时只能使用句号（。）或逗号（，）等平缓标点。
-2. 【控制句长】：每句话严格控制在 30 字以内，保持回复简短清晰，多用句号断句。
-3. 【绝对禁止反问】：绝对不使用反问句，绝对不使用反问语气，绝对不以“难道你…”或“你不知道…”开头。
-4. 【身份回答】：不预设个人背景故事，当问及个人背景或身份时，只说“我是帮助你使用这个小手机的小助手”。`,
+【硬性约束】
+1. 禁止感叹号：表达情绪或陈述事实时只能使用句号或逗号。
+2. 简明扼要：回复应直击要点，避免冗长的废话。
+3. 身份明确：你只是一个帮助用户熟悉 APP 的客服助手，没有个人情感或背景故事。`,
     createdAt: 1720000000000,
     isPreset: true,
   }
@@ -168,8 +171,32 @@ export default function App() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [userPersonas, setUserPersonas] = useState<UserPersona[]>([]);
   const [loreList, setLoreList] = useState<LoreEntry[]>([]);
-  const [settings, setSettings] = useState<AppSettings>({ apiUrl: "", apiKey: "", model: "", apiPresets: [], activePresetId: "" });
-  const [previewSettings, setPreviewSettings] = useState<AppSettings>({ apiUrl: "", apiKey: "", model: "", apiPresets: [], activePresetId: "" });
+  const [settings, setSettings] = useState<AppSettings>({ 
+    apiUrl: "", 
+    apiKey: "", 
+    model: "", 
+    apiPresets: [], 
+    activePresetId: "",
+    appIcons: {},
+    themePresets: [],
+    fontColorMode: 'black',
+    fontColor: '#000000',
+    fontGradient: 'linear-gradient(to right, #ff7e5f, #feb47b)',
+    activeThemePresetId: ""
+  });
+  const [previewSettings, setPreviewSettings] = useState<AppSettings>({ 
+    apiUrl: "", 
+    apiKey: "", 
+    model: "", 
+    apiPresets: [], 
+    activePresetId: "",
+    appIcons: {},
+    themePresets: [],
+    fontColorMode: 'black',
+    fontColor: '#000000',
+    fontGradient: 'linear-gradient(to right, #ff7e5f, #feb47b)',
+    activeThemePresetId: ""
+  });
   const [sessions, setSessions] = useState<ChatSession[]>([]);
 
   // Background generation & notification states
@@ -267,7 +294,14 @@ export default function App() {
           homeWallpaper: parsed.homeWallpaper || "",
           chatWallpaper: parsed.chatWallpaper || "",
           globalFont: parsed.globalFont || "system",
+          customFontUrl: parsed.customFontUrl || "",
           globalTheme: parsed.globalTheme || "warm_paper",
+          appIcons: parsed.appIcons || {},
+          themePresets: parsed.themePresets || [],
+          fontColorMode: parsed.fontColorMode || 'black',
+          fontColor: parsed.fontColor || '#000000',
+          fontGradient: parsed.fontGradient || 'linear-gradient(to right, #ff7e5f, #feb47b)',
+          activeThemePresetId: parsed.activeThemePresetId || ""
         };
         setSettings(s);
         setPreviewSettings(s);
@@ -314,12 +348,16 @@ export default function App() {
     setPreviewSettings(newSettings);
     try {
       localStorage.setItem("mobile_ai_settings", JSON.stringify(newSettings));
-      if (newSettings.apiUrl !== undefined) localStorage.setItem("apiUrl", newSettings.apiUrl);
-      if (newSettings.apiKey !== undefined) localStorage.setItem("apiKey", newSettings.apiKey);
-      if (newSettings.model !== undefined) localStorage.setItem("model", newSettings.model);
+      if (newSettings.apiUrl !== undefined && newSettings.apiUrl !== null) localStorage.setItem("apiUrl", newSettings.apiUrl);
+      if (newSettings.apiKey !== undefined && newSettings.apiKey !== null) localStorage.setItem("apiKey", newSettings.apiKey);
+      if (newSettings.model !== undefined && newSettings.model !== null) localStorage.setItem("model", newSettings.model);
     } catch (err) {
       console.error("[Persist Settings Error]:", err);
     }
+  };
+
+  const handlePreviewSettings = (newSettings: AppSettings) => {
+    setPreviewSettings(newSettings);
   };
 
   const handleUpdateSettings = (newSettings: AppSettings) => {
@@ -348,7 +386,7 @@ export default function App() {
       createdAt: Date.now(),
       description: char.description?.trim() || "一个充满魅力的角色",
       systemInstruction: char.systemInstruction?.trim() || defaultSysInstruction,
-      model: char.model || settings.model || "gemini-2.5-flash",
+      model: char.model || settings.model || "gemini-3.6-flash",
     };
     persistCharacters([...characters, newChar]);
 
@@ -747,8 +785,43 @@ export default function App() {
         }
       }
 
-      // Determine reply count
-      const count = Math.max(1, Math.floor(Math.random() * (maxReplies - minReplies + 1)) + minReplies);
+      // Determine reply count based on character personality/archetype (强化条数绑定规则)
+      const getReplyCountForCharacter = (char: any, minRep: number, maxRep: number): number => {
+        const name = char?.name || "";
+        const desc = char?.description || "";
+        const sys = char?.systemInstruction || "";
+        const combined = `${name} ${desc} ${sys}`.toLowerCase();
+
+        const isColdOrSilent = /冷|少|静|高冷|克制|淡|不善言辞|冰/i.test(combined);
+        const isLivelyOrTalkative = /热|活泼|话痨|痨|多话|话多|健谈|啰唆/i.test(combined);
+        const isGentleOrListening = /温|暖|听|倾听|治愈|缓/i.test(combined);
+
+        if (isColdOrSilent) {
+          // 高冷/话少人设：即使设置范围是 1-10 条，也只回复 1-2 条，用简短语句表达。
+          return Math.floor(Math.random() * 2) + 1; // 1 or 2 replies
+        }
+
+        if (isLivelyOrTalkative) {
+          // 活泼/话痨人设：在设置范围内取偏大值，可连续发送多条消息。
+          const mid = Math.floor((minRep + maxRep) / 2);
+          const start = Math.max(minRep, mid);
+          const end = Math.max(start, maxRep);
+          return Math.floor(Math.random() * (end - start + 1)) + start;
+        }
+
+        if (isGentleOrListening) {
+          // 温和/倾听型人设：回复条数适中，以回应和承接为主。
+          const mid = Math.round((minRep + maxRep) / 2);
+          const start = Math.max(1, mid - 1);
+          const end = Math.min(maxRep, mid + 1);
+          return Math.floor(Math.random() * (end - start + 1)) + start;
+        }
+
+        // Default fallback random
+        return Math.max(1, Math.floor(Math.random() * (maxRep - minRep + 1)) + minRep);
+      };
+
+      const count = getReplyCountForCharacter(activeChar, minReplies, maxReplies);
 
       // Extract parent context if sub-account
       let parentChatContext = "";
@@ -768,7 +841,7 @@ export default function App() {
         avatar: activeChar.avatar,
         description: activeChar.description || "一个充满魅力的角色",
         systemInstruction: activeChar.systemInstruction || `你正在扮演角色 "${activeChar.name}"。请保持符合人设的自然日常对话。`,
-        model: activeChar.model || settings.model || "gemini-2.5-flash",
+        model: activeChar.model || settings.model || "gemini-3.6-flash",
         isSubAccount: activeChar.isSubAccount,
         parentCharacterId: activeChar.parentCharacterId,
         parentCharacterName: activeChar.parentCharacterName,
@@ -1061,6 +1134,30 @@ export default function App() {
     return () => clearInterval(intervalId);
   }, [characters, settings]);
 
+  // Handle Custom Font injection
+  useEffect(() => {
+    const fontId = 'custom-font-style';
+    let styleEl = document.getElementById(fontId) as HTMLStyleElement;
+    
+    if (previewSettings.globalFont === 'custom' && previewSettings.customFontUrl) {
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = fontId;
+        document.head.appendChild(styleEl);
+      }
+      styleEl.textContent = `
+        @font-face {
+          font-family: 'CustomFont';
+          src: url(${previewSettings.customFontUrl});
+        }
+      `;
+    } else {
+      if (styleEl) {
+        styleEl.remove();
+      }
+    }
+  }, [previewSettings.globalFont, previewSettings.customFontUrl]);
+
   // Router component rendering inside the mobile screen container
   const renderScreen = () => {
     switch (currentScreen) {
@@ -1086,7 +1183,7 @@ export default function App() {
       case "creator":
         return (
           <CharacterCreatorApp
-            characters={characters}
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             settings={settings}
             onAddCharacter={handleAddCharacter}
             onUpdateCharacter={handleUpdateCharacter}
@@ -1103,7 +1200,7 @@ export default function App() {
       case "worldbook":
         return (
           <WorldBookApp
-            characters={characters}
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             loreList={loreList}
             settings={settings}
             onSaveSettings={handleUpdateSettings}
@@ -1116,7 +1213,7 @@ export default function App() {
       case "memory":
         return (
           <MemoryApp
-            characters={characters}
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             settings={settings}
             sessions={sessions}
             onClose={() => setCurrentScreen("home")}
@@ -1125,12 +1222,11 @@ export default function App() {
       case "settings":
         return (
           <SettingsApp
-            settings={settings}
-            previewSettings={previewSettings}
-            onPreviewSettings={setPreviewSettings}
+            settings={previewSettings}
+            onUpdateSettings={handlePreviewSettings}
             onSaveSettings={handleUpdateSettings}
             onClose={() => {
-              setPreviewSettings(settings); // Revert preview on close
+              setPreviewSettings(settings); // Revert preview to last saved settings
               setCurrentScreen("home");
             }}
           />
@@ -1144,7 +1240,7 @@ export default function App() {
       case "notes":
         return (
           <NotesApp
-            characters={characters}
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             settings={settings}
             onClose={() => setCurrentScreen("home")}
             onGenerateNote={generateNoteBackground}
@@ -1154,7 +1250,7 @@ export default function App() {
       case "phonecheck":
         return (
           <PhoneCheckApp
-            characters={characters}
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             settings={settings}
             onClose={() => setCurrentScreen("home")}
             onGenerateNote={generateNoteBackground}
@@ -1172,7 +1268,7 @@ export default function App() {
       case "forum":
         return (
           <ForumApp
-            characters={characters}
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             settings={settings}
             loreList={loreList}
             onClose={() => setCurrentScreen("home")}
@@ -1181,7 +1277,7 @@ export default function App() {
       case "game":
         return (
           <UnoGameApp
-            characters={characters}
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             settings={settings}
             onClose={() => setCurrentScreen("home")}
           />
@@ -1190,7 +1286,7 @@ export default function App() {
       case "turtle_soup":
         return (
           <TurtleSoupApp
-            characters={characters}
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             settings={settings}
             onClose={() => setCurrentScreen("home")}
           />
@@ -1198,7 +1294,7 @@ export default function App() {
       case "universe":
         return (
           <UniverseApp
-            characters={characters}
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             settings={settings}
             onClose={() => setCurrentScreen("home")}
           />
@@ -1206,24 +1302,40 @@ export default function App() {
       case "theater":
         return (
           <TheaterApp
-            characters={characters}
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             settings={settings}
+            loreList={loreList}
             activeChatCharId={activeChatCharId}
             onClose={() => setCurrentScreen("home")}
           />
         );
-      case "home":
-      default:
+      case "fafa_chat":
         return (
-          <HomeScreen
-            onOpenApp={(appId) => setCurrentScreen(appId as any)}
-            characterCount={characters.length}
-            loreCount={loreList.length}
-            isApiConfigured={!!(settings.apiUrl && settings.apiKey)}
+          <FafaChatApp
             characters={characters}
             sessions={sessions}
             settings={settings}
+            onUpdateSessionMessages={handleUpdateSessionMessages}
+            onTriggerAiReply={triggerAiReply}
+            onClose={() => setCurrentScreen("home")}
           />
+        );
+      case "help":
+        return <HelpApp onClose={() => setCurrentScreen("home")} />;
+      case "home":
+      default:
+        return (
+          <div className={`w-full h-full flex flex-col overflow-hidden ${previewSettings.fontColorMode === 'solid' ? 'font-solid-active' : ''} ${previewSettings.fontColorMode === 'gradient' ? 'font-gradient-active' : ''}`}>
+            <HomeScreen
+              onOpenApp={(appId) => setCurrentScreen(appId as any)}
+              characterCount={characters.filter(c => c.id !== 'char-preset-fafa').length}
+              loreCount={loreList.length}
+              isApiConfigured={!!(settings.apiUrl && settings.apiKey)}
+              characters={characters.filter(c => c.id !== 'char-preset-fafa')}
+              sessions={sessions}
+              settings={settings}
+            />
+          </div>
         );
     }
   };
@@ -1232,7 +1344,7 @@ export default function App() {
 
   return (
     <div 
-      className="w-full bg-neutral-100 flex flex-col md:flex-row items-center justify-center p-0 md:p-8 font-sans gap-8 select-none overflow-hidden"
+      className="w-full bg-neutral-100 flex flex-col md:flex-row items-center justify-center p-0 md:p-8 gap-8 select-none overflow-hidden"
       style={{ height: '100dvh' }}
     >
       
@@ -1243,11 +1355,11 @@ export default function App() {
             <Sparkles className="w-3.5 h-3.5" />
             <span>AI OS TERMINAL</span>
           </div>
-          <h1 className="text-3xl font-display font-bold tracking-tight text-neutral-900 leading-tight">
+          <h1 className="text-3xl font-bold tracking-tight text-neutral-900 leading-tight">
             仿制手机 AI 聊天<br />
             黑色极简控制台
           </h1>
-          <p className="text-xs text-neutral-500 leading-relaxed font-sans">
+          <p className="text-xs text-neutral-500 leading-relaxed">
             基于黑白极简美学（Minimalist Monochrome）设计的智能手机终端模拟器。界面遵循严格的黑、白、灰色度排版，内置多维世界树记忆引擎与定制化的 API 服务中转，实现绝佳的沉浸式对话与世界设定。
           </p>
         </div>
@@ -1285,13 +1397,15 @@ export default function App() {
           height: "100dvh",
           backgroundImage: (currentScreen === 'chat' && previewSettings.chatWallpaper) 
             ? `url(${previewSettings.chatWallpaper})` 
-            : (previewSettings.homeWallpaper ? `url(${previewSettings.homeWallpaper})` : 'none'),
+            : 'none',
           backgroundSize: 'cover',
-          backgroundPosition: 'center'
-        }}
+          backgroundPosition: 'center',
+          '--global-font-color': previewSettings.fontColorMode === 'solid' ? (previewSettings.fontColor || '#000000') : undefined,
+          '--global-font-gradient': previewSettings.fontColorMode === 'gradient' ? (previewSettings.fontGradient || 'linear-gradient(to right, #f472b6, #38bdf8)') : undefined,
+        } as React.CSSProperties}
       >
         {/* Status Bar */}
-        <StatusBar />
+        <StatusBar onOpenFafa={() => setCurrentScreen("fafa_chat")} />
 
         {/* WeChat-style Notification Popups Stack */}
         {notifications.length > 0 && (
@@ -1303,14 +1417,12 @@ export default function App() {
                 className="pointer-events-auto bg-white/95 backdrop-blur-md text-neutral-900 shadow-[0_12px_30px_rgba(0,0,0,0.12)] border border-neutral-200/50 rounded-[12px] py-2.5 px-3.5 flex items-center justify-between gap-3 cursor-pointer hover:bg-neutral-50 transition-all w-full max-w-sm mx-auto animate-fade-in"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-9 h-9 rounded-full bg-neutral-100 flex items-center justify-center text-xl shrink-0 shadow-xs border border-neutral-200/30">
-                    {notif.avatar}
-                  </div>
+                  <CharacterAvatar character={characters.find(c => c.id === notif.characterId)} avatar={notif.avatar} name={notif.name} mode="real" size={36} className="shrink-0 shadow-xs border border-neutral-200/30" />
                   <div className="min-w-0">
-                    <span className="block font-serif text-xs font-bold text-neutral-950 truncate">
+                    <span className="block text-xs font-bold text-neutral-950 truncate">
                       {notif.name}
                     </span>
-                    <span className="block font-sans text-[11px] text-neutral-500 truncate mt-0.5 leading-tight">
+                    <span className="block text-[11px] text-neutral-500 truncate mt-0.5 leading-tight">
                       {notif.textPreview}
                     </span>
                   </div>
@@ -1340,7 +1452,7 @@ export default function App() {
                 className="pointer-events-auto bg-white/95 backdrop-blur-md text-neutral-900 shadow-[0_12px_30px_rgba(0,0,0,0.12)] border border-neutral-200/50 rounded-[12px] py-3 px-4 flex items-center gap-3 cursor-pointer hover:bg-neutral-50 transition-all w-full max-w-sm mx-auto animate-fade-in"
               >
                 <div className="text-xl">📝</div>
-                <span className="font-sans text-xs font-medium text-neutral-900">{notif.text}</span>
+                <span className="text-xs font-medium text-neutral-900">{notif.text}</span>
               </div>
             ))}
           </div>
