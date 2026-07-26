@@ -4287,7 +4287,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       {/* Character mood display */}
                       <span className="text-[12px] text-[#888]  inline-flex items-center gap-1 shrink-0 bg-neutral-100 px-2 py-0.5 rounded-full border border-neutral-200/20 shadow-sm">
                         {osParsed.icon ? (
-                          <img src={osParsed.icon} alt={osParsed.emotion} className="w-4 h-4 object-contain shrink-0" referrerPolicy="no-referrer" />
+                          <img src={osParsed.icon} alt={osParsed.emotion} className="w-4 h-4 object-contain shrink-0 bg-transparent" style={{ background: 'transparent', backgroundColor: 'transparent' }} referrerPolicy="no-referrer" />
                         ) : (
                           <span>{osParsed.emoji}</span>
                         )}
@@ -6388,7 +6388,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                     <div className="flex items-center justify-between text-[10px] not-italic text-amber-900 font-bold">
                       <span className="flex items-center gap-1">
                         {parsed.icon ? (
-                          <img src={parsed.icon} alt={parsed.emotion} className="w-4 h-4 object-contain shrink-0" referrerPolicy="no-referrer" />
+                          <img src={parsed.icon} alt={parsed.emotion} className="w-4 h-4 object-contain shrink-0 bg-transparent" style={{ background: 'transparent', backgroundColor: 'transparent' }} referrerPolicy="no-referrer" />
                         ) : (
                           <span>{parsed.emoji}</span>
                         )}
@@ -6502,7 +6502,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <div className="flex items-center justify-between text-[10px] text-stone-500 font-bold mb-1">
                           <span className="flex items-center gap-1">
                             {parsed.icon ? (
-                              <img src={parsed.icon} alt={parsed.emotion} className="w-4 h-4 object-contain shrink-0" referrerPolicy="no-referrer" />
+                              <img src={parsed.icon} alt={parsed.emotion} className="w-4 h-4 object-contain shrink-0 bg-transparent" style={{ background: 'transparent', backgroundColor: 'transparent' }} referrerPolicy="no-referrer" />
                             ) : (
                               <span>{parsed.emoji}</span>
                             )}
