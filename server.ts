@@ -272,6 +272,57 @@ app.get(["/api/models", "/api/v1/models", "/api/chat/models"], (req, res) => {
   });
 });
 
+// POST route to proxy fetching models
+app.post("/api/models", async (req, res) => {
+  try {
+    const { apiUrl, apiKey } = req.body || {};
+    if (!apiUrl || !apiKey) {
+      return res.status(400).json({ error: "Missing apiUrl or apiKey" });
+    }
+
+    let cleanApiUrl = apiUrl.trim();
+    cleanApiUrl = cleanApiUrl.replace(/\/chat\/completions\/?$/, '')
+                             .replace(/\/v1\/chat\/completions\/?$/, '')
+                             .replace(/\/v1\/?$/, '');
+    
+    const targetUrl = cleanApiUrl.endsWith('/models') ? cleanApiUrl : `${cleanApiUrl}/models`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    let fetchRes;
+    try {
+      fetchRes = await fetch(targetUrl, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Accept": "application/json",
+          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+        },
+        signal: controller.signal
+      });
+    } catch (fetchErr: any) {
+      clearTimeout(timeout);
+      return res.status(502).json({ error: `后端转发 Fetch 异常: ${fetchErr?.message || String(fetchErr)}`, targetUrl });
+    }
+    clearTimeout(timeout);
+
+    const responseText = await fetchRes.text();
+    if (!fetchRes.ok) {
+      return res.status(fetchRes.status).json({
+        error: `中转站返回 HTTP ${fetchRes.status}`,
+        details: responseText,
+        targetUrl
+      });
+    }
+
+    res.set("Content-Type", fetchRes.headers.get("Content-Type") || "application/json");
+    res.send(responseText);
+  } catch (err: any) {
+    res.status(500).json({ error: `Server API 内部错误: ${err?.message || String(err)}` });
+  }
+});
+
 // Explicitly handle GET on API routes to avoid confusing 405s from static middleware
 app.get("/api/*", (req, res) => {
   res.status(405).json({ error: "Method Not Allowed. This API endpoint requires POST." });

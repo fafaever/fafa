@@ -1055,48 +1055,31 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                     />
                   </div>
                   
-                  {/* 模型选择下拉框和拉取模型按钮 */}
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">模型选择</label>
-                    <div className="flex gap-2">
-                      <select 
-                        value={fetchedModels.includes(settings.model) ? settings.model : (settings.model ? "custom" : "")}
-                        onChange={e => {
-                          if (e.target.value && e.target.value !== "custom") {
-                            handleUpdate({ model: e.target.value });
-                          }
-                        }}
-                        className="flex-1 bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all"
-                      >
-                        <option value="">-- 请选择或拉取模型 --</option>
-                        {fetchedModels.map(m => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                        {settings.model && !fetchedModels.includes(settings.model) && (
-                          <option value={settings.model}>{settings.model} (当前)</option>
-                        )}
-                        <option value="custom">✍️ 手动输入自定义...</option>
-                      </select>
+                    <div className="flex justify-between items-end">
+                      <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">模型名称</label>
                       <button 
                         type="button"
                         onClick={handleFetchModels}
                         disabled={isLoadingModels}
-                        className="px-4 bg-white hover:bg-neutral-100 text-neutral-800 rounded-xl text-xs font-bold active:scale-95 transition-all shrink-0 flex items-center justify-center border border-neutral-200"
+                        className="text-[12px] text-stone-400 hover:text-black transition-colors"
                       >
                         {isLoadingModels ? "拉取中..." : "拉取模型"}
                       </button>
                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">模型名称 (可手动输入/修改作为备选)</label>
                     <input 
                       type="text" 
+                      list="api-models-list"
                       value={settings.model} 
                       onChange={e => handleUpdate({ model: e.target.value })}
                       className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all"
                       placeholder="gpt-4o / gemini-3.6-flash"
                     />
+                    <datalist id="api-models-list">
+                      {fetchedModels.map(m => (
+                        <option key={m} value={m} />
+                      ))}
+                    </datalist>
                   </div>
                 </div>
 

@@ -1322,44 +1322,22 @@ export async function apiFetchModels(params: any = {}) {
   if (!config.apiUrl || !config.apiKey) {
     throw new Error("请先在设置页配置 API");
   }
-  let cleanApiUrl = normalizeUrl(config.apiUrl);
-  // Strip trailing endpoints
-  cleanApiUrl = cleanApiUrl.replace(/\/chat\/completions\/?$/, '')
-                           .replace(/\/v1\/chat\/completions\/?$/, '')
-                           .replace(/\/v1\/?$/, '');
-  
-  const endpoint = cleanApiUrl.endsWith('/models') ? cleanApiUrl : `${cleanApiUrl}/models`;
-  
-  console.log("================ [FETCH MODELS START] ================");
-  console.log("[Request URL]:", endpoint);
-  console.log("[Request Method]:", "GET");
-  
+
   let response: Response;
   try {
-    // Try proxying first to bypass CORS
-    response = await fetch("/api/proxy", {
+    // POST to our backend proxy to avoid CORS on mobile
+    response = await fetch("/api/models", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        url: endpoint,
-        method: "GET",
-        headers: { "Authorization": `Bearer ${config.apiKey}` }
+        apiUrl: config.apiUrl,
+        apiKey: config.apiKey
       })
     });
-  } catch (proxyErr: any) {
-    console.warn("[Models proxy fetch failed, attempting direct fetch]:", proxyErr);
-    try {
-      response = await fetch(endpoint, {
-        method: "GET",
-        headers: { "Authorization": `Bearer ${config.apiKey}` },
-      });
-    } catch (directErr: any) {
-      console.error("================ [FETCH MODELS ERROR] ================");
-      console.error("[Request URL]:", endpoint);
-      console.error("[Proxy Error]:", proxyErr);
-      console.error("[Direct Error]:", directErr);
-      throw new Error(`网络错误: 获取模型列表失败 (${proxyErr?.message || directErr?.message || "Failed to fetch"})`);
-    }
+  } catch (err: any) {
+    console.error("================ [FETCH MODELS ERROR] ================");
+    console.error("[Fetch Error]:", err);
+    throw new Error(`网络错误: 获取模型列表失败 (${err?.message || "Failed to fetch"})`);
   }
 
   if (!response.ok) {
@@ -1367,7 +1345,6 @@ export async function apiFetchModels(params: any = {}) {
     try { errText = await response.text(); } catch (e) {}
     
     console.error("================ [FETCH MODELS FAILED] ================");
-    console.error("[Request URL]:", endpoint);
     console.error("[Status]:", response.status, response.statusText);
     console.error("[Response Body]:", errText);
     console.error("=====================================================");
@@ -1376,7 +1353,7 @@ export async function apiFetchModels(params: any = {}) {
     if (errText) {
       try {
         const json = JSON.parse(errText);
-        parsedMsg = json.detail || json.error?.message || json.message || errText;
+        parsedMsg = json.details || json.detail || json.error?.message || json.message || json.error || errText;
       } catch (e) {
         parsedMsg = errText;
       }
