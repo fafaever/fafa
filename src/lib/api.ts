@@ -1323,10 +1323,16 @@ export async function apiFetchModels(params: any = {}) {
     throw new Error("请先在设置页配置 API");
   }
   let cleanApiUrl = normalizeUrl(config.apiUrl);
-  if (cleanApiUrl.endsWith('/chat/completions')) {
-    cleanApiUrl = cleanApiUrl.replace(/\/chat\/completions$/, '');
-  }
+  // Strip trailing endpoints
+  cleanApiUrl = cleanApiUrl.replace(/\/chat\/completions\/?$/, '')
+                           .replace(/\/v1\/chat\/completions\/?$/, '')
+                           .replace(/\/v1\/?$/, '');
+  
   const endpoint = cleanApiUrl.endsWith('/models') ? cleanApiUrl : `${cleanApiUrl}/models`;
+  
+  console.log("================ [FETCH MODELS START] ================");
+  console.log("[Request URL]:", endpoint);
+  console.log("[Request Method]:", "GET");
   
   let response: Response;
   try {
@@ -1348,13 +1354,24 @@ export async function apiFetchModels(params: any = {}) {
         headers: { "Authorization": `Bearer ${config.apiKey}` },
       });
     } catch (directErr: any) {
-      throw new Error(`获取模型列表失败: 网络连接失败 (${proxyErr?.message || directErr?.message || "Failed to fetch"})`);
+      console.error("================ [FETCH MODELS ERROR] ================");
+      console.error("[Request URL]:", endpoint);
+      console.error("[Proxy Error]:", proxyErr);
+      console.error("[Direct Error]:", directErr);
+      throw new Error(`网络错误: 获取模型列表失败 (${proxyErr?.message || directErr?.message || "Failed to fetch"})`);
     }
   }
 
   if (!response.ok) {
     let errText = "";
     try { errText = await response.text(); } catch (e) {}
+    
+    console.error("================ [FETCH MODELS FAILED] ================");
+    console.error("[Request URL]:", endpoint);
+    console.error("[Status]:", response.status, response.statusText);
+    console.error("[Response Body]:", errText);
+    console.error("=====================================================");
+
     let parsedMsg = "";
     if (errText) {
       try {
@@ -1364,7 +1381,7 @@ export async function apiFetchModels(params: any = {}) {
         parsedMsg = errText;
       }
     }
-    throw new Error(`获取模型列表失败 (${response.status}): ${parsedMsg || response.statusText}`);
+    throw new Error(`拉取失败：接口不支持或配置错误 (${response.status} ${response.statusText})\n${parsedMsg || "请检查 API 地址是否支持 /models 端点"}`);
   }
   const data = await response.json();
   let models: string[] = [];

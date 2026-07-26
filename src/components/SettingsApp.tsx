@@ -21,6 +21,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   const [apiPresetName, setApiPresetName] = useState("");
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [isApiPresetsExpanded, setIsApiPresetsExpanded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
   const wallpaper1Ref = useRef<HTMLInputElement>(null);
@@ -250,7 +251,8 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
       name: apiPresetName,
       apiUrl: settings.apiUrl,
       apiKey: settings.apiKey,
-      model: settings.model
+      model: settings.model,
+      apiFormat: settings.apiFormat
     };
     handleUpdate({
       apiPresets: [...(settings.apiPresets || []), newPreset]
@@ -264,6 +266,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
       apiUrl: preset.apiUrl,
       apiKey: preset.apiKey,
       model: preset.model,
+      apiFormat: preset.apiFormat || settings.apiFormat,
       activePresetId: preset.id
     });
   };
@@ -1004,6 +1007,34 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
              <div className="p-5 bg-neutral-50 rounded-2xl border border-neutral-100 space-y-6">
                 <div className="space-y-4">
                   <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">API 类型</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdate({ apiFormat: 'openai' })}
+                        className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
+                          settings.apiFormat !== 'gemini' 
+                            ? 'bg-black text-white border-black shadow-xs' 
+                            : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300'
+                        }`}
+                      >
+                        OpenAI
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdate({ apiFormat: 'gemini' })}
+                        className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
+                          settings.apiFormat === 'gemini' 
+                            ? 'bg-black text-white border-black shadow-xs' 
+                            : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300'
+                        }`}
+                      >
+                        Gemini
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
                     <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">API 地址</label>
                     <input 
                       type="text" 
@@ -1067,34 +1098,6 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                       placeholder="gpt-4o / gemini-3.6-flash"
                     />
                   </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">API 协议格式</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleUpdate({ apiFormat: 'openai' })}
-                        className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
-                          settings.apiFormat !== 'gemini' 
-                            ? 'bg-black text-white border-black shadow-xs' 
-                            : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300'
-                        }`}
-                      >
-                        OpenAI (messages)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleUpdate({ apiFormat: 'gemini' })}
-                        className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
-                          settings.apiFormat === 'gemini' 
-                            ? 'bg-black text-white border-black shadow-xs' 
-                            : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300'
-                        }`}
-                      >
-                        Gemini (contents)
-                      </button>
-                    </div>
-                  </div>
                 </div>
 
                 <div className="pt-2">
@@ -1107,44 +1110,6 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                 </div>
 
                 <div className="pt-4 border-t border-neutral-100 space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">API 预设</label>
-                    <div className="flex gap-2">
-                      <select 
-                        value={settings.activePresetId || ""}
-                        onChange={(e) => {
-                          const preset = settings.apiPresets?.find(p => p.id === e.target.value);
-                          if (preset) {
-                            if (window.confirm(`确认应用并自动填入预设“${preset.name}”的配置吗？\n(包含 API 地址、Key 和模型名称)`)) {
-                              applyApiPreset(preset);
-                            }
-                          }
-                        }}
-                        className="flex-1 bg-white border border-neutral-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-black"
-                      >
-                        <option value="">选择预设...</option>
-                        {settings.apiPresets?.map(p => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                      </select>
-                      {settings.activePresetId && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const preset = settings.apiPresets?.find(p => p.id === settings.activePresetId);
-                            if (preset && window.confirm(`确定要删除选中的预设“${preset.name}”吗？`)) {
-                              deleteApiPreset(preset.id);
-                            }
-                          }}
-                          className="px-3 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-[10px] font-bold border border-red-200/40 shrink-0 transition-all active:scale-95"
-                          title="删除当前选中的预设"
-                        >
-                          删除预设
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
                   <div className="space-y-2">
                     {isSavingApiPreset ? (
                       <div className="flex gap-2 animate-in fade-in zoom-in-95 duration-200">
@@ -1177,6 +1142,58 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                         <Plus className="w-3 h-3" />
                         <span className="text-[10px] font-bold">保存当前为新预设</span>
                       </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => setIsApiPresetsExpanded(!isApiPresetsExpanded)}
+                      className="w-full py-2.5 bg-white border border-neutral-200 rounded-xl flex items-center justify-between px-4 text-neutral-600 hover:text-black hover:border-black transition-all text-xs font-bold"
+                    >
+                      <span>选择预设 ({settings.apiPresets?.length || 0})</span>
+                      <ChevronRight className={`w-4 h-4 transition-transform duration-200 ${isApiPresetsExpanded ? 'rotate-90' : ''}`} />
+                    </button>
+                    
+                    {isApiPresetsExpanded && settings.apiPresets && settings.apiPresets.length > 0 && (
+                      <div className="pt-2 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                        {settings.apiPresets.map(p => (
+                          <div key={p.id} className="flex flex-col gap-1 p-3 bg-white border border-neutral-100 rounded-xl group transition-all hover:border-neutral-300">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-neutral-800">{p.name}</span>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`确认应用预设“${p.name}”的配置吗？`)) {
+                                      applyApiPreset(p);
+                                    }
+                                  }}
+                                  className="text-[10px] font-bold text-neutral-500 hover:text-black"
+                                >
+                                  应用
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`确定要删除预设“${p.name}”吗？`)) {
+                                      deleteApiPreset(p.id);
+                                    }
+                                  }}
+                                  className="text-[10px] font-bold text-neutral-400 hover:text-red-500"
+                                >
+                                  删除
+                                </button>
+                              </div>
+                            </div>
+                            <div className="text-[10px] text-neutral-400 truncate">
+                              {p.apiUrl || '默认地址'} / {p.model || '未指定模型'}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {isApiPresetsExpanded && (!settings.apiPresets || settings.apiPresets.length === 0) && (
+                      <div className="pt-2 text-center text-xs text-neutral-400 py-4">
+                        暂无保存的预设
+                      </div>
                     )}
                   </div>
                 </div>
