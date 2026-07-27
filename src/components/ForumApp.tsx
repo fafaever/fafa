@@ -682,252 +682,251 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
     }
 
     setIsGeneratingPosts(true);
-    setPostGenProgressText("AI 正在思考板块话题与灵感...");
+    showToast("后台正在生成帖子，完成后将通知您...");
     
-    const board = boards.find(b => b.id === boardId) || boards[0];
-    const selectedLores = loreList.filter(l => loreIds.includes(l.id));
-    const loreContent = selectedLores.map(l => `【${l.title}】:\n${l.content}`).join("\n\n");
-    const isHorror = isHorrorBoard(board);
-    
-    const existingPostsList = posts.filter(p => p.boardId === boardId);
-    const existingSummaries = existingPostsList.length > 0 
-      ? `【当前板块已有的帖子概要（生成新帖子时，主题、事情经过、故事切入点绝对不能与这些相似，必须完全独立、具有新鲜感和独特设定）：】\n${existingPostsList.slice(-10).map((p, idx) => `${idx + 1}. 作者: ${p.authorName}, 帖子前80字: "${p.content.slice(0, 80)}..."`).join("\n")}`
-      : "【当前板块尚无帖子，请首发新颖独特的倾诉主题。】";
-    
-    try {
-      const generatedPosts: ForumPost[] = [];
-      for (let i = 0; i < count; i++) {
-        setPostGenProgressText(`AI 正在撰写第 ${i + 1} / ${count} 篇帖子...`);
+    // Perform generation in background
+    setTimeout(async () => {
+      try {
+        const board = boards.find(b => b.id === boardId) || boards[0];
+        const selectedLores = loreList.filter(l => loreIds.includes(l.id));
+        const loreContent = selectedLores.map(l => `【${l.title}】:\n${l.content}`).join("\n\n");
+        const isHorror = isHorrorBoard(board);
+        
+        const existingPostsList = posts.filter(p => p.boardId === boardId);
+        const existingSummaries = existingPostsList.length > 0 
+          ? `【当前板块已有的帖子概要（生成新帖子时，主题、事情经过、故事切入点绝对不能与这些相似，必须完全独立、具有新鲜感和独特设定）：】\n${existingPostsList.slice(-10).map((p, idx) => `${idx + 1}. 作者: ${p.authorName}, 帖子前80字: "${p.content.slice(0, 80)}..."`).join("\n")}`
+          : "【当前板块尚无帖子，请首发新颖独特的倾诉主题。】";
+        
+        const generatedPosts: ForumPost[] = [];
+        for (let i = 0; i < count; i++) {
+          // 50% chance character, 50% chance NPC
+          const useNpc = Math.random() < 0.5;
+          let authorId = "";
+          let authorName = "";
+          let authorAvatar = "";
+          let activeChar: Character | null = null;
 
-        // 50% chance character, 50% chance NPC
-        const useNpc = Math.random() < 0.5;
-        let authorId = "";
-        let authorName = "";
-        let authorAvatar = "";
-        let activeChar: Character | null = null;
-
-        if (!useNpc) {
-          activeChar = characters[Math.floor(Math.random() * characters.length)];
-          authorId = activeChar.id;
-          const profile = getOrInitCharForumProfile(activeChar);
-          authorName = profile.forumName;
-          authorAvatar = getLuntanAvatar(authorName);
-        } else {
-          const npc = FIXED_NPCS[Math.floor(Math.random() * FIXED_NPCS.length)];
-          authorId = npc.id;
-          authorName = npc.name;
-          authorAvatar = getLuntanAvatar(npc.name);
-        }
-
-        let validParsed: any = null;
-        let attempts = 0;
-
-        while (!validParsed && attempts < 3) {
-          attempts++;
-
-          let boardRequirementNotice = "";
-          const isFoundPhone = isFoundPhoneBoard(board);
-          const isSese = isSeseBoard(board);
-
-          if (isHorror) {
-            boardRequirementNotice = `
---- 【深夜食堂（恐怖/灵异）板块特别硬性规则（最高优先级）】 ---
-1. 本板块必须是【恐怖灵异题材】，包含以下四种类型之一：
-   · 亲身经历的灵异事件（标题或内容必须标注【真实】）
-   · 听别人说过的恐怖故事/传闻（标题或内容标注【真实】或【脑洞】）
-   · 自己察觉周围有诡异不对劲现象来论坛发帖求助（如异响、怪异影迹、异样感觉等）
-   · 原创编造的毛骨悚然的故事/都市怪谈（标题或内容必须标注【脑洞】）
-2. 【风格与代入感】：
-   · 极其注重身临其境的代入感！描述具体的场景细节（发生时间、环境氛围、光线触感、声音细节、当下的紧张与恐惧心理），让读者感同身受。
-3. 【标签与标题规则】：
-   · 真实经历/传闻类：帖子 title 或正文开头必须包含“【真实】”，tag 设为 "真实"。
-   · 编造故事类：帖子 title 或正文开头必须包含“【脑洞】”，tag 设为 "脑洞"。
-   · 示例标题：“【真实】昨晚在老家后山看到的怪事…”、“【脑洞】千万不要在深夜打开这扇门…”
-4. 【悬念与留白】：
-   · 故事可以不讲完，留下让人细思极恐的悬念或未完待续（例如“等等，走廊里好像有脚步声，我去看看…”或“大家帮我看看照片后台里的黑影是什么”），引发评论区推测热议！
-5. 【绝对禁止】：严禁生成任何日常情感纠纷、恋爱伤感讨论或普通日常生活杂谈。
-6. 请在 JSON 中输出 "isHorrorTheme": true，以及 "title"（包含【真实】或【脑洞】）、"tag"（"真实"或"脑洞"）和 "content"。
-`;
-          } else if (isFoundPhone) {
-            boardRequirementNotice = `--- 【捡手机文学板块特别硬性规则（最高优先级）】 ---
-1. 本板块帖子必须是虚构的聊天记录，以“捡到了 [某人] 的手机”为标题。
-2. 题材不限（搞笑、日常、悬疑、恋爱均可），核心是通过角色A与角色B（或多人）的聊天对话推动剧情。
-3. 内容风格：日常口语化对话，可包含语气词、表情符号（用文字描述）、时间戳等细节，符合角色的设定。
-4. 【必须在 JSON 中输出 "isFoundPhone": true 以及 "title"（如“捡到了 [某人] 的手机”），还有 "chatLogs" 数组（不可省略，不少于6条）。】
-5. "chatLogs" 的格式要求：每个元素是 { "sender": "发送者昵称", "time": "14:30", "content": "消息内容", "isRight": true 或 false (true代表手机主人，false代表对方) }。`;
-          } else if (isSese) {
-            boardRequirementNotice = `--- 【不可以涩涩板块特别硬性规则（最高优先级）】 ---
-1. 本板块聚焦轻松有趣的“涩涩”相关生活吐槽、搞笑记录与互动脑洞。
-2. 【绝对禁止】：严禁包含日常情感求助、严肃心理倾诉或严肃性教育科普内容。
-3. 帖子选题必须围绕以下三个核心方向之一进行创作：
-   · “挑战失败”日常记录：角色或NPC分享自己或身边人尝试戒“涩涩”/控制心动/忍住亲密冲动却宣告失败的搞笑经历，语气轻松自嘲、幽默解压。
-   · 有趣冷知识：关于两性关系、亲密互动、恋爱心理的搞笑有趣冷知识或生活细节观察。
-   · 约会/互动脑洞：有趣的情侣互动方式、暧昧期的小套路、令人怦然心动或爆笑的脑洞设想。
-4. 语言与氛围：
-   · 内容必须100%符合角色自身人设，语言自然口语化，展现真实生动的日常情绪，氛围轻松搞笑解压。
-   · 绝不进行严肃说教、道德批判或沉重的情感求助。`;
+          if (!useNpc) {
+            activeChar = characters[Math.floor(Math.random() * characters.length)];
+            authorId = activeChar.id;
+            const profile = getOrInitCharForumProfile(activeChar);
+            authorName = profile.forumName;
+            authorAvatar = getLuntanAvatar(authorName);
+          } else {
+            const npc = FIXED_NPCS[Math.floor(Math.random() * FIXED_NPCS.length)];
+            authorId = npc.id;
+            authorName = npc.name;
+            authorAvatar = getLuntanAvatar(npc.name);
           }
 
-          const generalRequirementNotice = `
---- 【论坛帖子通用语气与生成规则（最高优先级）】 ---
-1. 【统一第一人称视角】：所有帖子必须 100% 统一使用第一人称视角（“我”）进行叙述，严禁第三人称！
-2. 【绝对杜绝重复主题和同质套路】：
-   - 【禁止重复发生相同的琐碎日常事件】！如果你是多次发帖，或看到已有其他帖子，必须改变你的发帖主题、表达切入点和叙事角度（例如：你可以倾诉秘密心声、吐槽某人、提问寻求帮助、分享脑洞创想、记录一个诡异而滑稽的真实尴尬瞬间、讲述一段特别的回忆等，严禁全员套用相同的套路）。
-3. 【角色人设决定发帖开头（绝对禁忌：严禁千篇一律开头）】：
-   - 绝不能每条帖子开头都用“家人们”。必须根据你所属的发帖角色性格/人设特征来决定开场白与语气：
-     · 【活泼外向型/元气型角色】：可以使用“家人们”、“友友们”、“大家听我说”、“呜呜呜有人在吗”等高亲和力、热情的互联网开场白。
-     · 【温和内敛型/温柔型/治愈型角色】：开场必须柔和委婉、略带迟疑，可使用“那个…”、“嗯…”、“其实有件事想说…”、“不知道该怎么说…”等，决不能大喊大叫或使用“家人们”。
-     · 【高冷型/傲娇型/沉稳型角色】：直接陈述事件或核心问题，【绝不能加任何套近乎的开场白或多余的互联网语气词】（直接开始描述事情，如：“今天遇到一件极其荒谬的事。”）。
-     · 【NPC成员】：也必须根据其人名/ presumed 性格特征来进行开场，杜绝全员千篇一律“家人们”开局。
-4. 【内容必须100%忠实于角色完整人设】：
-   - 生成的帖子内容、讲述的言行、爱好、习惯、日常困扰、秘密心声都必须与该角色的完整性格、背景人设高度一致，严禁凭空捏造、杜绝生硬凑合。
-   - 【温柔/优雅/知性角色绝对禁止使用恶俗、低俗、露骨、下流网络热梗或带偏激癖好的词汇】：严禁使用如“超级M”、“卑微是最好的嫁妆”、“专属小狗”、“舔狗”等完全割裂人设的词。
-   - 在生成前，必须深入分析该角色的性格描述、行为风格、人设卡片，确保发布的事件和倾诉的内容完美贴合其本身设定。
-5. 【口语化叙事与语气自然委婉化】：
-   - 帖子语言必须像普通人在社交媒体真实发帖倾诉一样，有角色强烈的个人特色，“见字如面”。
-   - 严禁为了刻意追求“论坛感”而一律套用过度网络化、低级庸俗、露骨粗浅的网络词汇或万能模版。
-   - 即使发帖内容发布在偏敏感板块（如“Xp分享”、“深夜树洞”），也必须用符合该角色独特设定（如：傲娇、羞涩、温柔等）的极其隐晦、委婉、甚至可爱或克制的方式进行真诚地心理陈述，绝不能出现低俗、露骨直白的词句。
-6. 【个人心理感受与当下反应】：
-   - 必须加入个人心理感受、情绪变化和当下真实反应。
-7. 【详细经过与字数要求】：必须详细描述事件完整经过，包含【时间、地点、事件起因、经过、细节和感受】，正文【字数绝对不少于 150 字】（推荐 180 ~ 380 字）。
-`;
+          let validParsed: any = null;
+          let attempts = 0;
 
-          const prompt = activeChar ? `你是角色：${activeChar.name}。简介：${activeChar.description}。
-${loreContent ? `以下是本次生成挂载的世界观设定：\n${loreContent}\n` : ""}
-论坛板块：${board?.name}。板块简介/方向：${board?.description}。
+          while (!validParsed && attempts < 3) {
+            attempts++;
+            // ... (rest of the generation logic)
+            let boardRequirementNotice = "";
+            const isFoundPhone = isFoundPhoneBoard(board);
+            const isSese = isSeseBoard(board);
 
-${existingSummaries}
-
-${generalRequirementNotice}
-${boardRequirementNotice}
-
-请扮演该角色并以其口吻，在匿名论坛的该板块下发布一篇详细的论坛帖子。帖子必须使用第一人称“我”，用符合该角色性格特色的口吻口语化自然叙述。活泼外向的角色可以加生动的互动语气，高冷或内敛的角色要保持其高冷或温柔、克制的叙述腔调，避免千篇一律地使用相同的网络套话，字数绝对不少于150字。
-同时，请为该角色生成一个不包含原名“${activeChar.name}”的论坛匿名网名（4-8字，如“深夜听风者”、“赛博咸鱼”）。
-
-要求输出严格的 JSON 格式：
-{
-  ${isHorror ? `"isHorrorTheme": true,` : ""}
-  "forumNickname": "论坛匿名网名",
-  "title": "${isHorror ? "【真实】或【脑洞】开头的吸引人标题" : "标题"}",
-  "tag": "${isHorror ? "真实" : isSese ? "脑洞" : "日常"}",
-  "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，以该角色本身的口吻和人设开头，符合其专属性格与人设，像该角色本人在发帖倾诉，包含时间、地点、起因经过细节、当下情绪反应与该性格特有的自然叙事或互动，拒绝千篇一律的网梗或套话）"
-}` : `你是一个网络论坛NPC成员“${authorName}”。
-论坛板块：${board?.name}。板块方向：${board?.description}。
-
-${existingSummaries}
-
-${generalRequirementNotice}
-${boardRequirementNotice}
-
-请在该板块发布一篇符合板块氛围的详细帖子。帖子必须使用第一人称“我”，口语化自然接地气，根据NPC名字或预设的某种性格类型（例如傲娇、随性、温柔等）选择合适独特的语气和开场，字数绝对不少于150字。
-
-要求输出严格的 JSON 格式：
-{
-  ${isHorror ? `"isHorrorTheme": true,` : ""}
-  "title": "${isHorror ? "【真实】或【脑洞】开头的吸引人标题" : "标题"}",
-  "tag": "${isHorror ? "真实" : isSese ? "脑洞" : "日常"}",
-  "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，以符合该NPC设定的方式开头与叙述，包含时间、地点、起因经过细节、当下情绪反应，杜绝千篇一律）"
-}`;
-
-          const response = await apiChat({ 
-            messages: [{ role: "user", content: prompt }], 
-            character: activeChar || { id: "npc", name: authorName, description: "论坛NPC" } as any,
-            memories: activeChar?.memories || [],
-            matchedLore: selectedLores,
-            settings, 
-            systemInstruction: "你是一个严格按照规则输出JSON的API。" 
-          });
-          const responseText = response.text || "";
-          
-          let parsed = null;
-          try {
-            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-            parsed = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);
-          } catch (e) {
-            console.error("Failed to parse forum post JSON", e);
-          }
-
-          if (parsed) {
-            if (isFoundPhone && parsed.isFoundPhone) {
-               validParsed = {
-                 ...parsed,
-                 content: parsed.content || "[聊天记录]",
-                 isFoundPhone: true,
-                 title: parsed.title || "捡到了手机",
-                 chatLogs: parsed.chatLogs || []
-               };
-               break;
+            if (isHorror) {
+              boardRequirementNotice = `
+  --- 【深夜食堂（恐怖/灵异）板块特别硬性规则（最高优先级）】 ---
+  1. 本板块必须是【恐怖灵异题材】，包含以下四种类型之一：
+     · 亲身经历的灵异事件（标题或内容必须标注【真实】）
+     · 听别人说过的恐怖故事/传闻（标题或内容标注【真实】或【脑洞】）
+     · 自己察觉周围有诡异不对劲现象来论坛发帖求助（如异响、怪异影迹、异样感觉等）
+     · 原创编造的毛骨悚然的故事/都市怪谈（标题或内容必须标注【脑洞】）
+  2. 【风格与代入感】：
+     · 极其注重身临其境的代入感！描述具体的场景细节（发生时间、环境氛围、光线触感、声音细节、当下的紧张与恐惧心理），让读者感同身受。
+  3. 【标签与标题规则】：
+     · 真实经历/传闻类：帖子 title 或正文开头必须包含“【真实】”，tag 设为 "真实"。
+     · 编造故事类：帖子 title 或正文开头必须包含“【脑洞】”，tag 设为 "脑洞"。
+     · 示例标题：“【真实】昨晚在老家后山看到的怪事…”、“【脑洞】千万不要在深夜打开这扇门…”
+  4. 【悬念与留白】：
+     · 故事可以不讲完，留下让人细思极恐的悬念或未完待续（例如“等等，走廊里好像有脚步声，我去看看…”或“大家帮我看看照片后台里的黑影是什么”），引发评论区推测热议！
+  5. 【绝对禁止】：严禁生成任何日常情感纠纷、恋爱伤感讨论或普通日常生活杂谈。
+  6. 请在 JSON 中输出 "isHorrorTheme": true，以及 "title"（包含【真实】或【脑洞】）、"tag"（"真实"或"脑洞"）和 "content"。
+  `;
+            } else if (isFoundPhone) {
+              boardRequirementNotice = `--- 【捡手机文学板块特别硬性规则（最高优先级）】 ---
+  1. 本板块帖子必须是虚构的聊天记录，以“捡到了 [某人] 的手机”为标题。
+  2. 题材不限（搞笑、日常、悬疑、恋爱均可），核心是通过角色A与角色B（或多人）的聊天对话推动剧情。
+  3. 内容风格：日常口语化对话，可包含语气词、表情符号（用文字描述）、时间戳等细节，符合角色的设定。
+  4. 【必须在 JSON 中输出 "isFoundPhone": true 以及 "title"（如“捡到了 [某人] 的手机”），还有 "chatLogs" 数组（不可省略，不少于6条）。】
+  5. "chatLogs" 的格式要求：每个元素是 { "sender": "发送者昵称", "time": "14:30", "content": "消息内容", "isRight": true 或 false (true代表手机主人，false代表对方) }。`;
+            } else if (isSese) {
+              boardRequirementNotice = `--- 【不可以涩涩板块特别硬性规则（最高优先级）】 ---
+  1. 本板块聚焦轻松有趣的“涩涩”相关生活吐槽、搞笑记录与互动脑洞。
+  2. 【绝对禁止】：严禁包含日常情感求助、严肃心理倾诉或严肃性教育科普内容。
+  3. 帖子选题必须围绕以下三个核心方向之一进行创作：
+     · “挑战失败”日常记录：角色或NPC分享自己或身边人尝试戒“涩涩”/控制心动/忍住亲密冲动却宣告失败的搞笑经历，语气轻松自嘲、幽默解压。
+     · 有趣冷知识：关于两性关系、亲密互动、恋爱心理的搞笑有趣冷知识或生活细节观察。
+     · 约会/互动脑洞：有趣的情侣互动方式、暧昧期的小套路、令人怦然心动或爆笑的脑洞设想。
+  4. 语言与氛围：
+     · 内容必须100%符合角色自身人设，语言自然口语化，展现真实生动的日常情绪，氛围轻松搞笑解压。
+     · 绝不进行严肃说教、道德批判或沉重的情感求助。`;
             }
-            if (parsed.content) {
-              const text = parsed.content.trim();
-              const hasFirstPerson = text.includes("我");
-              const isHorrorValid = !isHorror || (parsed.isHorrorTheme !== false && isContentHorrorThemed(text));
-              const isLengthOk = text.length >= 120;
-              const isTooSimilar = checkIsPostTooSimilar(text, [...posts, ...generatedPosts]);
 
-              if ((hasFirstPerson && isHorrorValid && isLengthOk && !isTooSimilar) || attempts >= 3) {
-                validParsed = parsed;
+            const generalRequirementNotice = `
+  --- 【论坛帖子通用语气与生成规则（最高优先级）】 ---
+  1. 【统一第一人称视角】：所有帖子必须 100% 统一使用第一人称视角（“我”）进行叙述，严禁第三人称！
+  2. 【绝对杜绝重复主题和同质套路】：
+     - 【禁止重复发生相同的琐碎日常事件】！如果你是多次发帖，或看到已有其他帖子，必须改变你的发帖主题、表达切入点和叙事角度（例如：你可以倾诉秘密心声、吐槽某人、提问寻求帮助、分享脑洞创想、记录一个诡异而滑稽的真实尴尬瞬间、讲述一段特别的回忆等，严禁全员套用相同的套路）。
+  3. 【角色人设决定发帖开头（绝对禁忌：严禁千篇一律开头）】：
+     - 绝不能每条帖子开头都用“家人们”。必须根据你所属的发帖角色性格/人设特征来决定开场白与语气：
+       · 【活泼外向型/元气型角色】：可以使用“家人们”、“友友们”、“大家听我说”、“呜呜呜有人在吗”等高亲和力、热情的互联网开场白。
+       · 【温和内敛型/温柔型/治愈型角色】：开场必须柔和委婉、略带迟疑，可使用“那个…”、“嗯…”、“其实有件事想说…”、“不知道该怎么说…”等，决不能大喊大叫或使用“家人们”。
+       · 【高冷型/傲娇型/沉稳型角色】：直接陈述事件或核心问题，【绝不能加任何套近乎的开场白或多余的互联网语气词】（直接开始描述事情，如：“今天遇到一件极其荒谬的事。”）。
+       · 【NPC成员】：也必须根据其人名/ presumed 性格特征来进行开场，杜绝全员千篇一律“家人们”开局。
+  4. 【内容必须100%忠实于角色完整人设】：
+     - 生成的帖子内容、讲述的言行、爱好、习惯、日常困扰、秘密心声都必须与该角色的完整性格、背景人设高度一致，严禁凭空捏造、杜绝生硬凑合。
+     - 【温柔/优雅/知性角色绝对禁止使用恶俗、低俗、露骨、下流网络热梗或带偏激癖好的词汇】：严禁使用如“超级M”、“卑微是最好的嫁妆”、“专属小狗”、“舔狗”等完全割裂人设的词。
+     - 在生成前，必须深入分析该角色的性格描述、行为风格、人设卡片，确保发布的事件和倾诉的内容完美贴合其本身设定。
+  5. 【口语化叙事与语气自然委婉化】：
+     - 帖子语言必须像普通人在社交媒体真实发帖倾诉一样，有角色强烈的个人特色，“见字如面”。
+     - 严禁为了刻意追求“论坛感”而一律套用过度网络化、低级庸俗、露骨粗浅的网络词汇或万能模版。
+     - 即使发帖内容发布在偏敏感板块（如“Xp分享”、“深夜树洞”），也必须用符合该角色独特设定（如：傲娇、羞涩、温柔等）的极其隐晦、委婉、甚至可爱或克制的方式进行真诚地心理陈述，绝不能出现低俗、露骨直白的词句。
+  6. 【个人心理感受与当下反应】：
+     - 必须加入个人心理感受、情绪变化和当下真实反应。
+  7. 【详细经过与字数要求】：必须详细描述事件完整经过，包含【时间、地点、事件起因、经过、细节和感受】，正文【字数绝对不少于 150 字】（推荐 180 ~ 380 字）。
+  `;
+
+            const prompt = activeChar ? `你是角色：${activeChar.name}。简介：${activeChar.description}。
+  ${loreContent ? `以下是本次生成挂载的世界观设定：\n${loreContent}\n` : ""}
+  论坛板块：${board?.name}。板块简介/方向：${board?.description}。
+  
+  ${existingSummaries}
+  
+  ${generalRequirementNotice}
+  ${boardRequirementNotice}
+  
+  请扮演该角色并以其口吻，在匿名论坛的该板块下发布一篇详细的论坛帖子。帖子必须使用第一人称“我”，用符合该角色性格特色的口吻口语化自然叙述。活泼外向的角色可以加生动的互动语气，高冷或内敛的角色要保持其高冷或温柔、克制的叙述腔调，避免千篇一律地使用相同的网络套话，字数绝对不少于150字。
+  同时，请为该角色生成一个不包含原名“${activeChar.name}”的论坛匿名网名（4-8字，如“深夜听风者”、“赛博咸鱼”）。
+  
+  要求输出严格的 JSON 格式：
+  {
+    ${isHorror ? `"isHorrorTheme": true,` : ""}
+    "forumNickname": "论坛匿名网名",
+    "title": "${isHorror ? "【真实】或【脑洞】开头的吸引人标题" : "标题"}",
+    "tag": "${isHorror ? "真实" : isSese ? "脑洞" : "日常"}",
+    "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，以该角色本身的口吻和人设开头，符合其专属性格与人设，像该角色本人在发帖倾诉，包含时间、地点、起因经过细节、当下情绪反应与该性格特有的自然叙事或互动，拒绝千篇一律的网梗或套话）"
+  }` : `你是一个网络论坛NPC成员“${authorName}”。
+  论坛板块：${board?.name}。板块方向：${board?.description}。
+  
+  ${existingSummaries}
+  
+  ${generalRequirementNotice}
+  ${boardRequirementNotice}
+  
+  请在该板块发布一篇符合板块氛围的详细帖子。帖子必须使用第一人称“我”，口语化自然接地气，根据NPC名字或预设的某种性格类型（例如傲娇、随性、温柔等）选择合适独特的语气和开场，字数绝对不少于150字。
+  
+  要求输出严格的 JSON 格式：
+  {
+    ${isHorror ? `"isHorrorTheme": true,` : ""}
+    "title": "${isHorror ? "【真实】或【脑洞】开头的吸引人标题" : "标题"}",
+    "tag": "${isHorror ? "真实" : isSese ? "脑洞" : "日常"}",
+    "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，以符合该NPC设定的方式开头与叙述，包含时间、地点、起因经过细节、当下情绪反应，杜绝千篇一律）"
+  }`;
+
+            const response = await apiChat({ 
+              messages: [{ role: "user", content: prompt }], 
+              character: activeChar || { id: "npc", name: authorName, description: "论坛NPC" } as any,
+              memories: activeChar?.memories || [],
+              matchedLore: selectedLores,
+              settings, 
+              systemInstruction: "你是一个严格按照规则输出JSON的API。" 
+            });
+            const responseText = response.text || "";
+            
+            let parsed = null;
+            try {
+              const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+              parsed = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);
+            } catch (e) {
+              console.error("Failed to parse forum post JSON", e);
+            }
+
+            if (parsed) {
+              if (isFoundPhone && parsed.isFoundPhone) {
+                 validParsed = {
+                   ...parsed,
+                   content: parsed.content || "[聊天记录]",
+                   isFoundPhone: true,
+                   title: parsed.title || "捡到了手机",
+                   chatLogs: parsed.chatLogs || []
+                 };
+                 break;
+              }
+              if (parsed.content) {
+                const text = parsed.content.trim();
+                const hasFirstPerson = text.includes("我");
+                const isHorrorValid = !isHorror || (parsed.isHorrorTheme !== false && isContentHorrorThemed(text));
+                const isLengthOk = text.length >= 120;
+                const isTooSimilar = checkIsPostTooSimilar(text, [...posts, ...generatedPosts]);
+
+                if ((hasFirstPerson && isHorrorValid && isLengthOk && !isTooSimilar) || attempts >= 3) {
+                  validParsed = parsed;
+                }
               }
             }
           }
-        }
 
-        if (validParsed && validParsed.content) {
-          const usedNicknames = getAllUsedNicknames(posts, privateContacts, userNickname);
-          if (activeChar && validParsed.forumNickname) {
-            const uniqueName = makeUniqueNickname(validParsed.forumNickname, usedNicknames);
-            authorName = uniqueName;
-            usedNicknames.add(uniqueName);
-            saveCharForumNickname(activeChar.id, uniqueName);
-            authorAvatar = getLuntanAvatar(authorName); // Update avatar to match new nickname
-          } else if (!activeChar) {
-            authorName = makeUniqueNickname(authorName, usedNicknames);
-            usedNicknames.add(authorName);
-            authorAvatar = getLuntanAvatar(authorName); // Update avatar to match new nickname
-          }
+          if (validParsed && validParsed.content) {
+            const usedNicknames = getAllUsedNicknames(posts, privateContacts, userNickname);
+            if (activeChar && validParsed.forumNickname) {
+              const uniqueName = makeUniqueNickname(validParsed.forumNickname, usedNicknames);
+              authorName = uniqueName;
+              usedNicknames.add(uniqueName);
+              saveCharForumNickname(activeChar.id, uniqueName);
+              authorAvatar = getLuntanAvatar(authorName); // Update avatar to match new nickname
+            } else if (!activeChar) {
+              authorName = makeUniqueNickname(authorName, usedNicknames);
+              usedNicknames.add(authorName);
+              authorAvatar = getLuntanAvatar(authorName); // Update avatar to match new nickname
+            }
 
-          const newPost: ForumPost = {
-            id: Date.now().toString() + "-" + i + "-" + Math.random().toString(36).substr(2, 4),
-            boardId: board.id,
-            authorId: authorId,
-            authorName: authorName,
-            authorAvatar: authorAvatar,
-            title: validParsed.title || (isHorror ? (validParsed.tag?.includes('脑洞') ? '【脑洞】恐怖故事' : '【真实】深夜怪事') : '匿名帖子'),
-            content: validParsed.content,
-            tag: validParsed.tag || (isHorror ? "真实" : "日常"),
-            timestamp: Date.now(),
-            likes: Math.floor(Math.random() * 20),
-            dislikes: 0,
-            comments: []
-          };
-          
-          setPostGenProgressText(`AI 正在为第 ${i + 1} 篇帖子自动生成评论...`);
-          try {
-            const initialComments = await generateCommentsInternal(newPost, "3 到 6");
-            newPost.comments = initialComments;
-          } catch(err) {
-            console.error("Failed to generate initial comments", err);
+            const newPost: ForumPost = {
+              id: Date.now().toString() + "-" + i + "-" + Math.random().toString(36).substr(2, 4),
+              boardId: board.id,
+              authorId: authorId,
+              authorName: authorName,
+              authorAvatar: authorAvatar,
+              title: validParsed.title || (isHorror ? (validParsed.tag?.includes('脑洞') ? '【脑洞】恐怖故事' : '【真实】深夜怪事') : '匿名帖子'),
+              content: validParsed.content,
+              tag: validParsed.tag || (isHorror ? "真实" : "日常"),
+              timestamp: Date.now(),
+              likes: Math.floor(Math.random() * 20),
+              dislikes: 0,
+              comments: []
+            };
+            
+            try {
+              const initialComments = await generateCommentsInternal(newPost, "3 到 6");
+              newPost.comments = initialComments;
+            } catch(err) {
+              console.error("Failed to generate initial comments", err);
+            }
+            
+            generatedPosts.push(newPost);
           }
-          
-          generatedPosts.push(newPost);
         }
+        
+        if (generatedPosts.length > 0) {
+          setPosts(prev => [...generatedPosts, ...prev]);
+          const msg = `✨ 帖子已生成完成（新增了 ${generatedPosts.length} 篇新帖子）！`;
+          showGlobalToast(msg);
+        }
+      } catch (e) {
+        console.error(e);
+        showGlobalToast("AI 生成帖子出错，请稍后重试。");
+      } finally {
+        setIsGeneratingPosts(false);
+        setIsGeneratingPostsModalOpen(false);
+        setPostGenProgressText("");
+        setSelectedLoreIds([]);
       }
-      
-      if (generatedPosts.length > 0) {
-        setPosts(prev => [...generatedPosts, ...prev]);
-        const msg = `✨ 帖子已生成完成（新增了 ${generatedPosts.length} 篇新帖子）！`;
-        showToast(msg);
-        showGlobalToast(msg);
-      }
-      setIsGeneratingPostsModalOpen(false);
-    } catch (e) {
-      console.error(e);
-      alert("AI 生成帖子出错，请稍后重试：" + (e as Error)?.message);
-    } finally {
-      setIsGeneratingPosts(false);
-      setPostGenProgressText("");
-      setSelectedLoreIds([]);
-    }
+    }, 100);
   };
   
   // Post Actions: Like, Dislike, Delete
@@ -2076,14 +2075,15 @@ ${historyContext}
                 const map = new Map<number, any>();
                 const topLevel: any[] = [];
                 
-                const sorted = [...selectedPost.comments].sort((a, b) => a.floor - b.floor);
+                const sorted = [...selectedPost.comments].sort((a, b) => b.timestamp - a.timestamp);
                 sorted.forEach(c => map.set(c.floor, { ...c, children: [], level: 0 }));
                 
                 sorted.forEach(c => {
                   const tc = map.get(c.floor)!;
                   if (c.replyTo && map.has(c.replyTo.floor)) {
                     const parent = map.get(c.replyTo.floor)!;
-                    tc.level = Math.min(parent.level + 1, 3);
+                    // Limit depth to 2 levels
+                    tc.level = Math.min(parent.level + 1, 1);
                     parent.children.push(tc);
                   } else {
                     topLevel.push(tc);
@@ -2149,13 +2149,13 @@ ${historyContext}
                                 <span className="text-[10px] text-neutral-400">#{c.floor}</span>
                               </div>
                               
-                              {c.replyTo && c.level === 0 && (
-                                <div className="bg-neutral-50 border-l-2 border-neutral-300 px-2 py-1 rounded text-[11px] text-neutral-500 flex items-center gap-1 my-1">
-                                  <CornerDownRight className="w-3 h-3 text-neutral-400 shrink-0" />
-                                  <span>回复 #{c.replyTo.floor} @{c.replyTo.authorName}: {c.replyTo.content}</span>
+                              {c.level > 0 && c.replyTo && (
+                                <div className="text-[10px] text-neutral-400 mb-1">
+                                  回复 @{c.replyTo.authorName}
                                 </div>
                               )}
                               
+                              {/* Remove old replyTo display to avoid duplication */}
                               {editingCommentId === c.id ? (
                                 <div className="space-y-2">
                                   <textarea 

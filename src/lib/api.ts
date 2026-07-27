@@ -777,6 +777,10 @@ export async function apiChat(params: any) {
     systemInstruction: params.systemInstruction || "你是一个友好的AI助手。"
   };
 
+  const minReplies = settings?.groupChatMinReplies || 1;
+  const maxReplies = settings?.groupChatMaxReplies || 6;
+  const rangeInstruction = `\n- 【回复条数约束】：你的回复必须包含 ${minReplies} 到 ${maxReplies} 条独立的消息段落。`;
+
   const threeDataSources = getThreeDataSourcesPrompt(effectiveCharacter, memories, matchedLore, currentUserName, currentUserDesc);
 
   const modeInstruction = chatMode !== "offline"
@@ -789,12 +793,14 @@ export async function apiChat(params: any) {
 - 发起邀请的格式必须为：[OFFLINE_INVITATION]邀请话语|pending （例如：[OFFLINE_INVITATION]今天天气很好，要不要一起出来喝杯咖啡？|pending）。卡片会在用户的聊天界面显示为邀请卡片供用户接受或拒绝。
 - 【发送/分享照片】：当你想向用户分享、展示一张照片、风景、美食、自拍或生活画面时，请使用格式 [图片：描述内容] （例如：[图片：一只橘猫趴在窗台上，阳光照在它身上] 或 看我今天去吃的甜品！[图片：精致的草莓蛋糕放在白色瓷盘里]）。描述内容要丰富有画面感，符合你的人设和当时聊天场景。
 ${userDidNotReply ? "\n- 【注意】上一条消息也是你发的，用户这一轮还没有回复你。请保持角色自然，可以根据情境继续补充说明、卖萌、催促、或者分享动态，不要一直重复上一句。" : ""}
+${rangeInstruction}
 `
     : `
 --- IMPORTANT DIRECTIVE: OFFLINE MODE ---
 - You are meeting the user in person (线下见面模式).
 - You are encouraged to describe your actions, physical gestures, body language, facial expressions, and feelings using asterisks (e.g., *微笑*, *轻轻拉住你的手*).
 - Maintain the character's personality and the current situation.
+${rangeInstruction}
 `;
 
   const hardStyleFixInstruction = `

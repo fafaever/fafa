@@ -4634,7 +4634,7 @@ ${existingCommentsText || "暂无评论"}
                       onTouchEnd={handleTouchEnd}
                       onContextMenu={(e) => handleContextMenu(e, msg)}
                       onDoubleClick={() => handleDoubleClick(msg)}
-                      style={{ touchAction: 'none' }}
+                      style={{ touchAction: 'none', userSelect: 'none' }}
                       className={`p-3.5 rounded-2xl text-xs leading-relaxed  shadow-sm select-none cursor-pointer active:scale-[0.99] transition-all relative ${
                         isUser
                           ? "bg-black text-white rounded-tr-xs"
