@@ -1,10 +1,45 @@
 import React, { useState, useEffect } from "react";
-import { ChevronLeft, UserPlus, Sparkles, AlertCircle, Smile, HelpCircle, Edit3, MessageSquare, Trash2, Check, Upload, FileText, Zap } from "lucide-react";
+import { ChevronLeft, UserPlus, Sparkles, AlertCircle, Smile, HelpCircle, Edit3, MessageSquare, Trash2, Check, Upload, FileText, Zap, Users, Plus, Loader2 } from "lucide-react";
 
-import { Character, AppSettings, UserPersona } from "../types";
-import { apiAnalyzeCharacterFile } from "../lib/api";
+import { Character, AppSettings, UserPersona, BoundNPC } from "../types";
+import { apiAnalyzeCharacterFile, callLLM } from "../lib/api";
 import { CharacterAvatar } from "./CharacterAvatar";
 import JSZip from "jszip";
+
+export function generateDefaultNpcsForCharacter(charName: string, charPersona: string = "", charBg: string = ""): BoundNPC[] {
+  const name = charName || "角色";
+  const text = (charPersona + " " + charBg).toLowerCase();
+  
+  if (text.includes("学生") || text.includes("大学") || text.includes("校园") || text.includes("同学")) {
+    return [
+      { id: `npc-${Date.now()}-1`, name: "陈清源", avatar: "🏀", relationship: "社团学长", description: "做事靠谱有耐心，经常给项目和活动提供建议" },
+      { id: `npc-${Date.now()}-2`, name: "苏禾", avatar: "👦", relationship: "大学同寝室友", description: "性格开朗，喜欢打游戏和户外运动" },
+      { id: `npc-${Date.now()}-3`, name: "许若琳", avatar: "☕", relationship: "校门口咖啡馆店长", description: "温柔细心，记得大家常喝的咖啡甜度" },
+      { id: `npc-${Date.now()}-4`, name: "陆晨", avatar: "👧", relationship: "高中同桌兼好友", description: "爱看小说和看展，经常与大家分享日常" },
+    ];
+  } else if (text.includes("职场") || text.includes("公司") || text.includes("工作") || text.includes("同事")) {
+    return [
+      { id: `npc-${Date.now()}-1`, name: "张文华", avatar: "👔", relationship: "部门主管", description: "对工作要求严谨但挺护短，经常请团队喝下午茶" },
+      { id: `npc-${Date.now()}-2`, name: "宋致远", avatar: "💻", relationship: "同组资深同事", description: "技术干练，日常在茶水间交流工作与生活" },
+      { id: `npc-${Date.now()}-3`, name: "顾安琪", avatar: "👩‍💼", relationship: "行政人事", description: "性格随和热心肠，掌握各种公司资讯冷知识" },
+      { id: `npc-${Date.now()}-4`, name: "王耀宗", avatar: "☕", relationship: "项目资深顾问", description: "经验丰富，说话有条不紊且乐于分享" },
+    ];
+  } else if (text.includes("猎人") || text.includes("战斗") || text.includes("科幻") || text.includes("突击") || text.includes("江湖") || text.includes("玄幻")) {
+    return [
+      { id: `npc-${Date.now()}-1`, name: "雷天明", avatar: "🐺", relationship: "同盟雇佣兵", description: "寡言少语但身手不凡，值得信赖的战友" },
+      { id: `npc-${Date.now()}-2`, name: "方怀安", avatar: "🎧", relationship: "情报网提供者", description: "擅长各类情报破译与网络信息搜集" },
+      { id: `npc-${Date.now()}-3`, name: "莫云深", avatar: "🥃", relationship: "安全屋酒吧老板", description: "阅历丰富，酒吧是消息汇聚的枢纽" },
+      { id: `npc-${Date.now()}-4`, name: "沈知意", avatar: "🔮", relationship: "黑市商铺老板", description: "精明利落，手头常有稀缺装备与道具" },
+    ];
+  }
+
+  return [
+    { id: `npc-${Date.now()}-1`, name: "林墨", avatar: "👦", relationship: "挚友", description: "性格随和开朗，经常相约聚会与交流" },
+    { id: `npc-${Date.now()}-2`, name: "周致远", avatar: "🧢", relationship: "熟人朋友", description: "热心肠，懂得挺多生活与工作常识" },
+    { id: `npc-${Date.now()}-3`, name: "叶浅浅", avatar: "☕", relationship: "经常光顾的店家老板", description: "待人亲切，聊天气氛非常轻松" },
+    { id: `npc-${Date.now()}-4`, name: "程安", avatar: "👧", relationship: "旧识熟人", description: "兴趣广泛，常分享各种新鲜有趣的消息" },
+  ];
+}
 
 interface CharacterCreatorAppProps {
   characters: Character[];
@@ -133,6 +168,107 @@ export default function CharacterCreatorApp({
   const [forceSave, setForceSave] = useState<boolean>(false);
   const [deleteConfirmChar, setDeleteConfirmChar] = useState<Character | null>(null);
 
+  // Bound NPCs State (Initial count 0, generated when uploading file or created manually)
+  const [boundNpcs, setBoundNpcs] = useState<BoundNPC[]>([]);
+  const [associatedCharacterIds, setAssociatedCharacterIds] = useState<string[]>([]);
+  const [associatedRelations, setAssociatedRelations] = useState<Record<string, string>>({});
+  const [isGeneratingRelation, setIsGeneratingRelation] = useState<Record<string, boolean>>({});
+
+  const getFallbackRelation = (c1Name: string, c1Desc: string, c2Name: string, c2Desc: string): string => {
+    const text1 = (c1Name + " " + c1Desc).toLowerCase();
+    const text2 = (c2Name + " " + c2Desc).toLowerCase();
+    
+    if (
+      (text1.includes("学生") || text1.includes("校园") || text1.includes("大学") || text1.includes("学校")) &&
+      (text2.includes("学生") || text2.includes("校园") || text2.includes("大学") || text2.includes("学校"))
+    ) {
+      return "他们是同一所学校的同学，在校园中相识并互相照应。";
+    }
+    if (
+      (text1.includes("职场") || text1.includes("公司") || text1.includes("工作") || text1.includes("同事")) &&
+      (text2.includes("职场") || text2.includes("公司") || text2.includes("工作") || text2.includes("同事"))
+    ) {
+      return "他们是在职场中有过交集的伙伴/同事关系，彼此有些交情。";
+    }
+    return "他们因为一次偶然的事件碰面并结识，存在于同一个世界观中。";
+  };
+
+  const generateRelationWithAI = async (c1Name: string, c1Desc: string, c2Name: string, c2Desc: string): Promise<string> => {
+    if (!settings || (!settings.apiKey && !settings.apiUrl)) {
+      return getFallbackRelation(c1Name, c1Desc, c2Name, c2Desc);
+    }
+    const prompt = `您是一个小说与角色关系策划。
+当前角色一：
+- 姓名：${c1Name}
+- 背景人设：${c1Desc}
+
+当前角色二：
+- 姓名：${c2Name}
+- 背景人设：${c2Desc}
+
+请为这两个角色设计一个合理的关联设定/人物关系描述（1句话，50字以内）。
+- 如果两个角色的人设背景/世界观相似或属于同一世界（例如同是校园学生或都市白领），请生成自然的关系（如“他们是同一所学校的学生/同事/邻居”）。
+- 如果两个角色的人设背景世界差异极大（如一个是古代修真，一个是未来机械师；或者一个是魔王，一个是普通白领），必须生成一个奇妙的“折中设定”使两者的互动合理化（如“由于一次离奇的时空缝隙偶然碰面并相识了”、“他们因为某个全息游戏世界相遇并熟络”）。
+
+请直接返回1句话的关系描述，不需要任何系统说明和引号。`;
+
+    try {
+      const response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [
+        { role: "user", content: prompt }
+      ]);
+      if (response && response.trim().length > 1) {
+        return response.trim().replace(/^["']|["']$/g, "");
+      }
+    } catch (e) {
+      console.warn("AI generation failed for relation, falling back.", e);
+    }
+    return getFallbackRelation(c1Name, c1Desc, c2Name, c2Desc);
+  };
+
+  const handleToggleAssociation = async (charId: string) => {
+    const isCurrentlyAssociated = associatedCharacterIds.includes(charId);
+    if (isCurrentlyAssociated) {
+      setAssociatedCharacterIds(prev => prev.filter(id => id !== charId));
+      setAssociatedRelations(prev => {
+        const updated = { ...prev };
+        delete updated[charId];
+        return updated;
+      });
+    } else {
+      setAssociatedCharacterIds(prev => [...prev, charId]);
+      
+      const otherChar = characters.find(o => o.id === charId);
+      if (!otherChar) return;
+      
+      const fallbackRel = getFallbackRelation(name || "此角色", personality || background || "", otherChar.name, otherChar.description || otherChar.systemInstruction || "");
+      
+      setAssociatedRelations(prev => ({
+        ...prev,
+        [charId]: fallbackRel
+      }));
+
+      if (settings && (settings.apiKey || settings.apiUrl)) {
+        setIsGeneratingRelation(prev => ({ ...prev, [charId]: true }));
+        try {
+          const refinedRel = await generateRelationWithAI(
+            name || "此角色",
+            personality || background || "普通角色背景",
+            otherChar.name,
+            otherChar.systemInstruction || otherChar.description || "普通角色背景"
+          );
+          setAssociatedRelations(prev => ({
+            ...prev,
+            [charId]: refinedRel
+          }));
+        } catch (err) {
+          console.error("AI relation generation failed:", err);
+        } finally {
+          setIsGeneratingRelation(prev => ({ ...prev, [charId]: false }));
+        }
+      }
+    }
+  };
+
   useEffect(() => {
     const preselectedEditId = localStorage.getItem("mobile_ai_preselected_edit_char");
     if (preselectedEditId) {
@@ -155,6 +291,12 @@ export default function CharacterCreatorApp({
     setSelectedPersonaId(char.userPersonaId || "");
     setRealImage(char.realImage || "");
     setChatAvatar(char.chatAvatar || "");
+
+    // Load bound NPCs if exists
+    setBoundNpcs(char.boundNpcs || []);
+    setAssociatedCharacterIds(char.associatedCharacterIds || []);
+    setAssociatedRelations(char.associatedRelations || {});
+
     setErrorMsg("");
     setSuccessMsg("");
     setActiveTab("create");
@@ -170,9 +312,113 @@ export default function CharacterCreatorApp({
     setChatStyle("");
     setRealImage("");
     setChatAvatar("");
+    setBoundNpcs([]);
+    setAssociatedCharacterIds([]);
+    setAssociatedRelations({});
     setErrorMsg("");
     setSuccessMsg("");
     setActiveTab("list");
+  };
+
+  const [isGeneratingNpcsAI, setIsGeneratingNpcsAI] = useState<boolean>(false);
+
+  const handleAddNpc = () => {
+    const formalNamesPool = ["林墨", "苏禾", "陆晨", "陈清源", "顾晚秋", "周致远", "沈知意", "叶天明", "许若琳", "程安"];
+    const randomName = formalNamesPool[boundNpcs.length % formalNamesPool.length];
+    const newNpc: BoundNPC = {
+      id: `npc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: randomName,
+      avatar: "💬",
+      relationship: "朋友/熟人",
+      description: "社交圈相关好友"
+    };
+    setBoundNpcs(prev => [...prev, newNpc]);
+  };
+
+  const handleGenerateNpcsWithAI = async () => {
+    setIsGeneratingNpcsAI(true);
+    setErrorMsg("");
+    setSuccessMsg("");
+    try {
+      if (settings && (settings.apiKey || settings.apiUrl)) {
+        const existingNames = boundNpcs.map(n => n.name).join(", ");
+        const prompt = `你是一个角色关系网络与 NPC 设定生成器。
+当前主角色信息：
+- 角色姓名：【${name || "未命名角色"}】
+- 性格特点：【${personality || "普通性格"}】
+- 背景故事：【${background || "普通背景"}】
+- 已有 NPC 成员（切勿重复）：[${existingNames}]
+
+请为该角色全新生成 3 至 5 个专属的 NPC 好友/熟人/关系人。
+【姓名规则 (绝密重中之重)】：
+1. NPC 姓名必须是标准的正式中文姓名（如“林墨”、“苏禾”、“陆晨”、“陈清源”）。
+2. 绝对禁止使用“阿X”、“小X”、“老X”等昵称式或单一英文/拼音命名（例如绝对不能使用“阿杰”、“小涵”、“小宋”、“老王”、“Lily”等）。
+
+【格式规则】：
+1. 每个 NPC 仅包含：
+   - "name": 正常中文姓名 (例如: "林墨", "苏禾", "陆晨")
+   - "relationship": 与主角色的关系身份 (例如: "大学室友", "社团学长", "咖啡馆店长", "黑市军火商")
+   - "description": 几句话简短介绍/性格特点
+   - "avatar": 单个 Emoji 表情头像 (例如: "👦", "🏀", "☕", "🔮")
+2. 必须输出严格纯 JSON 数组（无 Markdown 代码块）：
+[
+  {
+    "name": "姓名",
+    "relationship": "关系身份",
+    "description": "几句话简介",
+    "avatar": "Emoji"
+  }
+]`;
+
+        const responseText = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [
+          { role: "user", content: prompt }
+        ]);
+
+        let jsonStr = responseText;
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) jsonStr = jsonMatch[0];
+
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed) && parsed.length >= 1) {
+          const newGeneratedNpcs: BoundNPC[] = parsed.map((item: any, idx: number) => ({
+            id: `npc-ai-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+            name: item.name || `林墨`,
+            avatar: item.avatar || "💬",
+            relationship: item.relationship || "朋友",
+            description: item.description || "社交圈好友"
+          }));
+
+          setBoundNpcs(prev => [...prev, ...newGeneratedNpcs]);
+          setSuccessMsg(`✨ 已成功为你生成 ${newGeneratedNpcs.length} 个新 NPC 联系人！`);
+          return;
+        }
+      }
+
+      // Offline fallback
+      const offlineNpcs: BoundNPC[] = [
+        { id: `npc-off-${Date.now()}-1`, name: "陆致远", avatar: "👟", relationship: "邻居好友", description: "非常热心肠，经常帮忙收快递并分享美食" },
+        { id: `npc-off-${Date.now()}-2`, name: "赵明哲", avatar: "🩺", relationship: "社区医生", description: "性格温和有耐心，关注大家的健康与作息" },
+        { id: `npc-off-${Date.now()}-3`, name: "许怡雯", avatar: "🎨", relationship: "画坊艺术好友", description: "有独特的艺术审美，常邀请大家看展览" },
+        { id: `npc-off-${Date.now()}-4`, name: "张宏远", avatar: "🚴", relationship: "骑行团队长", description: "热爱户外运动，周末经常组织大家郊游" }
+      ];
+
+      setBoundNpcs(prev => [...prev, ...offlineNpcs]);
+      setSuccessMsg(`✨ 已生成 ${offlineNpcs.length} 个新 NPC 关系联系人！`);
+    } catch (e: any) {
+      console.error(e);
+      setErrorMsg("生成 NPC 失败：" + (e?.message || e));
+    } finally {
+      setIsGeneratingNpcsAI(false);
+    }
+  };
+
+  const handleDeleteNpc = (npcId: string) => {
+    setErrorMsg("");
+    setBoundNpcs(prev => prev.filter(n => n.id !== npcId));
+  };
+
+  const handleUpdateNpc = (id: string, field: keyof BoundNPC, value: string) => {
+    setBoundNpcs(prev => prev.map(n => n.id === id ? { ...n, [field]: value } : n));
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: "real" | "chat") => {
@@ -371,6 +617,58 @@ export default function CharacterCreatorApp({
       setBackground(parsedBackground);
       setChatStyle(finalChatStyle);
 
+      // Automatically generate NPCs based on uploaded character file content
+      let extractedNpcs: BoundNPC[] = [];
+      if (settings && (settings.apiKey || settings.apiUrl)) {
+        try {
+          const npcPrompt = `你是一个角色关系网络生成器。请根据以下上传的角色文件内容，提炼生成 3 至 5 个与该角色相关的 NPC 联系人（如好友、同事、同学、搭档等）。
+【姓名准则 (绝对强制)】：
+1. 姓名必须是标准的正式中文姓名（如“林墨”、“苏禾”、“陆晨”、“陈清源”）。
+2. 绝对禁止使用“阿X”、“小X”、“老X”等昵称式或单一英文/拼音命名（例如绝对不能使用“阿杰”、“小涵”、“小宋”、“老王”、“Lily”等）。
+
+必须输出严格纯 JSON 数组（无 Markdown 代码块）：
+[
+  {
+    "name": "正常中文姓名",
+    "relationship": "与角色的关系",
+    "description": "几句话简介/性格特点",
+    "avatar": "Emoji"
+  }
+]
+
+角色姓名：${parsedName}
+文件内容摘要：
+${decodedText.substring(0, 1500)}`;
+
+          const responseText = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [
+            { role: "user", content: npcPrompt }
+          ]);
+
+          let jsonStr = responseText;
+          const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+          if (jsonMatch) jsonStr = jsonMatch[0];
+
+          const parsedNpcs = JSON.parse(jsonStr);
+          if (Array.isArray(parsedNpcs) && parsedNpcs.length >= 1) {
+            extractedNpcs = parsedNpcs.map((item: any, idx: number) => ({
+              id: `npc-file-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+              name: item.name || `林墨`,
+              avatar: item.avatar || "💬",
+              relationship: item.relationship || "关系人",
+              description: item.description || "社交圈相关好友"
+            }));
+          }
+        } catch (npcErr) {
+          console.warn("⚠️ [根据文件内容生成 NPC 失败，使用本地设定生成]:", npcErr);
+        }
+      }
+
+      if (extractedNpcs.length === 0) {
+        extractedNpcs = generateDefaultNpcsForCharacter(parsedName, finalPersonality, parsedBackground);
+      }
+
+      setBoundNpcs(extractedNpcs);
+
       // If settings has API key, automatically run AI analysis for premium extraction
       if (settings?.apiKey) {
         try {
@@ -387,7 +685,7 @@ export default function CharacterCreatorApp({
             if (aiBg) setBackground(aiBg);
             if (aiChat) setChatStyle(aiChat);
             if (aiAvatar) setAvatar(aiAvatar);
-            setSuccessMsg("✨ 文件读取成功！AI 已智能提炼角色姓名、昵称、性格与说话风格，已填充至表单。请核对后点击下方【保存角色】按钮。");
+            setSuccessMsg(`✨ 文件读取成功！AI 已智能提炼角色人设，并自动根据文件内容生成了 ${extractedNpcs.length} 个绑定 NPC！`);
             setIsImporting(false);
             return;
           }
@@ -396,7 +694,7 @@ export default function CharacterCreatorApp({
         }
       }
 
-      setSuccessMsg("📂 文件读取并解析成功！已自动填充至表单，请核对后点击下方【保存角色】按钮进行保存。");
+      setSuccessMsg(`📂 文件读取并解析成功！已自动填充表单，并根据文件内容生成了 ${extractedNpcs.length} 个 NPC。请核对后保存。`);
 
     } catch (err: any) {
       console.error("❌ [角色导入异常]:", err);
@@ -586,6 +884,7 @@ export default function CharacterCreatorApp({
         setErrorMsg(err);
         return;
       }
+
       if (!finalPersonality) {
         finalPersonality = "注重角色故事细节与性格魅力的全情设定。";
       }
@@ -624,10 +923,13 @@ ${background.trim() || "暂无背景故事"}
         avatar,
         description: finalPersonality.length > 40 ? finalPersonality.substring(0, 40) + "..." : finalPersonality,
         systemInstruction,
-        model: settings.model, // Default to current global model
+        model: settings?.model, // Default to current global model
         realImage: realImage || undefined,
         chatAvatar: chatAvatar || undefined,
         userPersonaId: selectedPersonaId || undefined,
+        boundNpcs: boundNpcs,
+        associatedCharacterIds: associatedCharacterIds,
+        associatedRelations: associatedRelations,
       };
 
       console.log("[Character Save Payload]", {
@@ -638,36 +940,22 @@ ${background.trim() || "暂无背景故事"}
         realImageLength: payload.realImage?.length || 0,
         hasChatAvatar: !!payload.chatAvatar,
         chatAvatarLength: payload.chatAvatar?.length || 0,
+        boundNpcsCount: payload.boundNpcs?.length || 0,
       });
 
       if (editingId) {
         if (onUpdateCharacter) {
           onUpdateCharacter(editingId, payload);
         }
-        setSuccessMsg(`角色 "${finalName}" 头像与设定修改成功！`);
+        setSuccessMsg(`✨ 角色 "${finalName}" 及 ${boundNpcs.length} 个绑定 NPC 信息已修改成功！`);
       } else {
         onAddCharacter(payload);
-        setSuccessMsg(`角色 "${finalName}" 建立并保存成功！`);
+        setSuccessMsg(`✨ 角色 "${finalName}" 建立保存成功！已自动绑定 ${boundNpcs.length} 个 NPC。您可以继续编辑确认。`);
       }
       
-      // Reset form
-      setEditingId(null);
-      setName("");
-      setNickname("");
-      setAvatar("🤖");
-      setBackground("");
-      setPersonality("");
-      setChatStyle("");
-      setRealImage("");
-      setChatAvatar("");
       setForceSave(false);
       handleClearImport();
-
-      // Auto switch to list to show created character
-      setTimeout(() => {
-        setSuccessMsg("");
-        setActiveTab("list");
-      }, 1200);
+      // Notice: stay on current page and do NOT switch tabs to list, per user request.
     } catch (err: any) {
       console.error("[Character Save Fatal Error]:", err);
       setErrorMsg(`保存失败: ${err?.message || err}`);
@@ -880,6 +1168,111 @@ ${background.trim() || "暂无背景故事"}
             </select>
           </div>
 
+          {/* Associated Characters */}
+          <div className="space-y-2 border border-neutral-200/50 rounded-2xl p-4 bg-neutral-50/50">
+            <div className="space-y-0.5">
+              <label className="text-xs font-bold text-neutral-900 block">关联角色 (Associated Characters)</label>
+              <span className="text-[10px] text-neutral-400 font-mono block uppercase">WORLDVIEW ASSOCIATIONS</span>
+            </div>
+
+            {characters.filter(c => c.id !== editingId).length === 0 ? (
+              <p className="text-[11px] text-neutral-400 italic">暂无其他角色可供关联，创建更多角色后可在此建立关系纽带。</p>
+            ) : (
+              <div className="space-y-3">
+                {/* Checkbox list of other characters */}
+                <div className="flex flex-wrap gap-2 pt-1 max-h-36 overflow-y-auto">
+                  {characters.filter(c => c.id !== editingId).map(c => {
+                    const isChecked = associatedCharacterIds.includes(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => handleToggleAssociation(c.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all border ${
+                          isChecked
+                            ? "bg-black text-white border-black shadow-sm animate-scale-up"
+                            : "bg-white text-neutral-600 border-neutral-200 hover:border-neutral-400"
+                        }`}
+                      >
+                        <span className="text-sm">{c.avatar || "🤖"}</span>
+                        <span>{c.name}</span>
+                        {isChecked && <Check className="w-3 h-3 text-white ml-0.5" />}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Warning / Prompt text */}
+                <p className="text-[10px] text-neutral-400 leading-relaxed bg-white border border-neutral-100 p-2 rounded-lg">
+                  💡 建议选择存在于同一世界或人设背景相近的角色进行关联，互动会更自然。
+                </p>
+
+                {/* Relationship details editor */}
+                {associatedCharacterIds.length > 0 && (
+                  <div className="pt-2 border-t border-neutral-200/40 space-y-2">
+                    <span className="text-[10px] font-bold text-neutral-500 uppercase block">关系设定明细 (RELATIONSHIP SETTINGS)</span>
+                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                      {associatedCharacterIds.map(id => {
+                        const otherChar = characters.find(o => o.id === id);
+                        if (!otherChar) return null;
+                        const currentRel = associatedRelations[id] || "";
+                        const isGenerating = isGeneratingRelation[id];
+
+                        return (
+                          <div key={id} className="bg-white border border-neutral-200/60 p-2.5 rounded-xl space-y-1.5 shadow-sm">
+                            <div className="flex justify-between items-center">
+                              <div className="flex items-center gap-1 text-xs font-bold text-neutral-800">
+                                <span>{otherChar.avatar || "🤖"}</span>
+                                <span>与 {otherChar.name} 的关系：</span>
+                              </div>
+                              {isGenerating ? (
+                                <div className="flex items-center gap-1 text-[9px] text-neutral-400">
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                  <span>AI 设定中...</span>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setIsGeneratingRelation(prev => ({ ...prev, [id]: true }));
+                                    const refined = await generateRelationWithAI(
+                                      name || "此角色",
+                                      personality || background || "普通角色背景",
+                                      otherChar.name,
+                                      otherChar.systemInstruction || otherChar.description || "普通角色背景"
+                                    );
+                                    setAssociatedRelations(prev => ({ ...prev, [id]: refined }));
+                                    setIsGeneratingRelation(prev => ({ ...prev, [id]: false }));
+                                  }}
+                                  className="text-[9px] text-stone-500 hover:text-black font-semibold hover:underline"
+                                >
+                                  ✨ AI 重新生成
+                                </button>
+                              )}
+                            </div>
+                            <input
+                              type="text"
+                              value={currentRel}
+                              placeholder="例如: 他们是在时空中迷失并偶然相遇的旅人。"
+                              onChange={e => {
+                                const val = e.target.value;
+                                setAssociatedRelations(prev => ({
+                                  ...prev,
+                                  [id]: val
+                                }));
+                              }}
+                              className="w-full text-xs border border-neutral-100 focus:border-neutral-300 px-2.5 py-1.5 rounded-lg bg-neutral-50 focus:bg-white text-neutral-700 outline-none"
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Personality Description (人设) */}
           <div className="space-y-1">
             <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">角色设定 / 人设背景 (Personality Profile)</label>
@@ -920,6 +1313,107 @@ ${background.trim() || "暂无背景故事"}
               onChange={(e) => setChatStyle(e.target.value)}
               className="w-full text-xs border border-neutral-200 focus:border-neutral-950 px-3 py-2.5 rounded-xl bg-white text-neutral-800 outline-none resize-none leading-relaxed "
             />
+          </div>
+
+          {/* Bound NPCs Section */}
+          <div className="space-y-2.5 p-3.5 bg-neutral-50/80 rounded-2xl border border-neutral-200/60">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-neutral-800" />
+                <span className="text-[11px] font-bold text-neutral-900">绑定 NPC 联系人</span>
+                <span className="text-[9px] font-mono px-1.5 py-0.5 bg-neutral-200 text-neutral-700 rounded-md">
+                  当前: {boundNpcs.length} 个
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleGenerateNpcsWithAI}
+                  disabled={isGeneratingNpcsAI}
+                  className="text-[10px] font-bold text-white bg-neutral-900 hover:bg-black flex items-center gap-1 px-2.5 py-1 rounded-lg active:scale-95 transition-all shadow-xs disabled:opacity-50"
+                  title="生成 3-5 个新 NPC"
+                >
+                  {isGeneratingNpcsAI ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3 text-amber-400" />}
+                  <span>生成 3-5 个新 NPC</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddNpc}
+                  className="text-[10px] font-mono font-bold text-neutral-800 hover:text-black flex items-center gap-1 bg-white border border-neutral-200 px-2 py-1 rounded-lg active:scale-95 transition-all shadow-xs"
+                >
+                  <Plus className="w-3 h-3" />
+                  手动加
+                </button>
+              </div>
+            </div>
+
+            <p className="text-[10px] text-neutral-500 leading-relaxed">
+              初始 NPC 数量为 0。只有在上传角色文件后系统才会根据内容自动生成对应的 NPC。您也可以手动添加或点击重新生成。
+            </p>
+
+            {boundNpcs.length === 0 ? (
+              <div className="p-4 bg-white border border-dashed border-neutral-300 rounded-xl text-center space-y-1">
+                <p className="text-xs font-medium text-neutral-500">暂无绑定 NPC (初始数量 0)</p>
+                <p className="text-[10px] text-neutral-400">上传角色故事文件将根据内容自动生成 NPC，或点击右上角按钮手动添加</p>
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                {boundNpcs.map((npc, idx) => (
+                  <div key={npc.id || idx} className="p-3 bg-white border border-neutral-200/90 rounded-xl space-y-2 shadow-2xs w-full max-w-full overflow-hidden">
+                    {/* Upper Row: Avatar + Name (Large text) + Delete */}
+                    <div className="flex items-center gap-2.5 w-full">
+                      <input
+                        type="text"
+                        value={npc.avatar || "💬"}
+                        onChange={(e) => handleUpdateNpc(npc.id, "avatar", e.target.value)}
+                        className="w-9 h-9 text-center text-base border border-neutral-200 rounded-xl bg-neutral-50 outline-none shrink-0 focus:border-neutral-800"
+                        title="Emoji 头像"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <input
+                          type="text"
+                          placeholder="NPC 姓名 (如: 林墨)"
+                          value={npc.name}
+                          onChange={(e) => handleUpdateNpc(npc.id, "name", e.target.value)}
+                          className="w-full text-sm font-bold text-neutral-900 border border-neutral-200 focus:border-neutral-900 px-2.5 py-1 rounded-lg bg-white outline-none placeholder:text-neutral-300 placeholder:font-normal"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteNpc(npc.id)}
+                        className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors shrink-0"
+                        title="删除 NPC"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Lower Row: Relationship (Small text, warm gray styling, separate line) */}
+                    <div className="flex items-center gap-1.5 w-full pl-11">
+                      <span className="text-[10px] text-stone-500 font-medium shrink-0">关系:</span>
+                      <input
+                        type="text"
+                        placeholder="与角色的关系 (如: 大学同寝室友)"
+                        value={npc.relationship || ""}
+                        onChange={(e) => handleUpdateNpc(npc.id, "relationship", e.target.value)}
+                        className="w-full text-[11px] text-stone-600 font-medium border border-stone-200/80 focus:border-stone-700 px-2.5 py-1 rounded-lg bg-stone-50/80 outline-none placeholder:text-stone-300"
+                      />
+                    </div>
+
+                    {/* Bottom Row: Description */}
+                    <div className="w-full pl-11">
+                      <input
+                        type="text"
+                        placeholder="NPC 简介 / 性格特点"
+                        value={npc.description || ""}
+                        onChange={(e) => handleUpdateNpc(npc.id, "description", e.target.value)}
+                        className="w-full text-[11px] text-neutral-600 border border-neutral-200/80 focus:border-neutral-900 px-2.5 py-1 rounded-lg bg-neutral-50/60 outline-none placeholder:text-neutral-300"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Force Save Switch / Diagnostics */}

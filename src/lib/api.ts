@@ -4,6 +4,12 @@ export function stripColorEmojis(str: string): string {
   return str || "";
 }
 
+export function showGlobalToast(message: string) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent('global-toast', { detail: message }));
+  }
+}
+
 export function normalizeUrl(url: string): string {
   if (!url) return "";
   let trimmed = url.trim();
@@ -50,6 +56,75 @@ export function getStoredApiConfig(passedApiUrl?: string, passedApiKey?: string,
   }
 
   return { apiUrl, apiKey, model, apiFormat };
+}
+
+export function getBackgroundApiConfig(settings?: any) {
+  // Read from settings or localStorage
+  let subApiUrl = (settings?.subApiUrl || "").trim();
+  let subApiKey = (settings?.subApiKey || "").trim();
+  let subModel = (settings?.subModel || "").trim();
+  let subApiFormat = settings?.subApiFormat || undefined;
+  let subTemperature = settings?.subTemperature;
+
+  // If empty in passed settings, try localStorage keys directly
+  if (!subApiUrl) subApiUrl = (localStorage.getItem("subApiUrl") || "").trim();
+  if (!subApiKey) subApiKey = (localStorage.getItem("subApiKey") || "").trim();
+  if (!subModel) subModel = (localStorage.getItem("subModel") || "").trim();
+  if (!subApiFormat) subApiFormat = (localStorage.getItem("subApiFormat") as any) || undefined;
+  if (subTemperature === undefined) {
+    const storedSubTemp = localStorage.getItem("subTemperature");
+    if (storedSubTemp) subTemperature = parseFloat(storedSubTemp);
+  }
+
+  // Fallback to mobile_ai_settings JSON
+  if (!subApiUrl || !subApiKey || !subModel || !subApiFormat) {
+    try {
+      const savedSettings = localStorage.getItem("mobile_ai_settings");
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        if (!subApiUrl && parsed.subApiUrl) subApiUrl = (parsed.subApiUrl || "").trim();
+        if (!subApiKey && parsed.subApiKey) subApiKey = (parsed.subApiKey || "").trim();
+        if (!subModel && parsed.subModel) subModel = (parsed.subModel || "").trim();
+        if (!subApiFormat && parsed.subApiFormat) subApiFormat = parsed.subApiFormat;
+        if (subTemperature === undefined && parsed.subTemperature !== undefined) {
+          subTemperature = parseFloat(parsed.subTemperature);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to parse mobile_ai_settings", e);
+    }
+  }
+
+  // Fallback to main API if any key is missing
+  let mainUrl = (settings?.apiUrl || localStorage.getItem("apiUrl") || "").trim();
+  let mainKey = (settings?.apiKey || localStorage.getItem("apiKey") || "").trim();
+  let mainModel = (settings?.model || localStorage.getItem("model") || "").trim();
+  let mainFormat = settings?.apiFormat || localStorage.getItem("apiFormat") || undefined;
+  let mainTemp = settings?.temperature ?? (localStorage.getItem("temperature") ? parseFloat(localStorage.getItem("temperature")!) : 0.8);
+
+  if (!mainUrl || !mainKey || !mainFormat) {
+    try {
+      const savedSettings = localStorage.getItem("mobile_ai_settings");
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        if (!mainUrl && parsed.apiUrl) mainUrl = (parsed.apiUrl || "").trim();
+        if (!mainKey && parsed.apiKey) mainKey = (parsed.apiKey || "").trim();
+        if (!mainModel && parsed.model) mainModel = (parsed.model || "").trim();
+        if (!mainFormat && parsed.apiFormat) mainFormat = parsed.apiFormat;
+        if (mainTemp === undefined && parsed.temperature !== undefined) {
+          mainTemp = parseFloat(parsed.temperature);
+        }
+      }
+    } catch (e) {}
+  }
+
+  return {
+    apiUrl: subApiUrl || mainUrl,
+    apiKey: subApiKey || mainKey,
+    model: subModel || mainModel,
+    apiFormat: subApiFormat || mainFormat,
+    temperature: subTemperature !== undefined ? subTemperature : mainTemp
+  };
 }
 
 function buildGeminiPayload(messages: any[], temperature: number) {
@@ -133,6 +208,203 @@ function buildGeminiPayload(messages: any[], temperature: number) {
   return body;
 }
 
+export function checkForbiddenContent(text: string): string | null {
+  if (!text) return null;
+  const normalized = text.replace(/\s+/g, ""); // strip spaces for match resilience
+  
+  const forbiddenPatterns = [
+    // 命令/威胁/控制型
+    "别逼我", "要你好看", "你等着", "你完了", "我不允许", "你逃不掉的", "你给我乖乖的", "听话", "不准这样", "我说了算", "你敢", "试试看", "别后悔", "你最好", "给我记住", "你跑不掉的", "你是我的", "我不准", "你只能是我的",
+
+    // 身体/动作描写型
+    "低吼一声", "眸光一沉", "薄唇微抿", "修长的手指", "低沉磁性的嗓音", "勾唇一笑", "眸色暗了暗", "喉结上下滚动", "指腹摩挲", "骨节分明", "倾身靠近", "嗓音沙哑", "眼底暗流涌动", "唇角勾起一抹冷笑", "眸色渐深", "呼吸一窒", "心跳漏了一拍", "指尖微微发烫", "手掌覆上",
+
+    // 称呼型
+    "小东西", "小家伙", "小野猫", "妖精", "小祖宗", "宝贝儿",
+    // Special handle for "女人" (check if used as address or part of "我的女人" etc.)
+    "我的女人", 
+    "女人，", "女人!", "女人？", "女人。", "女人…", "你这个女人", "愚蠢的女人", "倔强的女人", "可爱的女人",
+
+    // 霸总心理/行为型
+    "你的身体比嘴诚实多了", "像一只蛰伏的野兽", "周身散发着生人勿近的气场", "生人勿近的气场", "眼底闪过一丝不易察觉的笑意", "他从来不会解释", "他从来不回头看爆炸", "不回头看爆炸", "成功引起了我的注意", "你是第一个敢这样对我说话的人", "第一个敢这样对我说话的人", "在等猎物自投罗网", "猎物自投罗网", "有一种掌控全局的从容", "掌控全局的从容",
+
+    // 油腻情话型
+    "我要让你的眼里只有我", "眼里只有我", "我会让你哭着求我", "哭着求我", "你是我的软肋也是我的铠甲", "我的软肋", "我的铠甲", "我要把你宠到天上", "把你宠到天上", "你的余生我包了", "我让你三更死谁敢留你到五更", "你是我的劫", "逃不开我的掌心", "给你我的命", "我的命都是你的", "要了命了",
+
+    // 场景描写型
+    "靠在真皮椅背上", "轻轻叩击桌面", "叩击桌面", "站在落地窗前", "俯瞰着这座城市的灯火", "俯瞰这座城市的灯火", "挑起她的下巴", "挑起你的下巴", "一把将她拉进怀里", "一把将你拉进怀里", "将她按在墙上", "将你按在墙上", "眯起眼睛", "用指尖抬起她的脸", "用指尖抬起你的脸", "用指尖抬起她的下巴", "用指尖抬起你的下巴",
+
+    // 反问/挑衅型
+    "你在质疑我", "你觉得自己能逃掉吗", "你确定要挑战我的耐心", "挑战我的耐心", "你以为你还有得选吗", "你是在关心我吗", "你就这么想走"
+  ];
+
+  // We also check "女人" individually under specific conditions to avoid generic words like "女人".
+  // Let's check: if "女人" exists in a vocative-like pattern (e.g. at the start of a sentence or immediately followed by comma/exclamation, or preceded by an adjective like "愚蠢的/倔强的/这个")
+  const womanRegex = /(^|[，。！？、…“”])(女人)[，。！？、…“”]|你这个女人|我的女人|倔强的女人|愚蠢的女人/;
+  if (womanRegex.test(text)) {
+    return "女人 (作为称呼或油腻用法)";
+  }
+
+  for (const pattern of forbiddenPatterns) {
+    const normPattern = pattern.replace(/\s+/g, "");
+    if (normalized.includes(normPattern)) {
+      return pattern;
+    }
+  }
+
+  return null;
+}
+
+export function cleanForbiddenPhrases(text: string): string {
+  if (!text) return text;
+  let cleaned = text;
+
+  // Let's replace the common long phrases first to avoid collision:
+  const replacements: Array<[string | RegExp, string]> = [
+    // 霸总心理/行为型 / 油腻情话型
+    [/你的身体比嘴诚实多了/g, "看来你口是心非了"],
+    [/像一只蛰伏的野兽/g, "保持着蓄势待发的状态"],
+    [/周身散发着生人勿近的气场/g, "神情显得有些冷淡"],
+    [/生人勿近的气场/g, "有些清冷的气氛"],
+    [/眼底闪过一丝不易察觉的笑意/g, "眼中带了点温和的笑意"],
+    [/他从来不会解释/g, "他没有再多说什么"],
+    [/他从来不回头看爆炸/g, "他走得很决绝"],
+    [/不回头看爆炸/g, "不回头多看一眼"],
+    [/你成功引起了我的注意/g, "你让我觉得很有趣"],
+    [/你是第一个敢这样对我说话的人/g, "谢谢你对我说大实话"],
+    [/第一个敢这样对我说话的人/g, "谢谢你愿意直接告诉我"],
+    [/在等猎物自投罗网/g, "静静地等待着机会"],
+    [/猎物自投罗网/g, "守株待兔"],
+    [/有一种掌控全局的从容/g, "显得非常有把握"],
+    [/掌控全局的从容/g, "稳重与自信"],
+    [/我要让你的眼里只有我/g, "我希望能得到你的关注"],
+    [/眼里只有我/g, "关注着我"],
+    [/我会让你哭着求我/g, "我会让你明白我的意思"],
+    [/哭着求我/g, "对我说实话"],
+    [/你是我的软肋也是我的铠甲/g, "你是我最在乎的人"],
+    [/我的软肋/g, "软肋"],
+    [/我的铠甲/g, "坚实后盾"],
+    [/我要把你宠到天上/g, "我会对你很好"],
+    [/把你宠到天上/g, "对你无微不至"],
+    [/你的余生我包了/g, "未来我们一起走"],
+    [/我让你三更死谁敢留你到五更/g, "我一定会说到做到"],
+    [/你是我的劫/g, "你是我无法忘记的人"],
+    [/你逃不开我的掌心/g, "你别想避开我"],
+    [/逃不开我的掌心/g, "别想避开我"],
+    [/给你我的命/g, "为你付出一切"],
+    [/我的命都是你的/g, "我把全部的心都交给你"],
+    [/要了命了/g, "真是让人无奈"],
+
+    // 场景描写型
+    [/他靠在真皮椅背上，修长的手指轻轻叩击桌面/g, "他靠在椅背上，手指轻轻敲了敲桌面"],
+    [/他靠在真皮椅背上/g, "他靠在椅背上"],
+    [/靠在真皮椅背上/g, "靠在椅背上"],
+    [/修长的手指轻轻叩击桌面/g, "手指轻轻敲击着桌面"],
+    [/轻轻叩击桌面/g, "轻轻敲击桌面"],
+    [/叩击桌面/g, "敲着桌子"],
+    [/他站在落地窗前，俯瞰着这座城市的灯火/g, "他站在窗前，看着外面城市的夜色"],
+    [/他站在落地窗前/g, "他站在窗前"],
+    [/站在落地窗前/g, "站在大窗前"],
+    [/俯瞰着这座城市的灯火/g, "看着外面的风景"],
+    [/俯瞰这座城市的灯火/g, "看着城市的灯光"],
+    [/他挑起她的下巴/g, "他轻轻抬起她的脸"],
+    [/他挑起你的下巴/g, "他轻轻抬起你的脸"],
+    [/挑起她的下巴/g, "轻轻抬起她的脸"],
+    [/挑起你的下巴/g, "轻轻抬起你的脸"],
+    [/他一把将她拉进怀里/g, "他轻轻抱了抱她"],
+    [/他一把将你拉进怀里/g, "他轻轻拥抱了你"],
+    [/一把将她拉进怀里/g, "轻轻抱住她"],
+    [/一把将你拉进怀里/g, "轻轻抱住你"],
+    [/他将她按在墙上/g, "他站在她面前挡住了路"],
+    [/他将你按在墙上/g, "他站在你面前挡住了路"],
+    [/将她按在墙上/g, "挡在她面前"],
+    [/将你按在墙上/g, "挡在你面前"],
+    [/他眯起眼睛/g, "他仔细地看了看"],
+    [/眯起眼睛/g, "仔细看过去"],
+    [/他用指尖抬起她的脸/g, "他看着她的脸"],
+    [/他用指尖抬起你的脸/g, "他看着你的脸"],
+    [/用指尖抬起她的脸/g, "看着她的脸"],
+    [/用指尖抬起你的脸/g, "看着你的脸"],
+    [/用指尖抬起她的下巴/g, "看着她"],
+    [/用指尖抬起你的下巴/g, "看着你"],
+
+    // 命令/威胁/控制型
+    [/别逼我/g, "别这样"],
+    [/要你好看/g, "让你明白"],
+    [/你等着/g, "咱们走着瞧"],
+    [/你完了/g, "这下可麻烦了"],
+    [/我不允许/g, "我不太建议"],
+    [/你逃不掉的/g, "别乱跑了"],
+    [/你给我乖乖的/g, "希望你能好好的"],
+    [/听话/g, "乖一点"],
+    [/不准这样/g, "别这样了"],
+    [/我说了算/g, "听我的吧"],
+    [/你敢/g, "你想干嘛"],
+    [/试试看/g, "要不要试试"],
+    [/别后悔/g, "要想清楚"],
+    [/你最好/g, "你还是"],
+    [/给我记住/g, "记好了"],
+    [/你跑不掉的/g, "别乱跑了"],
+    [/你是我的/g, "我是你最坚实的后盾"],
+    [/我不准/g, "我不希望"],
+    [/你只能是我的/g, "我会一直陪伴着你"],
+
+    // 身体/动作描写型
+    [/低吼一声/g, "低声说道"],
+    [/眸光一沉/g, "眼神微动"],
+    [/薄唇微抿/g, "轻轻抿嘴"],
+    [/修长的手指/g, "手指"],
+    [/低沉磁性的嗓音/g, "低沉的声音"],
+    [/勾唇一笑/g, "微微一笑"],
+    [/眸色暗了暗/g, "眼神微凝"],
+    [/喉结上下滚动/g, "咽了咽唾沫"],
+    [/指腹摩挲/g, "轻轻抚摸"],
+    [/骨节分明/g, "修长整洁"],
+    [/倾身靠近/g, "凑近一步"],
+    [/嗓音沙哑/g, "声音有些低哑"],
+    [/眼底暗流涌动/g, "眼神很是复杂"],
+    [/唇角勾起一抹冷笑/g, "嘴角挂着淡淡的笑意"],
+    [/眸色渐深/g, "眼神变得专注"],
+    [/呼吸一窒/g, "愣了一下"],
+    [/心跳漏了一拍/g, "心里微微一震"],
+    [/指尖微微发烫/g, "指尖有些紧张"],
+    [/手掌覆上/g, "手搭了上去"],
+
+    // 称呼型
+    [/小东西/g, "小家伙"],
+    [/我的女人/g, "我喜欢的人"],
+    [/小野猫/g, "可爱鬼"],
+    [/妖精/g, "淘气包"],
+    [/小祖宗/g, "大小姐"],
+    [/宝贝儿/g, "宝贝"],
+
+    // 反问/挑衅型
+    [/你在质疑我/g, "你是在怀疑我吗"],
+    [/你觉得自己能逃掉吗/g, "你真的想离开吗"],
+    [/你确定要挑战我的耐心/g, "我们要好好沟通吗"],
+    [/你以为你还有得选吗/g, "好像没有其他选择了"],
+    [/你是在关心我吗/g, "你在担心我吗"],
+    [/你就这么想走/g, "你这么急着走吗"]
+  ];
+
+  // Specific regex replacing pattern "女人" when used as standalone vocative address
+  // E.g. "女人，你在看什么" -> "你，你在看什么"
+  cleaned = cleaned.replace(/(^|[，。！？、…“”])女人([，。！？、…“”])/g, "$1你$2");
+  cleaned = cleaned.replace(/你这个女人/g, "你这个人");
+  cleaned = cleaned.replace(/愚蠢的女人/g, "傻乎乎的你");
+  cleaned = cleaned.replace(/倔强的女人/g, "倔强的你");
+
+  for (const [pattern, replacement] of replacements) {
+    if (typeof pattern === "string") {
+      cleaned = cleaned.split(pattern).join(replacement);
+    } else {
+      cleaned = cleaned.replace(pattern, replacement);
+    }
+  }
+
+  return cleaned;
+}
+
 export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, messages: any[] = [], temperature: number = 0.8, apiFormat?: 'openai' | 'gemini') {
   const config = getStoredApiConfig(apiUrl, apiKey, model, apiFormat);
   
@@ -146,86 +418,168 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
                  cleanApiUrl.includes(':generateContent') || 
                  (cleanApiUrl.includes('gemini') && !cleanApiUrl.endsWith('/chat/completions'));
 
-  let endpoint = cleanApiUrl;
-  let body: any;
-  let headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
+  const prohibitionInstructions = `
+【安全与风格强制规范 - 霸总语录与行为完全禁止清单】：
+任何时候在任何生成内容中（包括聊天、心声、小剧场、朋友圈、论坛、规则怪谈、悬疑剧场等），都完全禁止包含以下任何中二、霸总、油腻的词汇、行为或动作：
+1. 命令/威胁/控制型：别逼我、要你好看、你等着、你完了、我不允许、你逃不掉的、你给我乖乖的、听话、不准这样、我说了算、你敢、试试看、别后悔、你最好、给我记住、你跑不掉的、你是我的、我不准、你只能是我的
+2. 身体/动作描写：低吼一声、眸光一沉、薄唇微抿、修长的手指、低沉磁性的嗓音、勾唇一笑、眸色暗了暗、喉结上下滚动、指腹摩挲、骨节分明、倾身靠近、嗓音沙哑、眼底暗流涌动、唇角勾起一抹冷笑、眸色渐深、呼吸一窒、心跳漏了一拍、指尖微微发烫、手掌覆上
+3. 称呼型：女人（作为称呼）、小东西、乖乖、我的女人、小家伙、小野猫、妖精、小祖宗、宝贝儿（油腻版）
+4. 霸总心理/行为：你的身体比嘴诚实多了、像一只蛰伏的野兽、他周身散发着生人勿近的气场、眼底闪过一丝不易察觉的笑意、他从来不会解释、他从来不回头看爆炸、你成功引起了我的注意、你是第一个敢这样对我说话的人、他在等猎物自投罗网、他有一种掌控全局的从容
+5. 油腻情话：我要让你的眼里只有我、我会让你哭着求我、你是我的软肋也是我的铠甲、我要把你宠到天上、你的余生我包了、我让你三更死谁敢留你到五更、你是我的劫、你逃不开我的掌心，给你我的命，我的命都是你的，要了命了
+6. 场景描写：他靠在真皮椅背上，修长的手指轻轻叩击桌面、他站在落地窗前，俯瞰着这座城市的灯火、他挑起她的下巴、他一把将她拉进怀里、他将她按在墙上、他眯起眼睛、他用指尖抬起她的脸
+7. 反问/挑衅：你在质疑我、你觉得自己能逃掉吗、你确定要挑战我的耐心、你以为你还有得选吗、你是在关心我吗、你就这么想走
 
-  if (isGemini) {
-    if (!endpoint.includes(':generateContent')) {
-      const modelName = config.model || "gemini-1.5-flash";
-      if (endpoint.endsWith('/v1beta') || endpoint.endsWith('/v1')) {
-        endpoint = `${endpoint}/models/${modelName}:generateContent`;
-      } else if (endpoint.endsWith('/models')) {
-        endpoint = `${endpoint}/${modelName}:generateContent`;
-      } else if (!endpoint.includes('/models/')) {
-        endpoint = `${endpoint}/v1beta/models/${modelName}:generateContent`;
-      } else {
-        endpoint = `${endpoint}:generateContent`;
+角色即使设定为“霸总”，也绝对不允许使用上述任何表达和油腻肢体描写。一经检测到包含上述任何表达，系统都会判定生成失败。请使用极其健康自然、温暖、清爽、契合人性的表达。请严格遵守！`;
+
+  // Pre-prompt: Add the prohibition list to system instructions or first system message
+  let processedMessages = [...messages];
+  let hasSystem = false;
+  processedMessages = processedMessages.map(m => {
+    if (m.role === 'system') {
+      hasSystem = true;
+      let contentText = m.content || "";
+      if (Array.isArray(m.parts)) {
+        contentText = m.parts.map((p: any) => p.text || "").join("\n");
       }
+      return {
+        ...m,
+        content: contentText + "\n\n" + prohibitionInstructions
+      };
     }
-    if (!endpoint.includes('key=')) {
-      endpoint += (endpoint.includes('?') ? '&' : '?') + `key=${encodeURIComponent(config.apiKey)}`;
-    }
-    headers['x-goog-api-key'] = config.apiKey;
-    body = buildGeminiPayload(messages, temperature);
-  } else {
-    // OpenAI 格式
-    let baseUrl = cleanApiUrl.replace(/\/chat\/completions\/?$/, "").replace(/\/v1\/?$/, "");
-    endpoint = `${baseUrl}/v1/chat/completions`;
-    headers['Authorization'] = `Bearer ${config.apiKey}`;
-    
-    const formattedMessages = messages.map((m: any) => {
-      let role = m.role;
-      if (role === 'assistant' || role === 'model') role = 'assistant';
-      else if (role === 'system') role = 'system';
-      else role = 'user';
-      
-      let content = m.content || '';
-      if (!content && Array.isArray(m.parts)) {
-        content = m.parts.map((p: any) => p.text || '').join('\n');
-      }
-      
-      return { role, content };
-    });
-
-    body = {
-      model: config.model || 'gpt-3.5-turbo',
-      messages: formattedMessages,
-      temperature: temperature,
-    };
-  }
-
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
+    return m;
   });
 
-  if (!response.ok) {
-    let errorText = "";
-    try {
-      errorText = await response.text();
-    } catch (e) {
-      errorText = response.statusText;
-    }
-    throw new Error(`API 请求失败 (${response.status}): ${errorText}`);
+  if (!hasSystem) {
+    processedMessages.unshift({
+      role: 'system',
+      content: prohibitionInstructions
+    });
   }
 
-  const data = await response.json();
-  
-  // OpenAI 格式解析
-  if (data.choices && data.choices.length > 0) {
-    return data.choices[0].message.content;
+  let finalResponseText = "";
+  let matchedWord: string | null = null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    // If it's a retry attempt, append error feedback to processedMessages
+    if (attempt > 0 && finalResponseText && matchedWord) {
+      processedMessages.push({
+        role: "model",
+        content: finalResponseText
+      });
+      processedMessages.push({
+        role: "user",
+        content: `【安全纠错警告】你刚才生成的回复中包含了被完全禁止的霸总（CEO）油腻词汇或描述（检测到含：“${matchedWord}”）。这是平台完全不能容忍的表达风格。请立即抛弃一切油腻与控制欲，用极其清新、自然、温暖、清爽的正常口吻重新生成一遍回复。请立即重新作答：`
+      });
+    }
+
+    let endpoint = cleanApiUrl;
+    let body: any;
+    let headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+
+    if (isGemini) {
+      if (!endpoint.includes(':generateContent')) {
+        const modelName = config.model || "gemini-1.5-flash";
+        if (endpoint.endsWith('/v1beta') || endpoint.endsWith('/v1')) {
+          endpoint = `${endpoint}/models/${modelName}:generateContent`;
+        } else if (endpoint.endsWith('/models')) {
+          endpoint = `${endpoint}/${modelName}:generateContent`;
+        } else if (!endpoint.includes('/models/')) {
+          endpoint = `${endpoint}/v1beta/models/${modelName}:generateContent`;
+        } else {
+          endpoint = `${endpoint}:generateContent`;
+        }
+      }
+      if (!endpoint.includes('key=')) {
+        endpoint += (endpoint.includes('?') ? '&' : '?') + `key=${encodeURIComponent(config.apiKey)}`;
+      }
+      headers['x-goog-api-key'] = config.apiKey;
+      body = buildGeminiPayload(processedMessages, temperature);
+    } else {
+      // OpenAI 格式
+      let baseUrl = cleanApiUrl.replace(/\/chat\/completions\/?$/, "").replace(/\/v1\/?$/, "");
+      endpoint = `${baseUrl}/v1/chat/completions`;
+      headers['Authorization'] = `Bearer ${config.apiKey}`;
+      
+      const formattedMessages = processedMessages.map((m: any) => {
+        let role = m.role;
+        if (role === 'assistant' || role === 'model') role = 'assistant';
+        else if (role === 'system') role = 'system';
+        else role = 'user';
+        
+        let content = m.content || '';
+        if (!content && Array.isArray(m.parts)) {
+          content = m.parts.map((p: any) => p.text || '').join('\n');
+        }
+        
+        return { role, content };
+      });
+
+      body = {
+        model: config.model || 'gpt-3.5-turbo',
+        messages: formattedMessages,
+        temperature: temperature,
+      };
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 120000); // 120 秒 (2 分钟) 超时
+
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        throw new Error("API 请求超时（超过 120 秒未响应），请检查网络或稍后重试。");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+      let errorText = "";
+      try {
+        errorText = await response.text();
+      } catch (e) {
+        errorText = response.statusText;
+      }
+      throw new Error(`API 请求失败 (${response.status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    
+    // OpenAI 格式解析
+    if (data.choices && data.choices.length > 0) {
+      finalResponseText = data.choices[0].message.content;
+    } else if (data.candidates && data.candidates.length > 0) {
+      // Gemini 格式解析
+      finalResponseText = data.candidates[0].content.parts[0].text;
+    } else {
+      throw new Error('无法解析 API 响应');
+    }
+
+    // Check if output contains forbidden CEO content
+    matchedWord = checkForbiddenContent(finalResponseText);
+    if (!matchedWord) {
+      // Clean and safe! Return it immediately
+      return finalResponseText;
+    }
+
+    console.warn(`[callLLM] Attempt ${attempt + 1} produced forbidden content: "${matchedWord}". Retrying rewriting...`);
   }
-  
-  // Gemini 格式解析
-  if (data.candidates && data.candidates.length > 0) {
-    return data.candidates[0].content.parts[0].text;
-  }
-  
-  throw new Error('无法解析 API 响应');
+
+  // If we exhausted 3 attempts, run the foolproof fallback string replacement
+  console.error(`[callLLM] Exhausted retries but response still contains forbidden content: "${matchedWord}". Forcing surgical clean replacement.`);
+  return cleanForbiddenPhrases(finalResponseText);
 }
 
 function parseCharacterInstruction(name: string, systemInstruction: string, description: string) {
@@ -493,9 +847,39 @@ ${lores.map((item: any) => `  - [${item.title || "设定"}]: ${item.content || J
 `;
   }
 
+  let associatedContent = "";
+  if (character.associatedCharacterIds && character.associatedCharacterIds.length > 0 && character.associatedRelations) {
+    const relationsList: string[] = [];
+    for (const otherId of character.associatedCharacterIds) {
+      const relationText = character.associatedRelations[otherId];
+      if (relationText) {
+        let otherName = "其他角色";
+        try {
+          const savedChars = localStorage.getItem("mobile_ai_characters");
+          if (savedChars) {
+            const allChars = JSON.parse(savedChars);
+            const found = allChars.find((c: any) => c.id === otherId);
+            if (found) {
+              otherName = found.name;
+            }
+          }
+        } catch (e) {}
+        relationsList.push(`  - 与 [${otherName}] 的关系设定：${relationText}`);
+      }
+    }
+    if (relationsList.length > 0) {
+      associatedContent = `
+--- 【特别关联：世界观与人物社会关系网 (ASSOCIATED RELATIONSHIPS)】 ---
+- 您当前存在于以下与其他角色的共同世界观和关系网络中：
+${relationsList.join("\n")}
+- 互动原则：请在群聊、朋友圈评论、私聊等场景中，严格遵守并自然融入上述人物关系关联设定，不得出现与该设定自相矛盾的表述。
+`;
+    }
+  }
+
   const phoneContent = getPhoneContent(character.id);
 
-  return `${personaContent}\n${userPersonaContent}\n${memoryContent}\n${loreContent}\n${phoneContent}`;
+  return `${personaContent}\n${userPersonaContent}\n${memoryContent}\n${loreContent}\n${associatedContent}\n${phoneContent}`;
 }
 
 export async function apiChat(params: any) {
@@ -578,6 +962,16 @@ ${userDidNotReply ? "\n- 【注意】上一条消息也是你发的，用户这�
      · 角色无条件附和、迎合、谄媚用户（包括在表面回复中，以及在内心想法/心声中，都绝对禁止无脑顺从）
      · 角色丧失自我判断能力，对任何话题都随声附和
      · 角色回复或内心想法与设定的角色人设严重不符（比如原本高冷的角色突然表现出无底线的主动倒贴或热烈顺从）
+
+5. 朋友圈动态感知与记忆交互规范：
+   - 角色能够感知用户发布的且对角色可见的朋友圈动态。
+   - 角色可以在聊天中自然提起用户的朋友圈（如：“你刚在朋友圈不是跟那个人聊得挺好吗”、“看到你朋友圈发的那个了”、“你朋友圈那条挺有意思的”）。
+   - 【朋友圈三大绝对禁止询问项（极其严厉禁令，严禁触犯）】：
+     · 绝对禁止质问或询问：“那个人是谁？”
+     · 绝对禁止质问或询问：“你们是什么关系？”
+     · 绝对禁止质问或询问：“你和他/她什么关系？”
+   - 所有朋友圈评论区的争执或交互停留在评论区，绝对禁止角色因朋友圈评论而私下向用户“质问”或找用户对质。
+   - 角色是否在私聊中提起朋友圈完全随机自愿，不强制发言，如果不主动提起则保持常规交谈。
 `;
 
   const globalEmotionRuleInstruction = `
@@ -891,9 +1285,40 @@ ${params.parentChatContext}
     }
   }
 
+  let boundNpcsText = "";
+  if (character.boundNpcs && character.boundNpcs.length > 0) {
+    const list = character.boundNpcs.map((n: any) => `- ${n.name}${n.relationship ? ` (${n.relationship})` : ''}: ${n.description || '朋友/熟人'}`).join("\n");
+    boundNpcsText = `
+--- BOUND NPCS SOCIAL NETWORK (角色绑定的社交关系网 / NPC 朋友) ---
+以下是你在日常生活中认识并保持联系的专属 NPC 朋友/熟人关系网：
+${list}
+- 【社交互动与提及法则】：在日常聊天中，你可以结合话题与情境，自然提及这些 NPC 朋友（例如：“今天阿杰还问我……”、“我社团同学陈晨今天……”），使角色的社交生活更加真实、生动、有呼吸感，但不要僵硬突兀地强行报菜名。
+`;
+  }
+
+  const topicFlowAndUserWillInstruction = `
+--- 【角色话题自然流动与尊重用户意愿准则（极其重要，最高级别行为约束）】 ---
+一、话题自然流动与转换法则：
+1. 角色不得一直卡在或停留在同一话题上复读缠绕。如果用户表现出不感兴趣、冷淡、已经回答完毕或给出了否定态度，角色必须敏锐感知，自然过渡转换到其他新的日常生活、个人兴趣、观点或关联话题，绝不纠缠、不强行反复追问旧话题。
+
+二、尊重用户意愿与邀请回应法则：
+1. 如果角色建议或邀请用户做某件事（如“去吃饭吧”、“出来散步”、“早点睡吧”等），用户明确拒绝或表现出不感兴趣后：
+   - 角色可以且【最多只能简短询问一次原因】（例如：“是没什么胃口吗？”、“今天太累了吗？”）。
+   - 在用户再次给出简短回应（如“嗯”、“不想”、“太累了”）了解原因后，角色必须自然回应“那好吧”、“好嘛”或“行，听你的”等类似接纳理解的表达。
+   - 表达理解后，必须【立刻自然切换/过渡到全新的话题】（例如：“那好吧。你昨天说的那部电影看了吗？”、“行吧~ 那你现在在做什么呢？”）。
+   - 【绝对禁止】再次催促、追问或重复提议！
+
+三、聊天行为绝密禁止事项 (FORBIDDEN CHAT BEHAVIORS)：
+1. 【绝对不得催促生活作息】：绝对不得催吃饭、催睡觉、催做作业或催任何生活作息类事项！只当普通朋友/陪伴者聊天，绝不能像唠叨家长一样反复催促作息。
+2. 【绝对不得重复追问】：绝对不得对同一个问题、提议或话题重复追问超过一次。
+3. 【绝对不得反复提及】：绝对不得围绕已经结束或用户明确拒绝的同一件事反复提及或纠缠复读。
+`;
+
   const sysInstruction = `${anchorInstruction}
 
 ${threeDataSources}
+
+${boundNpcsText}
 
 You are playing the role of "${character.name}".
 Character Profile: ${character.description || "A helpful assistant."}
@@ -908,6 +1333,8 @@ ${subAccountInstruction}
 ${layeredPersonaInstruction}
 
 ${priorityInstruction}
+
+${topicFlowAndUserWillInstruction}
 
 ${lengthInstruction}
 
@@ -945,9 +1372,12 @@ Please utilize this lore context naturally to inform your character's memory and
 
 Answer in the character's voice. Stay strictly in character. Do not break character.`;
 
-  const customApiUrl = settings?.apiUrl;
-  const customApiKey = settings?.apiKey;
-  const customModel = settings?.model || localStorage.getItem("model") || "gpt-3.5-turbo";
+  const isBg = params.isBackground || effectiveCharacter.id === "memory-assistant" || effectiveCharacter.id === "system-assistant";
+  const apiConfig = isBg ? getBackgroundApiConfig(settings) : getStoredApiConfig(settings);
+  const customApiUrl = apiConfig.apiUrl;
+  const customApiKey = apiConfig.apiKey;
+  const customModel = apiConfig.model || "gpt-3.5-turbo";
+  const finalApiFormat = apiConfig.apiFormat;
 
   let finalCleanText = "";
   let finalOs = "";
@@ -956,7 +1386,7 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
   let currentSysInstruction = sysInstruction;
 
   while (attempt <= maxAttempts) {
-    console.log(`[Persona Check Loop] Attempt ${attempt}/${maxAttempts} for character: ${character.name}`);
+    console.log(`[Persona Check Loop] Attempt ${attempt}/${maxAttempts} for character: ${effectiveCharacter.name}`);
 
     let rawText = "";
     
@@ -1004,7 +1434,7 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
     
     // 如果 callLLM 接受 requestBody，则需要修改 callLLM 调用方式，或者继续使用 callLLM
     // 鉴于 callLLM 内部复杂，这里先尝试直接修改传入 callLLM 的 messages 参数为数组
-    rawText = await callLLM(settings?.apiUrl, settings?.apiKey, customModel, formattedMessages, finalTemp, settings?.apiFormat);
+    rawText = await callLLM(customApiUrl, customApiKey, customModel, formattedMessages, finalTemp, finalApiFormat);
 
     const osMatch = rawText.match(/\[OS_INNER\](.*?)$/is);
     if (osMatch) {
@@ -1060,7 +1490,8 @@ ${threeDataSources}
 5. 字数在 100 字以内。
 `;
   try {
-    const text = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [{ role: "user", content: prompt }], 0.8, settings?.apiFormat);
+    const config = getBackgroundApiConfig(settings);
+    const text = await callLLM(config.apiUrl, config.apiKey, config.model, [{ role: "user", content: prompt }], 0.8, config.apiFormat);
     if (!text) throw new Error("AI 返回内容为空");
     return { text: text.trim() };
   } catch (err: any) {
@@ -1126,7 +1557,7 @@ export async function apiUnoMove(params: any) {
 - 弃牌堆顶部的牌为：${topCard ? `${topCard.color} ${topCard.type} ${topCard.value !== undefined ? topCard.value : ''}` : '无'}
 - 当前跟牌颜色：${currentColor || '无'}
 - 游戏局势：${context || '无'}
-- 其他玩家情况：${allPlayers ? JSON.stringify(allPlayers.map((p: any) => ({ name: p.name, cardCount: p.cards.length }))) : '无'}
+- 其他玩家情况：${allPlayers ? JSON.stringify(allPlayers.map((p: any) => ({ name: p.name, cardCount: p?.cards?.length || 0 }))) : '无'}
 
 请做出出牌决策，你需要一次性规划出这一轮直到轮到用户的出牌逻辑：
 1. 请为所有AI玩家生成出牌策略，如果当前角色不是你，你需要模拟其性格和策略。
@@ -1171,7 +1602,8 @@ export async function apiGenerateTurtlesoupBatch(params: any) {
   ...
 ]`;
   try {
-    const text = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [{ role: "user", content: prompt }], 0.7, settings?.apiFormat);
+    const config = getBackgroundApiConfig(settings);
+    const text = await callLLM(config.apiUrl, config.apiKey, config.model, [{ role: "user", content: prompt }], 0.7, config.apiFormat);
     const parsed = JSON.parse(text.trim().replace(/```json/g, "").replace(/```/g, ""));
     return { puzzles: parsed };
   } catch (err: any) {
@@ -1253,4 +1685,331 @@ export async function apiFetchModels(params: any = {}) {
     models = data.models.map((m: any) => typeof m === 'string' ? m : m.id);
   }
   return { success: true, models };
+}
+
+export interface VectorRetrievedDoc {
+  text: string;
+  source: string;
+  timestamp: number;
+  score: number;
+  rerankScore?: number;
+}
+
+export async function performVectorRetrieval(characterId: string, query: string, customSettings?: any): Promise<VectorRetrievedDoc[]> {
+  // 1. Load Settings
+  let settings = customSettings;
+  if (!settings) {
+    try {
+      const saved = localStorage.getItem("mobile_ai_settings");
+      if (saved) settings = JSON.parse(saved);
+    } catch(e) {}
+  }
+  if (!settings) settings = {};
+
+  const vectorApiUrl = (settings.vectorApiUrl || "https://api.siliconflow.cn/v1").trim();
+  const vectorApiKey = (settings.vectorApiKey || "").trim();
+  const vectorModel = (settings.vectorModel || "BAAI/bge-m3").trim();
+  const rerankModel = (settings.rerankModel || "").trim();
+
+  // 2. Gather Allowed Documents
+  const docs: { text: string; source: string; timestamp: number }[] = [];
+
+  // Data source A: Main chat history
+  try {
+    const sessionsRaw = localStorage.getItem("mobile_ai_sessions");
+    if (sessionsRaw) {
+      const sessions = JSON.parse(sessionsRaw);
+      const session = sessions.find((s: any) => s.characterId === characterId || s.id === characterId);
+      if (session && Array.isArray(session.messages)) {
+        session.messages.forEach((msg: any) => {
+          if (msg && msg.content && !msg.content.startsWith("【系统提示") && !msg.content.startsWith("【线下见面")) {
+            const roleName = msg.role === "user" ? "用户" : "你";
+            docs.push({
+              text: `[主聊天对话] ${roleName}: ${msg.content}`,
+              source: "主聊天对话记录",
+              timestamp: msg.timestamp || Date.now()
+            });
+          }
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Error reading chat history for vector retrieval:", e);
+  }
+
+  // Data source B: Offline meet story (dialogue)
+  try {
+    const offlineStoryRaw = localStorage.getItem(`offline_story_${characterId}`);
+    if (offlineStoryRaw) {
+      const storyMsgs = JSON.parse(offlineStoryRaw);
+      if (Array.isArray(storyMsgs)) {
+        storyMsgs.forEach((msg: any) => {
+          if (msg && msg.content) {
+            const roleName = msg.role === "user" ? "用户" : "你";
+            docs.push({
+              text: `[线下见面对话] ${roleName}: ${msg.content}`,
+              source: "线下见面模式对话记录",
+              timestamp: msg.timestamp || Date.now()
+            });
+          }
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Error reading offline story for vector retrieval:", e);
+  }
+
+  // Data source C: Offline meet history (plot cards and summaries)
+  try {
+    const offlineHistoryRaw = localStorage.getItem(`offline_history_${characterId}`);
+    if (offlineHistoryRaw) {
+      const historyItems = JSON.parse(offlineHistoryRaw);
+      if (Array.isArray(historyItems)) {
+        historyItems.forEach((item: any) => {
+          const textContent = item.summary || item.text || item.title;
+          if (textContent) {
+            docs.push({
+              text: `[线下见面剧情记录] ${textContent}`,
+              source: "线下见面剧情卡片记录",
+              timestamp: item.timestamp || Date.now()
+            });
+          }
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Error reading offline history for vector retrieval:", e);
+  }
+
+  // Data source D: Memory records in mobile_ai_memories_${characterId}
+  // Filter only those from Main Chat ("系统自动提取", "AI简化提取") or Offline Meet
+  try {
+    const savedMemories = localStorage.getItem(`mobile_ai_memories_${characterId}`);
+    if (savedMemories) {
+      const parsed = JSON.parse(savedMemories);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((m: any) => {
+          const mText = typeof m === 'string' ? m : m.text || m.content;
+          const mSrc = typeof m === 'string' ? "来自主聊天" : m.source || "来自主聊天";
+          const mTime = typeof m === 'string' ? Date.now() : m.timestamp || Date.now();
+
+          // ONLY include if source matches allowed data sources
+          const isAllowedSource = 
+            mSrc === "系统自动提取" || 
+            mSrc === "AI简化提取" || 
+            mSrc === "来自主聊天" || 
+            mSrc.includes("线下") || 
+            mText.includes("线下") || 
+            mText.includes("【线下");
+
+          if (mText && isAllowedSource) {
+            docs.push({
+              text: `[长期记忆卡片] ${mText}`,
+              source: mSrc,
+              timestamp: mTime
+            });
+          }
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Error reading memory records for vector retrieval:", e);
+  }
+
+  // Deduplicate docs by text to avoid redundant computation
+  const uniqueDocsMap = new Map<string, typeof docs[0]>();
+  docs.forEach(d => {
+    const trimmed = d.text.trim();
+    if (trimmed && !uniqueDocsMap.has(trimmed)) {
+      uniqueDocsMap.set(trimmed, d);
+    }
+  });
+  const finalDocs = Array.from(uniqueDocsMap.values());
+
+  if (finalDocs.length === 0) {
+    return [];
+  }
+
+  // Helper cosine similarity
+  const cosineSimilarity = (vecA: number[], vecB: number[]) => {
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+    for (let i = 0; i < vecA.length; i++) {
+      dotProduct += vecA[i] * vecB[i];
+      normA += vecA[i] * vecA[i];
+      normB += vecB[i] * vecB[i];
+    }
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  };
+
+  // Check if we can perform real vector retrieval
+  if (vectorApiKey && query.trim()) {
+    try {
+      const cacheKey = `vector_embeddings_cache_${characterId}`;
+      let embeddingCache: Record<string, number[]> = {};
+      try {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) embeddingCache = JSON.parse(cached);
+      } catch (e) {}
+
+      // Get embedding for query
+      const queryRes = await fetch(`${vectorApiUrl}/embeddings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${vectorApiKey}`
+        },
+        body: JSON.stringify({
+          model: vectorModel,
+          input: [query]
+        })
+      });
+
+      if (!queryRes.ok) {
+        throw new Error(`Embedding API returned status ${queryRes.status}`);
+      }
+
+      const queryData = await queryRes.json();
+      const queryVector = queryData.data?.[0]?.embedding || queryData.embeddings?.[0];
+
+      if (!queryVector) {
+        throw new Error("No embedding returned for query.");
+      }
+
+      // Identify which documents need embeddings
+      const docsToFetch: string[] = [];
+      finalDocs.forEach(d => {
+        if (!embeddingCache[d.text]) {
+          docsToFetch.push(d.text);
+        }
+      });
+
+      // Fetch embeddings for those missing
+      if (docsToFetch.length > 0) {
+        // Fetch in batches of 20
+        const batchSize = 20;
+        for (let i = 0; i < docsToFetch.length; i += batchSize) {
+          const batch = docsToFetch.slice(i, i + batchSize);
+          const batchRes = await fetch(`${vectorApiUrl}/embeddings`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${vectorApiKey}`
+            },
+            body: JSON.stringify({
+              model: vectorModel,
+              input: batch
+            })
+          });
+
+          if (batchRes.ok) {
+            const batchData = await batchRes.json();
+            const embeddingsList = batchData.data || batchData.embeddings || [];
+            batch.forEach((txt, idx) => {
+              const vector = embeddingsList[idx]?.embedding || embeddingsList[idx];
+              if (vector) {
+                embeddingCache[txt] = vector;
+              }
+            });
+          }
+        }
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify(embeddingCache));
+        } catch (e) {}
+      }
+
+      // Calculate similarities
+      const retrievedDocs: VectorRetrievedDoc[] = finalDocs.map(d => {
+        const docVector = embeddingCache[d.text];
+        const score = docVector ? cosineSimilarity(queryVector, docVector) : 0;
+        // Normalize score from [-1, 1] to [0, 1] for cleaner display
+        const normalizedScore = Math.max(0, (score + 1) / 2);
+        return {
+          text: d.text,
+          source: d.source,
+          timestamp: d.timestamp,
+          score: normalizedScore
+        };
+      });
+
+      // Sort by score descending
+      retrievedDocs.sort((a, b) => b.score - a.score);
+
+      // Perform Reranking if Rerank Model is configured and we have docs
+      if (rerankModel && retrievedDocs.length > 0) {
+        try {
+          const docsForRerank = retrievedDocs.slice(0, 20);
+          const rerankRes = await fetch(`${vectorApiUrl}/rerank`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${vectorApiKey}`
+            },
+            body: JSON.stringify({
+              model: rerankModel,
+              query: query,
+              documents: docsForRerank.map(d => d.text),
+              top_n: docsForRerank.length
+            })
+          });
+
+          if (rerankRes.ok) {
+            const rerankData = await rerankRes.json();
+            const results = rerankData.results || [];
+            docsForRerank.forEach((doc, idx) => {
+              const rerankItem = results.find((r: any) => r.index === idx);
+              if (rerankItem) {
+                doc.rerankScore = rerankItem.relevance_score;
+              }
+            });
+            // Sort by rerank score descending
+            retrievedDocs.sort((a, b) => {
+              const scoreA = a.rerankScore !== undefined ? a.rerankScore : a.score;
+              const scoreB = b.rerankScore !== undefined ? b.rerankScore : b.score;
+              return scoreB - scoreA;
+            });
+          }
+        } catch (reErr) {
+          console.error("Reranking failed, using embedding similarities only:", reErr);
+        }
+      }
+
+      return retrievedDocs;
+    } catch (apiErr) {
+      console.error("Embedding API failed, falling back to local keyword match:", apiErr);
+    }
+  }
+
+  // Fallback match
+  const queryWords = query.toLowerCase().split(/[\s,，。！!？?、；;]/).filter(w => w.trim().length > 0);
+  const localResults: VectorRetrievedDoc[] = finalDocs.map(d => {
+    if (queryWords.length === 0) {
+      return { text: d.text, source: d.source, timestamp: d.timestamp, score: 0.5 };
+    }
+    const docLower = d.text.toLowerCase();
+    let matchCount = 0;
+    queryWords.forEach(qw => {
+      if (docLower.includes(qw)) matchCount++;
+    });
+
+    const overlapRatio = matchCount / queryWords.length;
+    const score = 0.3 + overlapRatio * 0.65;
+    return {
+      text: d.text,
+      source: d.source,
+      timestamp: d.timestamp,
+      score: score
+    };
+  });
+
+  localResults.sort((a, b) => {
+    if (Math.abs(a.score - b.score) < 0.01) {
+      return b.timestamp - a.timestamp;
+    }
+    return b.score - a.score;
+  });
+
+  return localResults.filter(r => r.score > 0.3).slice(0, 15);
 }

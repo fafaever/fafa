@@ -1,3 +1,11 @@
+export interface BoundNPC {
+  id: string;
+  name: string;
+  avatar?: string; // Emoji or image
+  relationship?: string; // 身份/关系 (如: "大学室友", "社团学长", "咖啡馆店长")
+  description?: string; // 简短描述/性格特点
+}
+
 export interface Character {
   id: string;
   name: string;
@@ -22,6 +30,9 @@ export interface Character {
   memories?: any[]; // Character long term memories
   lores?: any[]; // Character world book settings
   userPersonaId?: string; // Bound User Persona ID
+  boundNpcs?: BoundNPC[]; // 角色专属绑定的 NPC 好友列表 (至少 3 个)
+  associatedCharacterIds?: string[]; // 关联角色 ID 列表
+  associatedRelations?: Record<string, string>; // 关联关系设定映射 { [characterId]: 关系设定描述 }
 }
 
 export interface UserPersona {
@@ -48,6 +59,7 @@ export interface Message {
     transferId: string;
   };
   momentData?: MomentPost;
+  image?: string;
   os?: string;
   senderId?: string;
   senderName?: string;
@@ -101,6 +113,16 @@ export interface AppSettings {
   model: string;
   apiFormat?: 'openai' | 'gemini';
   temperature?: number;
+  subApiUrl?: string;
+  subApiKey?: string;
+  subModel?: string;
+  subApiFormat?: 'openai' | 'gemini';
+  subTemperature?: number;
+  vectorApiUrl?: string;
+  vectorApiKey?: string;
+  vectorModel?: string;
+  vectorDimension?: number;
+  rerankModel?: string;
   apiPresets?: ApiPreset[];
   activePresetId?: string;
   worldBookGroups?: string[];

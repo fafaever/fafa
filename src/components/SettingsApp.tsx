@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { ChevronLeft, Save, Trash2, Upload, RotateCcw, Download, Plus, Check, Monitor, Layout, Type, Palette, Package, Smartphone, Image as ImageIcon, Database, Cpu, HardDrive, ChevronDown, ChevronRight, ArrowUp, ArrowDown, Eye, EyeOff } from "lucide-react";
+import { ChevronLeft, Save, Trash2, Upload, RotateCcw, Download, Plus, Check, X, Monitor, Layout, Type, Palette, Package, Smartphone, Image as ImageIcon, Database, Cpu, HardDrive, ChevronDown, ChevronRight, ArrowUp, ArrowDown, Eye, EyeOff, Brain } from "lucide-react";
 import { AppSettings, FontOption, ThemePreset } from "../types";
 import { apiFetchModels } from "../lib/api";
 
@@ -11,7 +11,7 @@ interface SettingsAppProps {
 }
 
 const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, onSaveSettings, onClose }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'main' | 'api' | 'data' | 'interface'>('main');
+  const [activeSubTab, setActiveSubTab] = useState<'main' | 'api' | 'data' | 'interface' | 'vector'>('main');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['wallpaper', 'icons', 'font']));
   
   const [initialSettings] = useState<AppSettings>({ ...settings });
@@ -23,9 +23,37 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [modelFetchResult, setModelFetchResult] = useState<{type: 'success' | 'error', message: string} | null>(null);
 
+  const [isTestingVector, setIsTestingVector] = useState(false);
+  const [vectorTestResult, setVectorTestResult] = useState<{type: 'success' | 'error', message: string} | null>(null);
+
   const [isApiPresetsExpanded, setIsApiPresetsExpanded] = useState(false);
   const [showFullApiKey, setShowFullApiKey] = useState(false);
   const [isApiKeyFocused, setIsApiKeyFocused] = useState(false);
+
+  // Redesigned Main & Sub API states
+  const [fetchedMainModels, setFetchedMainModels] = useState<string[]>([]);
+  const [isLoadingMainModels, setIsLoadingMainModels] = useState(false);
+  const [mainModelFetchResult, setMainModelFetchResult] = useState<{type: 'success' | 'error', message: string} | null>(null);
+
+  const [fetchedSubModels, setFetchedSubModels] = useState<string[]>([]);
+  const [isLoadingSubModels, setIsLoadingSubModels] = useState(false);
+  const [subModelFetchResult, setSubModelFetchResult] = useState<{type: 'success' | 'error', message: string} | null>(null);
+
+  const [fetchedVectorModels, setFetchedVectorModels] = useState<string[]>([]);
+  const [isLoadingVectorModels, setIsLoadingVectorModels] = useState(false);
+  const [vectorModelFetchResult, setVectorModelFetchResult] = useState<{type: 'success' | 'error', message: string} | null>(null);
+
+  const [showPresetSaveModal, setShowPresetSaveModal] = useState<'main' | 'sub' | 'vector' | null>(null);
+  const [presetSaveName, setPresetSaveName] = useState("");
+  const [showFullMainApiKey, setShowFullMainApiKey] = useState(false);
+  const [showFullSubApiKey, setShowFullSubApiKey] = useState(false);
+  const [showFullVectorApiKey, setShowFullVectorApiKey] = useState(false);
+  const [isMainApiKeyFocused, setIsMainApiKeyFocused] = useState(false);
+  const [isSubApiKeyFocused, setIsSubApiKeyFocused] = useState(false);
+  const [isVectorApiKeyFocused, setIsVectorApiKeyFocused] = useState(false);
+  const [isMainPresetsExpanded, setIsMainPresetsExpanded] = useState(false);
+  const [isSubPresetsExpanded, setIsSubPresetsExpanded] = useState(false);
+  const [isVectorPresetsExpanded, setIsVectorPresetsExpanded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
   const wallpaper1Ref = useRef<HTMLInputElement>(null);
@@ -143,6 +171,37 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
     alert("设置已保存并应用");
   };
 
+  const processWallpaperImage = (file: File, callback: (base64: string) => void) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 1280;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round(height * (maxDim / width));
+            width = maxDim;
+          } else {
+            width = Math.round(width * (maxDim / height));
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          callback(canvas.toDataURL('image/jpeg', 0.85));
+        }
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   const processImage = (file: File, callback: (base64: string) => void) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -176,9 +235,10 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   const handleUploadWallpaper = (screen: 1 | 2) => {
     const input = screen === 1 ? wallpaper1Ref.current : wallpaper2Ref.current;
     if (input?.files?.[0]) {
-      processImage(input.files[0], (base64) => {
+      processWallpaperImage(input.files[0], (base64) => {
         if (screen === 1) handleUpdate({ homeWallpaper: base64 });
         else handleUpdate({ homeWallpaper2: base64 });
+        if (input) input.value = '';
       });
     }
   };
@@ -280,6 +340,204 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
       apiPresets: settings.apiPresets?.filter(p => p.id !== id),
       activePresetId: settings.activePresetId === id ? undefined : settings.activePresetId
     });
+  };
+
+  const applyPresetToCard = (preset: any, type: 'main' | 'sub' | 'vector') => {
+    if (type === 'main') {
+      handleUpdate({
+        apiUrl: preset.apiUrl,
+        apiKey: preset.apiKey,
+        model: preset.model,
+        apiFormat: preset.apiFormat || 'openai',
+        temperature: preset.temperature !== undefined ? preset.temperature : 0.8,
+      });
+    } else if (type === 'sub') {
+      handleUpdate({
+        subApiUrl: preset.apiUrl,
+        subApiKey: preset.apiKey,
+        subModel: preset.model,
+        subApiFormat: preset.apiFormat || 'openai',
+        subTemperature: preset.temperature !== undefined ? preset.temperature : 0.8,
+      });
+    } else {
+      handleUpdate({
+        vectorApiUrl: preset.apiUrl,
+        vectorApiKey: preset.apiKey,
+        vectorModel: preset.model,
+      });
+    }
+  };
+
+  const savePresetToLocal = (type: 'main' | 'sub' | 'vector') => {
+    if (!presetSaveName.trim()) return;
+    let url = "";
+    let key = "";
+    let mdl = "";
+    let fmt: 'openai' | 'gemini' = "openai";
+    let temp = 0.8;
+
+    if (type === 'main') {
+      url = settings.apiUrl;
+      key = settings.apiKey;
+      mdl = settings.model;
+      fmt = settings.apiFormat || "openai";
+      temp = settings.temperature || 0.8;
+    } else if (type === 'sub') {
+      url = settings.subApiUrl || settings.apiUrl;
+      key = settings.subApiKey || "";
+      mdl = settings.subModel || "";
+      fmt = settings.subApiFormat || "openai";
+      temp = settings.subTemperature || 0.8;
+    } else {
+      url = settings.vectorApiUrl || "";
+      key = settings.vectorApiKey || "";
+      mdl = settings.vectorModel || "";
+    }
+
+    const newPreset = {
+      id: Date.now().toString(),
+      name: presetSaveName,
+      apiUrl: url,
+      apiKey: key,
+      model: mdl,
+      apiFormat: fmt,
+      temperature: temp,
+    };
+
+    handleUpdate({
+      apiPresets: [...(settings.apiPresets || []), newPreset]
+    });
+
+    setPresetSaveName("");
+    setShowPresetSaveModal(null);
+  };
+
+  const handleFetchModelsForCard = async (type: 'main' | 'sub' | 'vector') => {
+    let url = "";
+    let key = "";
+    if (type === 'main') {
+      url = settings.apiUrl;
+      key = settings.apiKey;
+    } else if (type === 'sub') {
+      url = settings.subApiUrl || settings.apiUrl;
+      key = settings.subApiKey || settings.apiKey;
+    } else {
+      url = settings.vectorApiUrl || "";
+      key = settings.vectorApiKey || "";
+    }
+
+    if (!url || !key) {
+      alert("请先填写 API 地址和 API Key！");
+      return;
+    }
+
+    if (type === 'main') {
+      setIsLoadingMainModels(true);
+      setMainModelFetchResult(null);
+    } else if (type === 'sub') {
+      setIsLoadingSubModels(true);
+      setSubModelFetchResult(null);
+    } else {
+      setIsLoadingVectorModels(true);
+      setVectorModelFetchResult(null);
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 35000);
+
+      const res = await apiFetchModels({
+        apiUrl: url,
+        apiKey: key
+      });
+      
+      clearTimeout(timeoutId);
+
+      if (res.success && res.models && res.models.length > 0) {
+        if (type === 'main') {
+          setFetchedMainModels(res.models);
+          if (!settings.model && res.models[0]) {
+            handleUpdate({ model: res.models[0] });
+          }
+          setMainModelFetchResult({type: 'success', message: '主模型拉取成功，请选择模型'});
+        } else if (type === 'sub') {
+          setFetchedSubModels(res.models);
+          if (!settings.subModel && res.models[0]) {
+            handleUpdate({ subModel: res.models[0] });
+          }
+          setSubModelFetchResult({type: 'success', message: '副模型拉取成功，请选择模型'});
+        } else {
+          setFetchedVectorModels(res.models);
+          if (!settings.vectorModel && res.models[0]) {
+            handleUpdate({ vectorModel: res.models[0] });
+          }
+          setVectorModelFetchResult({type: 'success', message: '向量模型拉取成功，请选择模型'});
+        }
+      } else {
+        const errObj = {type: 'error' as const, message: '未获取到可用模型。'};
+        if (type === 'main') setMainModelFetchResult(errObj);
+        else if (type === 'sub') setSubModelFetchResult(errObj);
+        else setVectorModelFetchResult(errObj);
+      }
+    } catch (err: any) {
+      console.error("[Fetch Models Error]:", err);
+      let errMsg = err.message;
+      if (errMsg.includes("abort")) {
+        errMsg = "拉取超时，请检查网络或中转站状态。";
+      }
+      const errObj = {type: 'error' as const, message: errMsg || "拉取模型列表失败，请手动输入模型名称。"};
+      if (type === 'main') setMainModelFetchResult(errObj);
+      else if (type === 'sub') setSubModelFetchResult(errObj);
+      else setVectorModelFetchResult(errObj);
+    } finally {
+      if (type === 'main') setIsLoadingMainModels(false);
+      else if (type === 'sub') setIsLoadingSubModels(false);
+      else setIsLoadingVectorModels(false);
+    }
+  };
+
+  const testVectorConnection = async () => {
+    const url = (settings.vectorApiUrl || "https://api.siliconflow.cn/v1").trim();
+    const key = (settings.vectorApiKey || "").trim();
+    const model = (settings.vectorModel || "BAAI/bge-m3").trim();
+
+    if (!key) {
+      alert("请先填写 Embedding API Key！");
+      return;
+    }
+
+    setIsTestingVector(true);
+    setVectorTestResult(null);
+
+    try {
+      const response = await fetch(`${url}/embeddings`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${key}`
+        },
+        body: JSON.stringify({
+          model: model,
+          input: ["测试连接"]
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data && (data.data || data.embeddings)) {
+          setVectorTestResult({ type: 'success', message: "✨ 连接测试成功！能够正常获取 Embedding 向量。" });
+        } else {
+          setVectorTestResult({ type: 'error', message: `连接成功，但返回数据格式不符合预期: ${JSON.stringify(data).slice(0, 100)}` });
+        }
+      } else {
+        const errorText = await response.text();
+        setVectorTestResult({ type: 'error', message: `连接测试失败 (${response.status}): ${errorText.slice(0, 150)}` });
+      }
+    } catch (err: any) {
+      setVectorTestResult({ type: 'error', message: `连接测试失败: ${err.message || err}` });
+    } finally {
+      setIsTestingVector(false);
+    }
   };
 
   const handleFetchModels = async () => {
@@ -473,6 +731,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
       case 'api': return "API 配置";
       case 'data': return "数据管理";
       case 'interface': return "界面设置";
+      case 'vector': return "向量记忆配置";
       default: return "系统设置";
     }
   };
@@ -504,6 +763,20 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
               <div>
                 <h3 className="text-sm font-bold text-neutral-900">API 设置</h3>
                 <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider mt-0.5">配置 LLM 接口与模型</p>
+              </div>
+            </button>
+
+            {/* Vector Memory Card */}
+            <button 
+              onClick={() => setActiveSubTab('vector')}
+              className="w-full flex items-center gap-4 p-5 bg-neutral-50 rounded-2xl border border-neutral-100 hover:bg-neutral-100 hover:border-neutral-200 transition-all text-left group"
+            >
+              <div className="w-12 h-12 bg-[#5B507A] text-white rounded-xl flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                <Brain className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900 font-serif" style={{ fontFamily: 'Playfair Display, serif' }}>向量记忆</h3>
+                <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider mt-0.5">配置向量检索与 Embedding/Rerank 模型</p>
               </div>
             </button>
 
@@ -1016,232 +1289,841 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
           </div>
         )}
 
-        {activeSubTab === 'api' && (
+        {activeSubTab === 'vector' && (
           <div className="p-6 space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
-             <div className="p-5 bg-neutral-50 rounded-2xl border border-neutral-100 space-y-6">
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">API 类型</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleUpdate({ apiFormat: 'openai' })}
-                        className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
-                          settings.apiFormat !== 'gemini' 
-                            ? 'bg-black text-white border-black shadow-xs' 
-                            : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300'
-                        }`}
-                      >
-                        OpenAI
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleUpdate({ apiFormat: 'gemini' })}
-                        className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
-                          settings.apiFormat === 'gemini' 
-                            ? 'bg-black text-white border-black shadow-xs' 
-                            : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300'
-                        }`}
-                      >
-                        Gemini
-                      </button>
-                    </div>
-                  </div>
+            {/* Header / Title Section */}
+            <div className="pb-2 border-b border-neutral-100">
+              <h2 className="text-xl font-bold font-serif tracking-tight text-neutral-900" style={{ fontFamily: 'Playfair Display, serif' }}>
+                向量记忆管理 (Vector Memory)
+              </h2>
+              <p className="text-xs text-neutral-500 font-sans mt-1">
+                配置用于角色世界书与记忆库高维向量检索的 Embedding 及 Rerank 服务
+              </p>
+            </div>
 
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">API 地址</label>
-                    <input 
-                      type="text" 
-                      value={settings.apiUrl} 
-                      onChange={e => handleUpdate({ apiUrl: e.target.value })}
-                      className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all"
-                      placeholder="https://api.openai.com/v1"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">API Key</label>
-                    <div className="relative flex items-center">
-                      <input 
-                        type="text"
-                        value={(() => {
-                          if (showFullApiKey || isApiKeyFocused) return settings.apiKey;
-                          if (!settings.apiKey) return "";
-                          if (settings.apiKey.length <= 8) return "****";
-                          return `${settings.apiKey.slice(0, 4)}...${settings.apiKey.slice(-4)}`;
-                        })()}
-                        onFocus={() => setIsApiKeyFocused(true)}
-                        onBlur={() => setIsApiKeyFocused(false)}
-                        onChange={e => handleUpdate({ apiKey: e.target.value })}
-                        className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 pr-10 text-xs outline-none focus:border-black transition-all font-mono"
-                        placeholder="sk-..."
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowFullApiKey(!showFullApiKey)}
-                        className="absolute right-3 text-neutral-400 hover:text-neutral-700 transition-colors p-1"
-                        title={showFullApiKey ? "隐藏 Key" : "显示完整 Key"}
-                      >
-                        {showFullApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-end">
-                      <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">模型名称</label>
-                      <button 
-                        type="button"
-                        onClick={handleFetchModels}
-                        disabled={isLoadingModels}
-                        className="text-[12px] text-stone-400 hover:text-black transition-colors"
-                      >
-                        {isLoadingModels ? "拉取中..." : "拉取模型"}
-                      </button>
-                    </div>
-                    
-                    {modelFetchResult && (
-                      <div className={`text-xs px-2 py-1.5 rounded-md ${modelFetchResult.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
-                        {modelFetchResult.message}
-                      </div>
-                    )}
+            {/* Main Configuration Card */}
+            <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm space-y-4 relative" id="vector-config-panel">
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
+                <span className="text-sm font-bold text-neutral-900 font-serif" style={{ fontFamily: 'Playfair Display, serif' }}>
+                  向量模型与接口参数配置
+                </span>
+                <span className="text-[10px] font-mono font-bold text-[#5B507A] uppercase">
+                  ACTIVE EMBEDDING SERVICE
+                </span>
+              </div>
 
-                    {fetchedModels.length > 0 ? (
-                      <select
-                        value={settings.model}
-                        onChange={e => handleUpdate({ model: e.target.value })}
-                        className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all appearance-none"
-                      >
-                        {fetchedModels.map(m => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        value={settings.model}
-                        onChange={e => handleUpdate({ model: e.target.value })}
-                        className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all"
-                        placeholder="请选择或输入模型"
-                      />
-                    )}
-                  </div>
+              {/* Tips */}
+              <div className="text-[11px] text-stone-500 leading-relaxed bg-stone-50 p-3 rounded-xl border border-stone-100 font-sans">
+                💡 <strong>关于向量记忆：</strong>高维向量（Embedding）用于计算对话历史与世界书设定之间的精准语义相似度。开启后，角色不仅能根据关键词触发设定，还能实现深度的模糊语义检索与情境记忆检索。
+              </div>
 
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">温度 (Temperature)</label>
-                      <span className="text-xs text-neutral-500">{settings.temperature ?? 0.8}</span>
-                    </div>
-                    <input 
-                      type="range"
-                      min="0"
-                      max="2"
-                      step="0.1"
-                      value={settings.temperature ?? 0.8}
-                      onChange={e => handleUpdate({ temperature: parseFloat(e.target.value) })}
-                      className="w-full accent-black"
-                    />
-                    <p className="text-[10px] text-neutral-400 px-1">控制回复随机性，值越高越发散，越低越确定。</p>
-                  </div>
-                </div>
+              {/* Base URL */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  Embedding Base URL (接口地址)
+                </label>
+                <input 
+                  type="text" 
+                  value={settings.vectorApiUrl || ""} 
+                  onChange={e => handleUpdate({ vectorApiUrl: e.target.value })}
+                  className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                  placeholder="https://api.siliconflow.cn/v1"
+                />
+              </div>
 
-                <div className="pt-2">
-                  <button 
-                    onClick={handleSave}
-                    className="w-full py-3 bg-black text-white rounded-xl text-xs font-bold shadow-md active:scale-[0.98] transition-all"
+              {/* API Key */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  Embedding API Key
+                </label>
+                <div className="relative flex items-center">
+                  <input 
+                    type={showFullVectorApiKey ? "text" : "password"}
+                    value={settings.vectorApiKey || ""} 
+                    onChange={e => handleUpdate({ vectorApiKey: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 pr-10 text-xs outline-none focus:border-black transition-all font-mono"
+                    placeholder="填写 API Key"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFullVectorApiKey(!showFullVectorApiKey)}
+                    className="absolute right-3 text-neutral-400 hover:text-neutral-700 transition-colors p-1"
                   >
-                    保存并应用
+                    {showFullVectorApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Embedding Model */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-end">
+                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                    Embedding 模型
+                  </label>
+                  <button 
+                    type="button"
+                    onClick={() => handleFetchModelsForCard('vector')}
+                    disabled={isLoadingVectorModels}
+                    className="text-[10px] font-bold text-[#5B507A] hover:text-black transition-colors flex items-center gap-1"
+                  >
+                    <span>{isLoadingVectorModels ? "拉取中..." : "拉取可用模型"}</span>
                   </button>
                 </div>
 
-                <div className="pt-4 border-t border-neutral-100 space-y-4">
-                  <div className="space-y-2">
-                    {isSavingApiPreset ? (
-                      <div className="flex gap-2 animate-in fade-in zoom-in-95 duration-200">
-                        <input 
-                          autoFocus
-                          type="text" 
-                          value={apiPresetName}
-                          onChange={e => setApiPresetName(e.target.value)}
-                          placeholder="输入预设名称..."
-                          className="flex-1 bg-white border border-neutral-200 rounded-xl px-3 py-2 text-xs outline-none"
-                        />
-                        <button 
-                          onClick={saveApiPreset}
-                          className="px-4 bg-black text-white rounded-xl text-[10px] font-bold"
-                        >
-                          保存
-                        </button>
-                        <button 
-                          onClick={() => setIsSavingApiPreset(false)}
-                          className="px-3 bg-neutral-100 text-neutral-600 rounded-xl text-[10px]"
-                        >
-                          取消
-                        </button>
-                      </div>
+                {vectorModelFetchResult && (
+                  <div className={`text-[10px] px-2 py-1.5 rounded-lg font-sans ${vectorModelFetchResult.type === 'success' ? 'bg-neutral-50 border border-neutral-100 text-neutral-800' : 'bg-red-50 text-red-600'}`}>
+                    {vectorModelFetchResult.message}
+                  </div>
+                )}
+
+                {fetchedVectorModels.length > 0 ? (
+                  <select
+                    value={settings.vectorModel || ""}
+                    onChange={e => handleUpdate({ vectorModel: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all appearance-none font-sans"
+                  >
+                    <option value="">-- 请选择模型 (或在下方手动输入) --</option>
+                    {fetchedVectorModels.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : null}
+
+                <input
+                  type="text"
+                  value={settings.vectorModel || ""}
+                  onChange={e => handleUpdate({ vectorModel: e.target.value })}
+                  className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                  placeholder="推荐: BAAI/bge-m3"
+                />
+              </div>
+
+              {/* Rerank Model */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  Rerank 模型 <span className="text-neutral-400 text-[9px]">(可选)</span>
+                </label>
+                <input 
+                  type="text" 
+                  value={settings.rerankModel || ""} 
+                  onChange={e => handleUpdate({ rerankModel: e.target.value })}
+                  className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                  placeholder="推荐: bge-reranker-v2-m3"
+                />
+              </div>
+
+              {/* Dimension */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  向量维度 (Dimension)
+                </label>
+                <input 
+                  type="number" 
+                  value={settings.vectorDimension ?? 1024} 
+                  onChange={e => handleUpdate({ vectorDimension: parseInt(e.target.value) || 1024 })}
+                  className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                  placeholder="1024 (bge-m3 为 1024)"
+                />
+              </div>
+
+              {/* Test Results */}
+              {vectorTestResult && (
+                <div className={`text-xs px-3 py-2.5 rounded-xl font-sans border ${
+                  vectorTestResult.type === 'success' 
+                    ? 'bg-emerald-50 border-emerald-100 text-emerald-800' 
+                    : 'bg-red-50 border-red-100 text-red-700'
+                }`}>
+                  {vectorTestResult.message}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button 
+                  type="button"
+                  onClick={testVectorConnection}
+                  disabled={isTestingVector}
+                  className="w-full py-2.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 rounded-xl text-xs font-bold transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {isTestingVector ? "测试中..." : "测试连接"}
+                </button>
+                <button 
+                  type="button"
+                  onClick={handleSave}
+                  className="w-full py-2.5 bg-black hover:bg-neutral-900 text-white rounded-xl text-xs font-bold transition-all active:scale-[0.98]"
+                >
+                  保存配置
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeSubTab === 'api' && (
+          <div className="p-6 space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
+            {/* Header / Title Section */}
+            <div className="pb-2 border-b border-neutral-100">
+              <h2 className="text-xl font-bold font-serif tracking-tight text-neutral-900" style={{ fontFamily: 'Playfair Display, serif' }}>
+                API 管理 (API Management)
+              </h2>
+              <p className="text-xs text-neutral-500 font-sans mt-1">
+                独立配置用于对话的主接口及辅助后台分析的次接口
+              </p>
+            </div>
+
+            {/* --- CARD 1: MAIN API CARD --- */}
+            <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm space-y-4 relative" id="main-api-card">
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
+                <span className="text-sm font-bold text-neutral-900 font-serif" style={{ fontFamily: 'Playfair Display, serif' }}>
+                  主 API 配置 (Main API)
+                </span>
+                <span className="text-[10px] font-mono font-bold text-neutral-400 uppercase">
+                  主对话模型
+                </span>
+              </div>
+
+              {/* API Type Select Toggle */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  API 协议类型
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdate({ apiFormat: 'openai' })}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
+                      settings.apiFormat !== 'gemini' 
+                        ? 'bg-black text-white border-black shadow-xs' 
+                        : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300'
+                    }`}
+                  >
+                    OpenAI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdate({ apiFormat: 'gemini' })}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
+                      settings.apiFormat === 'gemini' 
+                        ? 'bg-black text-white border-black shadow-xs' 
+                        : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300'
+                    }`}
+                  >
+                    Gemini
+                  </button>
+                </div>
+              </div>
+
+              {/* Base URL Input */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  Base URL (接口地址)
+                </label>
+                <input 
+                  type="text" 
+                  value={settings.apiUrl} 
+                  onChange={e => handleUpdate({ apiUrl: e.target.value })}
+                  className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                  placeholder="https://api.openai.com/v1"
+                />
+              </div>
+
+              {/* API Key with Show/Hide */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  API Key
+                </label>
+                <div className="relative flex items-center">
+                  <input 
+                    type={showFullMainApiKey ? "text" : "password"}
+                    value={settings.apiKey} 
+                    onChange={e => handleUpdate({ apiKey: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 pr-10 text-xs outline-none focus:border-black transition-all font-mono"
+                    placeholder="sk-..."
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFullMainApiKey(!showFullMainApiKey)}
+                    className="absolute right-3 text-neutral-400 hover:text-neutral-700 transition-colors p-1"
+                    title={showFullMainApiKey ? "隐藏 Key" : "显示 Key"}
+                  >
+                    {showFullMainApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Model Name Input + Pull Button */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-end">
+                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                    模型名称
+                  </label>
+                  <button 
+                    type="button"
+                    onClick={() => handleFetchModelsForCard('main')}
+                    disabled={isLoadingMainModels}
+                    className="text-[10px] font-bold text-neutral-400 hover:text-black transition-colors flex items-center gap-1"
+                  >
+                    <span>{isLoadingMainModels ? "拉取中..." : "拉取模型列表"}</span>
+                  </button>
+                </div>
+                
+                {mainModelFetchResult && (
+                  <div className={`text-[10px] px-2 py-1.5 rounded-lg font-sans ${mainModelFetchResult.type === 'success' ? 'bg-neutral-50 border border-neutral-100 text-neutral-800' : 'bg-red-50 text-red-600'}`}>
+                    {mainModelFetchResult.message}
+                  </div>
+                )}
+
+                {fetchedMainModels.length > 0 ? (
+                  <select
+                    value={settings.model}
+                    onChange={e => handleUpdate({ model: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all appearance-none font-sans"
+                  >
+                    {fetchedMainModels.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={settings.model}
+                    onChange={e => handleUpdate({ model: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                    placeholder="请输入或选择模型名称"
+                  />
+                )}
+              </div>
+
+              {/* Temperature Slider */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                    模型温度 (Temperature)
+                  </label>
+                  <span className="text-xs font-mono font-bold text-neutral-700 bg-neutral-100 px-2 py-0.5 rounded-md">
+                    {settings.temperature ?? 0.8}
+                  </span>
+                </div>
+                <input 
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={settings.temperature ?? 0.8}
+                  onChange={e => handleUpdate({ temperature: parseFloat(e.target.value) })}
+                  className="w-full accent-black cursor-pointer"
+                />
+              </div>
+
+              {/* Action Rows: Save Config Button & Preset options */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-neutral-100">
+                <button 
+                  onClick={handleSave}
+                  className="w-full py-2.5 bg-black hover:bg-neutral-900 text-white rounded-xl text-xs font-bold transition-all active:scale-[0.98]"
+                >
+                  保存配置
+                </button>
+                <button 
+                  onClick={() => setShowPresetSaveModal('main')}
+                  className="w-full py-2.5 bg-white border border-neutral-200 hover:border-black text-neutral-700 hover:text-black rounded-xl text-xs font-bold transition-all active:scale-[0.98]"
+                >
+                  保存为预设
+                </button>
+              </div>
+
+              {/* Preset Loading list */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsMainPresetsExpanded(!isMainPresetsExpanded)}
+                  className="w-full py-2 bg-neutral-50 hover:bg-neutral-100/80 border border-neutral-100 rounded-xl flex items-center justify-between px-3 text-[11px] font-bold text-neutral-600 transition-all"
+                >
+                  <span>应用/管理预设 ({settings.apiPresets?.length || 0})</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-neutral-400 transition-transform ${isMainPresetsExpanded ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isMainPresetsExpanded && (
+                  <div className="mt-2 space-y-1.5 max-h-36 overflow-y-auto pt-1">
+                    {settings.apiPresets && settings.apiPresets.length > 0 ? (
+                      settings.apiPresets.map(p => (
+                        <div key={p.id} className="flex items-center justify-between bg-neutral-50/50 p-2 rounded-lg border border-neutral-100 text-[11px]">
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="font-bold text-neutral-800 truncate">{p.name}</span>
+                            <span className="text-[9px] text-neutral-400 truncate font-mono">{p.model} / {p.apiUrl}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                            <button
+                              onClick={() => {
+                                applyPresetToCard(p, 'main');
+                                alert(`已应用预设: ${p.name}`);
+                              }}
+                              className="px-2 py-1 bg-white hover:bg-black hover:text-white rounded border border-neutral-200 font-bold text-[9px] text-neutral-600 transition-all"
+                            >
+                              应用
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`确定要删除预设“${p.name}”吗？`)) {
+                                  deleteApiPreset(p.id);
+                                }
+                              }}
+                              className="p-1 hover:text-red-500 rounded hover:bg-white text-neutral-400 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
                     ) : (
-                      <button 
-                        onClick={() => setIsSavingApiPreset(true)}
-                        className="w-full py-2.5 border-2 border-dashed border-neutral-200 rounded-xl flex items-center justify-center gap-2 text-neutral-400 hover:text-black hover:border-black transition-all group"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span className="text-[10px] font-bold">保存当前为新预设</span>
-                      </button>
+                      <p className="text-[10px] text-neutral-400 text-center py-2">暂无已保存预设</p>
                     )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+
+            {/* --- CARD 2: SUB API CARD --- */}
+            <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm space-y-4 relative" id="sub-api-card">
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
+                <span className="text-sm font-bold text-neutral-900 font-serif" style={{ fontFamily: 'Playfair Display, serif' }}>
+                  副 API 配置 (Sub API)
+                </span>
+                <span className="text-[10px] font-mono font-bold text-neutral-400 uppercase">
+                  记忆提取/后台任务
+                </span>
+              </div>
+
+              {/* Sub API Hint Description */}
+              <div className="text-[11px] text-stone-500 leading-relaxed bg-stone-50 p-3 rounded-xl border border-stone-100 font-sans">
+                💡 <strong>用于记忆提取等后台任务：</strong>不填则自动回退使用主 API。建议使用价格较低、吞吐速度更快的模型，以分担主模型的工作量。
+              </div>
+
+              {/* API Type Select Toggle */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  API 协议类型
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleUpdate({ subApiFormat: 'openai' })}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
+                      settings.subApiFormat !== 'gemini' 
+                        ? 'bg-black text-white border-black shadow-xs' 
+                        : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300'
+                    }`}
+                  >
+                    OpenAI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleUpdate({ subApiFormat: 'gemini' })}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl border transition-all ${
+                      settings.subApiFormat === 'gemini' 
+                        ? 'bg-black text-white border-black shadow-xs' 
+                        : 'bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300'
+                    }`}
+                  >
+                    Gemini
+                  </button>
+                </div>
+              </div>
+
+              {/* Base URL Input */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  Base URL (接口地址) <span className="text-neutral-400 text-[9px]">(可选)</span>
+                </label>
+                <input 
+                  type="text" 
+                  value={settings.subApiUrl || ""} 
+                  onChange={e => handleUpdate({ subApiUrl: e.target.value })}
+                  className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                  placeholder="留空则使用主 API 地址"
+                />
+              </div>
+
+              {/* API Key with Show/Hide */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  API Key <span className="text-neutral-400 text-[9px]">(可选)</span>
+                </label>
+                <div className="relative flex items-center">
+                  <input 
+                    type={showFullSubApiKey ? "text" : "password"}
+                    value={settings.subApiKey || ""} 
+                    onChange={e => handleUpdate({ subApiKey: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 pr-10 text-xs outline-none focus:border-black transition-all font-mono"
+                    placeholder="留空则使用主 API Key"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFullSubApiKey(!showFullSubApiKey)}
+                    className="absolute right-3 text-neutral-400 hover:text-neutral-700 transition-colors p-1"
+                    title={showFullSubApiKey ? "隐藏 Key" : "显示 Key"}
+                  >
+                    {showFullSubApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Model Name Input + Pull Button */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-end">
+                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                    模型名称
+                  </label>
+                  <button 
+                    type="button"
+                    onClick={() => handleFetchModelsForCard('sub')}
+                    disabled={isLoadingSubModels}
+                    className="text-[10px] font-bold text-neutral-400 hover:text-black transition-colors flex items-center gap-1"
+                  >
+                    <span>{isLoadingSubModels ? "拉取中..." : "拉取模型列表"}</span>
+                  </button>
+                </div>
+                
+                {subModelFetchResult && (
+                  <div className={`text-[10px] px-2 py-1.5 rounded-lg font-sans ${subModelFetchResult.type === 'success' ? 'bg-neutral-50 border border-neutral-100 text-neutral-800' : 'bg-red-50 text-red-600'}`}>
+                    {subModelFetchResult.message}
+                  </div>
+                )}
+
+                {fetchedSubModels.length > 0 ? (
+                  <select
+                    value={settings.subModel || ""}
+                    onChange={e => handleUpdate({ subModel: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all appearance-none font-sans"
+                  >
+                    <option value="">(继承主模型)</option>
+                    {fetchedSubModels.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={settings.subModel || ""}
+                    onChange={e => handleUpdate({ subModel: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                    placeholder="留空则使用主模型名称"
+                  />
+                )}
+              </div>
+
+              {/* Temperature Slider */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                    次模型温度 (Temperature)
+                  </label>
+                  <span className="text-xs font-mono font-bold text-neutral-700 bg-neutral-100 px-2 py-0.5 rounded-md">
+                    {settings.subTemperature ?? 0.8}
+                  </span>
+                </div>
+                <input 
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={settings.subTemperature ?? 0.8}
+                  onChange={e => handleUpdate({ subTemperature: parseFloat(e.target.value) })}
+                  className="w-full accent-black cursor-pointer"
+                />
+              </div>
+
+              {/* Action Rows: Save Config Button & Preset options */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-neutral-100">
+                <button 
+                  onClick={handleSave}
+                  className="w-full py-2.5 bg-black hover:bg-neutral-900 text-white rounded-xl text-xs font-bold transition-all active:scale-[0.98]"
+                >
+                  保存配置
+                </button>
+                <button 
+                  onClick={() => setShowPresetSaveModal('sub')}
+                  className="w-full py-2.5 bg-white border border-neutral-200 hover:border-black text-neutral-700 hover:text-black rounded-xl text-xs font-bold transition-all active:scale-[0.98]"
+                >
+                  保存为预设
+                </button>
+              </div>
+
+              {/* Preset Loading list */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSubPresetsExpanded(!isSubPresetsExpanded)}
+                  className="w-full py-2 bg-neutral-50 hover:bg-neutral-100/80 border border-neutral-100 rounded-xl flex items-center justify-between px-3 text-[11px] font-bold text-neutral-600 transition-all"
+                >
+                  <span>应用/管理预设 ({settings.apiPresets?.length || 0})</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-neutral-400 transition-transform ${isSubPresetsExpanded ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isSubPresetsExpanded && (
+                  <div className="mt-2 space-y-1.5 max-h-36 overflow-y-auto pt-1">
+                    {settings.apiPresets && settings.apiPresets.length > 0 ? (
+                      settings.apiPresets.map(p => (
+                        <div key={p.id} className="flex items-center justify-between bg-neutral-50/50 p-2 rounded-lg border border-neutral-100 text-[11px]">
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="font-bold text-neutral-800 truncate">{p.name}</span>
+                            <span className="text-[9px] text-neutral-400 truncate font-mono">{p.model} / {p.apiUrl}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                            <button
+                              onClick={() => {
+                                applyPresetToCard(p, 'sub');
+                                alert(`已应用预设: ${p.name}`);
+                              }}
+                              className="px-2 py-1 bg-white hover:bg-black hover:text-white rounded border border-neutral-200 font-bold text-[9px] text-neutral-600 transition-all"
+                            >
+                              应用
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`确定要删除预设“${p.name}”吗？`)) {
+                                  deleteApiPreset(p.id);
+                                }
+                              }}
+                              className="p-1 hover:text-red-500 rounded hover:bg-white text-neutral-400 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] text-neutral-400 text-center py-2">暂无已保存预设</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+
+            {/* --- CARD 3: VECTOR API CARD --- */}
+            <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm space-y-4 relative" id="vector-api-card">
+              <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
+                <span className="text-sm font-bold text-neutral-900 font-serif" style={{ fontFamily: 'Playfair Display, serif' }}>
+                  向量 API 配置 (Vector API)
+                </span>
+                <span className="text-[10px] font-mono font-bold text-neutral-400 uppercase">
+                  记忆检索/高维向量
+                </span>
+              </div>
+
+              {/* Vector API Hint Description */}
+              <div className="text-[11px] text-stone-500 leading-relaxed bg-stone-50 p-3 rounded-xl border border-stone-100 font-sans">
+                💡 <strong>用于记忆/设定向量匹配：</strong>用于计算世界书与记忆库的高维向量相似度检索。不配置则自动使用传统文本分词与关键词命中规则进行混合匹配。
+              </div>
+
+              {/* Base URL Input */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  Base URL (接口地址) <span className="text-neutral-400 text-[9px]">(可选)</span>
+                </label>
+                <input 
+                  type="text" 
+                  value={settings.vectorApiUrl || ""} 
+                  onChange={e => handleUpdate({ vectorApiUrl: e.target.value })}
+                  className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                  placeholder="https://api.openai.com/v1"
+                />
+              </div>
+
+              {/* API Key with Show/Hide */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  API Key <span className="text-neutral-400 text-[9px]">(可选)</span>
+                </label>
+                <div className="relative flex items-center">
+                  <input 
+                    type={showFullVectorApiKey ? "text" : "password"}
+                    value={settings.vectorApiKey || ""} 
+                    onChange={e => handleUpdate({ vectorApiKey: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 pr-10 text-xs outline-none focus:border-black transition-all font-mono"
+                    placeholder="sk-..."
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowFullVectorApiKey(!showFullVectorApiKey)}
+                    className="absolute right-3 text-neutral-400 hover:text-neutral-700 transition-colors p-1"
+                    title={showFullVectorApiKey ? "隐藏 Key" : "显示 Key"}
+                  >
+                    {showFullVectorApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Model Name Input + Pull Button */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-end">
+                  <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                    模型名称 <span className="text-neutral-400 text-[9px]">(可选)</span>
+                  </label>
+                  <button 
+                    type="button"
+                    onClick={() => handleFetchModelsForCard('vector')}
+                    disabled={isLoadingVectorModels}
+                    className="text-[10px] font-bold text-neutral-400 hover:text-black transition-colors flex items-center gap-1"
+                  >
+                    <span>{isLoadingVectorModels ? "拉取中..." : "拉取模型列表"}</span>
+                  </button>
+                </div>
+                
+                {vectorModelFetchResult && (
+                  <div className={`text-[10px] px-2 py-1.5 rounded-lg font-sans ${vectorModelFetchResult.type === 'success' ? 'bg-neutral-50 border border-neutral-100 text-neutral-800' : 'bg-red-50 text-red-600'}`}>
+                    {vectorModelFetchResult.message}
+                  </div>
+                )}
+
+                {fetchedVectorModels.length > 0 ? (
+                  <select
+                    value={settings.vectorModel || ""}
+                    onChange={e => handleUpdate({ vectorModel: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all appearance-none font-sans"
+                  >
+                    <option value="">text-embedding-3-small</option>
+                    {fetchedVectorModels.map(m => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={settings.vectorModel || ""}
+                    onChange={e => handleUpdate({ vectorModel: e.target.value })}
+                    className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                    placeholder="e.g. text-embedding-ada-002"
+                  />
+                )}
+              </div>
+
+              {/* Dimension Input */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  向量维度 (Dimension)
+                </label>
+                <input 
+                  type="number" 
+                  value={settings.vectorDimension ?? 1536} 
+                  onChange={e => handleUpdate({ vectorDimension: parseInt(e.target.value) || 1536 })}
+                  className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                  placeholder="1536"
+                />
+              </div>
+
+              {/* Action Rows: Save Config Button & Preset options */}
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-neutral-100">
+                <button 
+                  onClick={handleSave}
+                  className="w-full py-2.5 bg-black hover:bg-neutral-900 text-white rounded-xl text-xs font-bold transition-all active:scale-[0.98]"
+                >
+                  保存配置
+                </button>
+                <button 
+                  onClick={() => setShowPresetSaveModal('vector')}
+                  className="w-full py-2.5 bg-white border border-neutral-200 hover:border-black text-neutral-700 hover:text-black rounded-xl text-xs font-bold transition-all active:scale-[0.98]"
+                >
+                  保存为预设
+                </button>
+              </div>
+
+              {/* Preset Loading list */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsVectorPresetsExpanded(!isVectorPresetsExpanded)}
+                  className="w-full py-2 bg-neutral-50 hover:bg-neutral-100/80 border border-neutral-100 rounded-xl flex items-center justify-between px-3 text-[11px] font-bold text-neutral-600 transition-all"
+                >
+                  <span>应用/管理预设 ({settings.apiPresets?.length || 0})</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-neutral-400 transition-transform ${isVectorPresetsExpanded ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isVectorPresetsExpanded && (
+                  <div className="mt-2 space-y-1.5 max-h-36 overflow-y-auto pt-1">
+                    {settings.apiPresets && settings.apiPresets.length > 0 ? (
+                      settings.apiPresets.map(p => (
+                        <div key={p.id} className="flex items-center justify-between bg-neutral-50/50 p-2 rounded-lg border border-neutral-100 text-[11px]">
+                          <div className="flex flex-col min-w-0 flex-1">
+                            <span className="font-bold text-neutral-800 truncate">{p.name}</span>
+                            <span className="text-[9px] text-neutral-400 truncate font-mono">{p.model} / {p.apiUrl}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                            <button
+                              onClick={() => {
+                                applyPresetToCard(p, 'vector');
+                                alert(`已应用预设: ${p.name}`);
+                              }}
+                              className="px-2 py-1 bg-white hover:bg-black hover:text-white rounded border border-neutral-200 font-bold text-[9px] text-neutral-600 transition-all"
+                            >
+                              应用
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`确定要删除预设“${p.name}”吗？`)) {
+                                  deleteApiPreset(p.id);
+                                }
+                              }}
+                              className="p-1 hover:text-red-500 rounded hover:bg-white text-neutral-400 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] text-neutral-400 text-center py-2">暂无已保存预设</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Custom high-quality, high-contrast modal dialog to save presets */}
+            {showPresetSaveModal && (
+              <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-6 z-[120] animate-in fade-in duration-200">
+                <div className="bg-white rounded-3xl p-6 border border-neutral-100 shadow-2xl max-w-sm w-full space-y-4 animate-in zoom-in-95 duration-200">
+                  <div className="text-center space-y-1.5">
+                    <h3 className="text-sm font-bold text-neutral-900 font-serif" style={{ fontFamily: 'Playfair Display, serif' }}>
+                      保存为 API 配置预设
+                    </h3>
+                    <p className="text-[10px] text-neutral-400 leading-relaxed">
+                      请输入预设名称，保存后该预设可在任何卡片中快速加载
+                    </p>
                   </div>
 
-                  <div className="space-y-2">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={presetSaveName}
+                    onChange={e => setPresetSaveName(e.target.value)}
+                    placeholder="e.g. 零一万物, DeepSeek 高速..."
+                    className="w-full border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all"
+                    onKeyDown={e => {
+                      if (e.key === "Enter") savePresetToLocal(showPresetSaveModal);
+                      if (e.key === "Escape") setShowPresetSaveModal(null);
+                    }}
+                  />
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
                     <button
-                      onClick={() => setIsApiPresetsExpanded(!isApiPresetsExpanded)}
-                      className="w-full py-2.5 bg-white border border-neutral-200 rounded-xl flex items-center justify-between px-4 text-neutral-600 hover:text-black hover:border-black transition-all text-xs font-bold"
+                      onClick={() => setShowPresetSaveModal(null)}
+                      className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-bold text-xs py-2 rounded-xl transition-all"
                     >
-                      <span>选择预设 ({settings.apiPresets?.length || 0})</span>
-                      <ChevronRight className={`w-4 h-4 transition-transform duration-200 ${isApiPresetsExpanded ? 'rotate-90' : ''}`} />
+                      取消
                     </button>
-                    
-                    {isApiPresetsExpanded && settings.apiPresets && settings.apiPresets.length > 0 && (
-                      <div className="pt-2 space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                        {settings.apiPresets.map(p => (
-                          <div key={p.id} className="flex flex-col gap-1 p-3 bg-white border border-neutral-100 rounded-xl group transition-all hover:border-neutral-300">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-bold text-neutral-800">{p.name}</span>
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={() => {
-                                    if (window.confirm(`确认应用预设“${p.name}”的配置吗？`)) {
-                                      applyApiPreset(p);
-                                    }
-                                  }}
-                                  className="text-[10px] font-bold text-neutral-500 hover:text-black"
-                                >
-                                  应用
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    if (window.confirm(`确定要删除预设“${p.name}”吗？`)) {
-                                      deleteApiPreset(p.id);
-                                    }
-                                  }}
-                                  className="text-[10px] font-bold text-neutral-400 hover:text-red-500"
-                                >
-                                  删除
-                                </button>
-                              </div>
-                            </div>
-                            <div className="text-[10px] text-neutral-400 truncate">
-                              {p.apiUrl || '默认地址'} / {p.model || '未指定模型'}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {isApiPresetsExpanded && (!settings.apiPresets || settings.apiPresets.length === 0) && (
-                      <div className="pt-2 text-center text-xs text-neutral-400 py-4">
-                        暂无保存的预设
-                      </div>
-                    )}
+                    <button
+                      onClick={() => savePresetToLocal(showPresetSaveModal)}
+                      className="w-full bg-black hover:bg-neutral-900 text-white font-bold text-xs py-2 rounded-xl transition-all"
+                    >
+                      保存
+                    </button>
                   </div>
                 </div>
-             </div>
+              </div>
+            )}
+
           </div>
         )}
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, BookOpen, Settings, Info, UserPlus, Gamepad2, Search, Book, PenTool, Sparkles, Calendar, Image as ImageIcon, Music, Map, Cloud, Camera, Plus } from "lucide-react";
+import { MessageSquare, BookOpen, Settings, Info, UserPlus, Gamepad2, Search, Book, PenTool, Sparkles, Calendar, Image as ImageIcon, Music, Map, Cloud, Camera, Plus, Network } from "lucide-react";
 import { Character, ChatSession, AppSettings } from "../types";
 
 const LeftPlaceholder = () => (
@@ -318,7 +318,8 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
     'worldbook': '/images/tubiao/世界书.jpg',
     'creator': '/images/tubiao/档案.jpg',
     'settings': '/images/tubiao/系统设置.jpg',
-    'forum': '/images/tubiao/信息.jpg'
+    'forum': '/images/tubiao/信息.jpg',
+    'network': '/images/tubiao/关系网.jpg'
   };
 
   const getAppIcon = (key: string, fallback: React.ReactNode) => {
@@ -574,6 +575,17 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
                 {getAppIcon('memory', <span className="text-2xl grayscale">🧠</span>)}
               </div>
               <span className="text-[11px] font-bold tracking-tight text-black/60">记忆</span>
+            </button>
+
+            {/* Relationship Network */}
+            <button
+              onClick={() => onOpenApp("network")}
+              className="flex flex-col items-center gap-2.5 group focus:outline-none active:scale-95 transition-all animate-fade-in"
+            >
+              <div className="w-16 h-16 bg-white/60 backdrop-blur-md border border-neutral-100/50 rounded-[20px] flex items-center justify-center shadow-sm overflow-hidden">
+                {getAppIcon('network', <Network className="w-7 h-7 text-black/80 stroke-[1.5]" />)}
+              </div>
+              <span className="text-[11px] font-bold tracking-tight text-black/60">关系网</span>
             </button>
 
             {/* Cloud */}

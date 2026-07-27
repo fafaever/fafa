@@ -631,6 +631,11 @@ ${contextPrompt}`;
 你正在与用户进行“线下见面”互动。这是一个纯剧情小说/剧本模式，以环境白描、肢体动作、感官细节与微小停顿为主，对话为辅。
 ${onlineContextStr}
 
+【线下见面与动作心理描写规则（极其重要）】：
+1. 用户发送的【未加双引号】的内容（如：好想走啊、叹了口气、心神不定），视为动作、神态、心理活动或外部表现。角色无法直接“听到”或读取用户的内心原话或想法，只能通过观察用户的外部表现、动作、表情、语气来推测（例如：观察到用户可能有些心神不定或不耐烦，推测她可能想走了）。
+2. 用户发送的【加双引号】的内容（如：“我想走了”），视为用户明确说出来的话，角色可以直接听到并回应（例如回应“怎么就要走了？”）。
+3. 角色在回应时，必须严格区分“听到的话”和“观察到的动作/心理”，绝对不能把用户的心理描写或未说出口的动作用作直接听到的对话进行回应。
+
 【字数控制要求】：
 请务必将你的每一轮描写控制在约 ${wordLimit} 字左右（范围：${minWords}~${maxWords} 字）。
 
@@ -655,12 +660,24 @@ ${onlineContextStr}
         },
         ...priorMsgs
           .filter((m) => m.role !== "system")
-          .map((m) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.role === "user" ? `[用户行动/表达]: ${m.content}` : m.content,
-            timestamp: m.timestamp,
-          })),
+          .map((m) => {
+            if (m.role === "user") {
+              const isQuoted = (m.content.startsWith("“") && m.content.endsWith("”")) || (m.content.startsWith('"') && m.content.endsWith('"'));
+              const typeLabel = isQuoted ? "用户说出的台词（角色可直接听到并回应）" : "用户的动作、神态或心理描写（未加双引号，角色无法直接听到内心或原文，只能通过观察外部表现推测）";
+              return {
+                id: m.id,
+                role: "user" as const,
+                content: `[${typeLabel}]: ${m.content}`,
+                timestamp: m.timestamp,
+              };
+            }
+            return {
+              id: m.id,
+              role: m.role as "assistant",
+              content: m.content,
+              timestamp: m.timestamp,
+            };
+          }),
       ];
 
       const cleanCharacter = {
@@ -724,6 +741,11 @@ ${onlineContextStr}
 你正在与用户进行“线下见面”互动。这是一个纯剧情小说/剧本模式，以环境白描、肢体动作、感官细节与微小停顿为主，对话为辅。
 ${onlineContextStr}
 
+【线下见面与动作心理描写规则（极其重要）】：
+1. 用户发送的【未加双引号】的内容（如：好想走啊、叹了口气、心神不定），视为动作、神态、心理活动或外部表现。角色无法直接“听到”或读取用户的内心原话或想法，只能通过观察用户的外部表现、动作、表情、语气来推测（例如：观察到用户可能有些心神不定或不耐烦，推测她可能想走了）。
+2. 用户发送的【加双引号】的内容（如：“我想走了”），视为用户明确说出来的话，角色可以直接听到并回应（例如回应“怎么就要走了？”）。
+3. 角色在回应时，必须严格区分“听到的话”和“观察到的动作/心理”，绝对不能把用户的心理描写或未说出口的动作用作直接听到的对话进行回应。
+
 【字数控制要求】：
 请务必将你的每一轮描写控制在约 ${wordLimit} 字左右（范围：${minWords}~${maxWords} 字）。
 
@@ -748,12 +770,24 @@ ${onlineContextStr}
         },
         ...messages
           .filter((m) => m.role !== "system")
-          .map((m) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.role === "user" ? `[用户行动/表达]: ${m.content}` : m.content,
-            timestamp: m.timestamp,
-          })),
+          .map((m) => {
+            if (m.role === "user") {
+              const isQuoted = (m.content.startsWith("“") && m.content.endsWith("”")) || (m.content.startsWith('"') && m.content.endsWith('"'));
+              const typeLabel = isQuoted ? "用户说出的台词（角色可直接听到并回应）" : "用户的动作、神态或心理描写（未加双引号，角色无法直接听到内心或原文，只能通过观察外部表现推测）";
+              return {
+                id: m.id,
+                role: "user" as const,
+                content: `[${typeLabel}]: ${m.content}`,
+                timestamp: m.timestamp,
+              };
+            }
+            return {
+              id: m.id,
+              role: m.role as "assistant",
+              content: m.content,
+              timestamp: m.timestamp,
+            };
+          }),
       ];
 
       const cleanCharacter = {

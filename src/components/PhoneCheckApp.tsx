@@ -10,6 +10,7 @@ import { callLLM, getThreeDataSourcesPrompt } from "../lib/api";
 import { CharacterAvatar } from "./CharacterAvatar";
 import NotesApp from "./NotesApp";
 import { ConfirmModal } from "./ConfirmModal";
+import { generateDefaultNpcsForCharacter } from "./CharacterCreatorApp";
 
 interface PhoneCheckAppProps {
   characters: Character[];
@@ -50,6 +51,8 @@ interface NpcContact {
   avatar: string;
   messages: NpcMessage[];
 }
+
+type ContactNPC = NpcContact;
 
 interface ShoppingItem {
   id: string;
@@ -144,11 +147,26 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     // 3. Load Contacts & NPC chats
     try {
       const savedContacts = localStorage.getItem(`mobile_ai_phone_contacts_${selectedCharId}`);
-      if (savedContacts) {
-        setContacts(JSON.parse(savedContacts));
-      } else {
-        setContacts([]);
+      let existingContacts: ContactNPC[] = savedContacts ? JSON.parse(savedContacts) : [];
+
+      if (selectedChar?.boundNpcs && selectedChar.boundNpcs.length > 0) {
+        const boundContacts: ContactNPC[] = selectedChar.boundNpcs.map((npc) => ({
+          id: npc.id || `contact-${npc.name}`,
+          name: npc.name,
+          avatar: npc.avatar || "💬",
+          relation: npc.relationship || "朋友",
+          messages: [],
+        }));
+
+        const existingNames = new Set(existingContacts.map((c) => c.name));
+        boundContacts.forEach((bc) => {
+          if (!existingNames.has(bc.name)) {
+            existingContacts.push(bc);
+          }
+        });
       }
+
+      setContacts(existingContacts);
     } catch (e) {
       console.error(e);
       setContacts([]);
@@ -334,21 +352,64 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
   // ----------------------------------------------------
   const handleInitNpcContacts = async () => {
     if (!selectedChar) return;
+
+    // 1. 获取角色绑定的 NPC 列表 (若未设定则使用默认依据人设推导的NPC)
+    const boundNpcs = (selectedChar.boundNpcs && selectedChar.boundNpcs.length > 0)
+      ? selectedChar.boundNpcs
+      : generateDefaultNpcsForCharacter(selectedChar.name, selectedChar.description || "", "");
+
+    const contactsMap = new Map<string, ContactNPC>(contacts.map(c => [c.name, c]));
+
+    // 检查是否所有绑定的 NPC 都已经生成了至少一轮对话
+    const allHaveDialogues = boundNpcs.length > 0 && boundNpcs.every(npc => {
+      const existing = contactsMap.get(npc.name);
+      return existing && existing.messages && existing.messages.length > 0;
+    });
+
+    const sessionGenKey = `mobile_ai_phone_npc_rounds_${selectedChar.id}`;
+    const completedRounds = Number(localStorage.getItem(sessionGenKey) || "0");
+
+    // 机制准则 2 & 3：如果所有 NPC 对话均已生成完毕且无新话题可续，显示“暂无新对话”提示
+    if (allHaveDialogues && completedRounds >= 2) {
+      showToast("暂无新对话");
+      return;
+    }
+
     setIsGeneratingNpcs(true);
 
     try {
-      const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
-      const prompt = `${dataSourceContext}
-请根据以上角色的完整人设、记忆与世界书设定，自动生成 3-5 个与该角色相关的 NPC 联系人以及他们各自的 2-3 条对话。
-【规则】：
-1. 根据角色人设生成对应的社交圈关系（如同学、朋友、导师、店主、邻居等）。
-2. 每个 NPC 包含 2-3 条与角色的真实社交对话。
-3. 格式请输出 JSON 数组：
+      // 机制准则 1：从角色绑定的 NPC 列表中随机选取 3-5 个 NPC
+      const countToSelect = Math.min(boundNpcs.length, Math.floor(Math.random() * 3) + 3); // 3 - 5
+      const shuffledNpcs = [...boundNpcs].sort(() => 0.5 - Math.random());
+      const selectedNpcsToGen = shuffledNpcs.slice(0, countToSelect);
+
+      const npcsPromptText = selectedNpcsToGen.map(n => {
+        const existing = contactsMap.get(n.name);
+        const historyMsgs = (existing && existing.messages && existing.messages.length > 0)
+          ? existing.messages.slice(-8).map(m => `${m.sender === 'npc' ? n.name : selectedChar.name}: ${m.text}`).join("\n")
+          : "(暂无历史对话)";
+        return `NPC姓名: "${n.name}", 关系身份: "${n.relationship || '朋友'}", 简介: "${n.description || ''}", Emoji: "${n.avatar || '💬'}"
+历史对话记录:
+${historyMsgs}`;
+      }).join("\n---\n");
+
+      const prompt = `你是一个二次元手机聊天对话生成助手。
+请为角色【${selectedChar.name}】与其【${selectedNpcsToGen.length} 个绑定的 NPC 好友】生成或续接聊天对话记录。
+
+【选中的 3-5 个 NPC 及历史对话】：
+${npcsPromptText}
+
+【NPC 对话续接与更新准则】：
+1. 如果该 NPC 暂无历史对话：请生成 3-5 条两人初次或日常聊天的生活对话。
+2. 如果该 NPC 已有历史对话：
+   - 【连贯续写】：若上文话题尚未完成，请接着上文继续生成 3-6 条新对话，保持上下文语气连贯。
+   - 【开启新话题】：若上文话题已自然结束（如问候结束、事情说完），请开启一个符合两者社交身份的全新生活/工作话题，开始新一轮对话。
+3. 请输出严格纯 JSON 数组格式（不要包含 Markdown 代码块）：
 [
   {
     "name": "NPC姓名",
     "relation": "关系身份",
-    "avatar": "emoji",
+    "avatar": "Emoji",
     "messages": [
       {"sender": "npc", "text": "消息内容"},
       {"sender": "character", "text": "消息内容"}
@@ -356,54 +417,109 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
   }
 ]`;
 
-      const responseText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [
-        { role: "user", content: prompt }
-      ]);
+      let generatedResults: any[] = [];
 
-      let jsonStr = responseText;
-      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-      if (jsonMatch) jsonStr = jsonMatch[0];
+      if (settings && (settings.apiKey || settings.apiUrl)) {
+        const responseText = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [
+          { role: "user", content: prompt }
+        ]);
 
-      const parsed = JSON.parse(jsonStr);
-      if (Array.isArray(parsed) && parsed.length >= 1) {
-        const createdNpcs: NpcContact[] = parsed.map((item: any, idx: number) => ({
-          id: `npc-${Date.now()}-${idx}`,
-          name: item.name || `朋友${idx + 1}`,
-          relation: item.relation || "熟人",
-          avatar: item.avatar || ["🧑‍💻", "👩‍🌾", "🧢", "👩‍🎨", "☕"][idx % 5],
-          messages: Array.isArray(item.messages) ? item.messages.map((m: any, mIdx: number) => ({
-            id: `m-${Date.now()}-${idx}-${mIdx}`,
-            sender: m.sender === 'character' ? 'character' : 'npc',
-            text: m.text || "消息",
-            timestamp: Date.now() - (3 - mIdx) * 1800000
-          })) : []
-        }));
+        let jsonStr = responseText;
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) jsonStr = jsonMatch[0];
 
-        setContacts(createdNpcs);
-        localStorage.setItem(`mobile_ai_phone_contacts_${selectedChar.id}`, JSON.stringify(createdNpcs));
-        showToast("生成 NPC 联系人对话成功");
-      } else {
-        throw new Error("格式不匹配");
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed) && parsed.length >= 1) {
+          generatedResults = parsed;
+        }
       }
+
+      // Offline fallback
+      if (generatedResults.length === 0) {
+        generatedResults = selectedNpcsToGen.map(n => {
+          const existing = contactsMap.get(n.name);
+          const hasHistory = existing && existing.messages && existing.messages.length > 0;
+          return {
+            name: n.name,
+            relation: n.relationship || "朋友",
+            avatar: n.avatar || "💬",
+            messages: hasHistory
+              ? [
+                  { sender: "npc", text: "对了，上次说的那个事情进展如何啦？" },
+                  { sender: "character", text: "很顺利呀！比预期的还要好～" },
+                  { sender: "npc", text: "太棒啦，找机会聚聚庆祝一下！" }
+                ]
+              : [
+                  { sender: "npc", text: "最近怎么样呀？好久没联系了～" },
+                  { sender: "character", text: "还不错，最近稍微有点忙，你呢？" },
+                  { sender: "npc", text: "我也还行！周末有空一起喝咖啡。" }
+                ]
+          };
+        });
+      }
+
+      // 更新联系人与对话列表
+      const updatedContacts = [...contacts];
+      generatedResults.forEach((item: any) => {
+        const targetIndex = updatedContacts.findIndex(c => c.name === item.name);
+        const newMsgs: NpcMessage[] = Array.isArray(item.messages) ? item.messages.map((m: any, mIdx: number) => ({
+          id: `m-${Date.now()}-${Math.random().toString(36).substring(2,6)}-${mIdx}`,
+          sender: m.sender === 'character' ? 'character' : 'npc',
+          text: m.text || "消息",
+          timestamp: Date.now() - (item.messages.length - mIdx) * 60000
+        })) : [];
+
+        if (targetIndex >= 0) {
+          updatedContacts[targetIndex] = {
+            ...updatedContacts[targetIndex],
+            relation: item.relation || updatedContacts[targetIndex].relation,
+            avatar: item.avatar || updatedContacts[targetIndex].avatar,
+            messages: [...updatedContacts[targetIndex].messages, ...newMsgs]
+          };
+        } else {
+          updatedContacts.push({
+            id: `npc-${Date.now()}-${Math.random().toString(36).substring(2,6)}`,
+            name: item.name || "NPC朋友",
+            relation: item.relation || "朋友",
+            avatar: item.avatar || "💬",
+            bio: "",
+            messages: newMsgs
+          });
+        }
+      });
+
+      setContacts(updatedContacts);
+      localStorage.setItem(`mobile_ai_phone_contacts_${selectedChar.id}`, JSON.stringify(updatedContacts));
+      localStorage.setItem(sessionGenKey, String(completedRounds + 1));
+      showToast(`✨ 已随机选择 ${selectedNpcsToGen.length} 个 NPC 成功生成/续接对话！`);
     } catch (e) {
       console.error(e);
-      showToast("NPC 联系人生成失败，请检查API配置或稍后重试");
+      showToast("NPC 对话生成失败，请稍后重试");
     } finally {
       setIsGeneratingNpcs(false);
     }
   };
 
-  const handleContinueNpcChat = async (npc: NpcContact) => {
+  const handleContinueNpcChat = async (npc: ContactNPC) => {
     if (!selectedChar) return;
+
+    // 检查该 NPC 消息是否过于丰富或话题已满
+    if (npc.messages.length >= 30) {
+      showToast("暂无新对话");
+      return;
+    }
+
     setIsContinuingNpcChat(true);
 
     try {
-      const recentHistory = npc.messages.slice(-6).map(m => `${m.sender === 'npc' ? npc.name : selectedChar.name}: ${m.text}`).join("\n");
+      const recentHistory = npc.messages.slice(-8).map(m => `${m.sender === 'npc' ? npc.name : selectedChar.name}: ${m.text}`).join("\n");
       const prompt = `角色【${selectedChar.name}】与 NPC【${npc.name}（${npc.relation}）】正在聊天。
 【最近对话记录】：
 ${recentHistory}
 
-请为他们续写 8-20 条新的对话交互（符合两者身份与亲疏程度，来回对话自然流畅）。
+【规则】：
+1. 若上文话题尚未完成，请【接着上文续写 6-12 条自然连贯的对话】。
+2. 若上文话题已自然结束（如问候结束、事情说完），请【开启一个新的日常生活/工作话题】，开始新一轮对话。
 格式要求严格 JSON 数组：
 [
   {"sender": "npc", "text": "对话内容"},
@@ -436,7 +552,7 @@ ${recentHistory}
         const updatedList = contacts.map(c => c.id === npc.id ? updatedNpc : c);
         setContacts(updatedList);
         localStorage.setItem(`mobile_ai_phone_contacts_${selectedChar.id}`, JSON.stringify(updatedList));
-        showToast(`已成功生成 ${newMsgs.length} 条后续新对话`);
+        showToast(`已成功续写 ${newMsgs.length} 条新对话`);
       } else {
         throw new Error("生成失败");
       }
@@ -921,10 +1037,10 @@ ${recentHistory}
             onClick={handleInitNpcContacts}
             disabled={isGeneratingNpcs}
             className="flex items-center gap-1 text-xs font-bold bg-neutral-900 text-white px-2.5 py-1.5 rounded-full hover:bg-black active:scale-95 transition-all disabled:opacity-50"
-            title="根据人设重新生成NPC"
+            title="随机选取 3-5 个绑定 NPC 生成/续写对话"
           >
             {isGeneratingNpcs ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            <span>{isGeneratingNpcs ? "生成中" : "重新生成NPC"}</span>
+            <span>{isGeneratingNpcs ? "生成中" : "生成 NPC 对话"}</span>
           </button>
         </div>
 

@@ -23,6 +23,17 @@ export interface TheaterMessage {
   timestamp: number;
 }
 
+export interface TheaterSummaryCard {
+  id: string;
+  rangeText: string;
+  startIndex: number;
+  endIndex: number;
+  startRound: number;
+  endRound: number;
+  summary: string;
+  timestamp: number;
+}
+
 export interface ActiveTheaterSession {
   id: string;
   charId: string;
@@ -35,6 +46,7 @@ export interface ActiveTheaterSession {
   writingTone: 'daily_plain' | 'literary' | 'cold_restrained' | 'warm_soft';
   keywords: string;
   messages: TheaterMessage[];
+  summaries?: TheaterSummaryCard[];
   lastUpdated: number;
 }
 
@@ -49,6 +61,7 @@ export interface TheaterHistoryCard {
   summary: string;
   mountedLoreTitles: string[];
   messages: TheaterMessage[];
+  summaries?: TheaterSummaryCard[];
 }
 
 // SetupForm Component
@@ -187,9 +200,9 @@ export const SetupForm = ({
       <label className="text-xs font-bold text-neutral-600">叙述视角</label>
       <div className="grid grid-cols-3 gap-2">
         {[
-          { id: "first", title: "第一人称", desc: "用“我”叙述" },
-          { id: "second", title: "第二人称", desc: "称呼“你”" },
-          { id: "third", title: "第三人称", desc: "“他/她”视角" },
+          { id: "first", title: "第一人称", desc: "角色“我”/用户“你”" },
+          { id: "second", title: "第二人称", desc: "角色姓名/用户“你”" },
+          { id: "third", title: "第三人称", desc: "角色与用户均用姓名" },
         ].map((p) => (
           <button 
             key={p.id} 
@@ -300,6 +313,9 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
 
   // Interactive theater states
   const [messages, setMessages] = useState<TheaterMessage[]>([]);
+  const [summaries, setSummaries] = useState<TheaterSummaryCard[]>([]);
+  const [showActionPanel, setShowActionPanel] = useState<boolean>(false);
+  const [showSummaryModal, setShowSummaryModal] = useState<boolean>(false);
   const [inputText, setInputText] = useState("");
   const [isInputExpanded, setIsInputExpanded] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -345,10 +361,134 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
     }
   }, []);
 
+  // Helper 1: Load character memory base
+  const getCharacterMemories = (char?: Character): string[] => {
+    if (!char) return [];
+    const result: string[] = [];
+    if (Array.isArray(char.memories)) {
+      char.memories.forEach(m => {
+        const text = typeof m === 'string' ? m : m?.content;
+        if (text && !result.includes(text)) result.push(text);
+      });
+    }
+    try {
+      const saved = localStorage.getItem(`mobile_ai_memories_${char.id}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((m: any) => {
+            const text = typeof m === 'string' ? m : m?.content;
+            if (text && !result.includes(text)) result.push(text);
+          });
+        }
+      }
+    } catch (e) {}
+
+    try {
+      const chatSettings = localStorage.getItem(`chat_settings_${char.id}`);
+      if (chatSettings) {
+        const parsed = JSON.parse(chatSettings);
+        if (Array.isArray(parsed?.memories)) {
+          parsed.memories.forEach((m: any) => {
+            const text = typeof m === 'string' ? m : m?.content;
+            if (text && !result.includes(text)) result.push(text);
+          });
+        }
+      }
+    } catch (e) {}
+
+    return result;
+  };
+
+  // Helper 2: Calculate next 10-turn (or remaining) slice to summarize
+  const getUnsummarizedRange = (msgs: TheaterMessage[], existingSummaries: TheaterSummaryCard[]) => {
+    const lastEndIndex = existingSummaries && existingSummaries.length > 0 
+      ? Math.max(...existingSummaries.map(s => s.endIndex))
+      : 0;
+    
+    const lastEndRound = existingSummaries && existingSummaries.length > 0
+      ? Math.max(...existingSummaries.map(s => s.endRound))
+      : 0;
+
+    if (lastEndIndex >= msgs.length) {
+      return null;
+    }
+
+    let roundCount = 0;
+    let targetEndIndex = lastEndIndex;
+
+    for (let i = lastEndIndex; i < msgs.length; i++) {
+      if (msgs[i].role === 'assistant' || i === msgs.length - 1) {
+        roundCount++;
+        targetEndIndex = i + 1;
+        if (roundCount === 10) {
+          break;
+        }
+      }
+    }
+
+    if (roundCount === 0) {
+      return null;
+    }
+
+    const startRound = lastEndRound + 1;
+    const endRound = lastEndRound + roundCount;
+    const rangeText = `第 ${startRound} - ${endRound} 段`;
+
+    return {
+      startIndex: lastEndIndex,
+      endIndex: targetEndIndex,
+      startRound,
+      endRound,
+      rangeText,
+      messageSlice: msgs.slice(lastEndIndex, targetEndIndex)
+    };
+  };
+
+  // Helper 3: Context building rule (summarized cards + unsummarized full text)
+  const buildPayloadMessages = (msgs: TheaterMessage[], existingSummaries: TheaterSummaryCard[]) => {
+    const payload: { role: "user" | "assistant"; content: string }[] = [];
+
+    if (existingSummaries && existingSummaries.length > 0) {
+      const sorted = [...existingSummaries].sort((a, b) => a.startIndex - b.startIndex);
+      sorted.forEach(card => {
+        payload.push({
+          role: "user",
+          content: `【剧情前期记忆卡片摘要 (${card.rangeText})】：\n${card.summary}`
+        });
+      });
+
+      const maxEndIndex = Math.max(...existingSummaries.map(s => s.endIndex));
+      const unsummarized = msgs.slice(maxEndIndex);
+      unsummarized.forEach(m => {
+        if (m.role === 'user') {
+          const isQuoted = (m.content.startsWith("“") && m.content.endsWith("”")) || (m.content.startsWith('"') && m.content.endsWith('"'));
+          const typeLabel = isQuoted ? "用户说出的台词" : "用户的动作、神态或心理描写（未加双引号，角色无法直接听到内心或原文，只能通过观察外部表现推测）";
+          payload.push({ role: 'user', content: `[${typeLabel}]: ${m.content}` });
+        } else if (m.role === 'assistant') {
+          payload.push({ role: m.role, content: m.content });
+        }
+      });
+    } else {
+      msgs.forEach(m => {
+        if (m.role === 'user') {
+          const isQuoted = (m.content.startsWith("“") && m.content.endsWith("”")) || (m.content.startsWith('"') && m.content.endsWith('"'));
+          const typeLabel = isQuoted ? "用户说出的台词" : "用户的动作、神态或心理描写（未加双引号，角色无法直接听到内心或原文，只能通过观察外部表现推测）";
+          payload.push({ role: 'user', content: `[${typeLabel}]: ${m.content}` });
+        } else if (m.role === 'assistant') {
+          payload.push({ role: m.role, content: m.content });
+        }
+      });
+    }
+
+    return payload;
+  };
+
   // Sync activeSession changes to localStorage whenever messages or settings change in active session
   const saveCurrentSession = (updatedMessages?: TheaterMessage[], overrideSettings?: Partial<ActiveTheaterSession>) => {
     if (!selectedChar) return;
     const currentMsgs = updatedMessages || messages;
+    const currentSummaries = overrideSettings?.summaries !== undefined ? overrideSettings.summaries : summaries;
     const sessionObj: ActiveTheaterSession = {
       id: activeSession?.id || `session-${Date.now()}`,
       charId: selectedChar.id,
@@ -361,6 +501,7 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
       writingTone: overrideSettings?.writingTone || writingTone,
       keywords: overrideSettings?.keywords !== undefined ? overrideSettings.keywords : keywords,
       messages: currentMsgs,
+      summaries: currentSummaries,
       lastUpdated: Date.now()
     };
     setActiveSession(sessionObj);
@@ -379,8 +520,76 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
     setWritingTone(activeSession.writingTone || 'daily_plain');
     setKeywords(activeSession.keywords || "");
     setMessages(activeSession.messages || []);
+    setSummaries(activeSession.summaries || []);
     setView('theater');
     showToast("已继续上次剧场");
+  };
+
+  // Handler: Summarize 10 rounds
+  const handleSummarizeTheater = async () => {
+    if (!selectedChar) return;
+    if (isGenerating) return;
+
+    const rangeInfo = getUnsummarizedRange(messages, summaries);
+    if (!rangeInfo) {
+      showToast("暂无未总结的新剧情内容");
+      return;
+    }
+
+    setIsGenerating(true);
+    showToast(`正在生成 ${rangeInfo.rangeText} 剧情总结卡片...`);
+
+    try {
+      const sliceText = rangeInfo.messageSlice
+        .map(m => `${m.role === 'user' ? '【用户描述】' : `【${selectedChar.name}】`}: ${m.content}`)
+        .join('\n\n');
+
+      const prompt = `请将以下小剧场剧情（${rangeInfo.rangeText}）总结为一段精练生动的“剧情记忆卡片”。
+【总结要求】：
+1. 概括核心情节走向、重大事件发展、角色情感与动机变化、关键概念/设定变动。
+2. 字数控制在 150 - 300 字左右，表达生动流畅、要点清晰。
+3. 请直接输出总结正文，不要有任何多余的开场白或解释说明。
+
+【待总结剧情内容】：
+${sliceText}`;
+
+      const res = await apiChat({
+        messages: [{ role: "user", content: prompt }],
+        character: { id: "summarizer", name: "总结助手", description: "剧情卡片生成" },
+        settings: {
+          ...settings,
+          apiUrl: settings?.apiUrl || localStorage.getItem("apiUrl") || "",
+          apiKey: settings?.apiKey || localStorage.getItem("apiKey") || "",
+          model: settings?.model || localStorage.getItem("model") || "gemini-3.6-flash",
+          apiFormat: settings?.apiFormat || (localStorage.getItem("apiFormat") as any) || "openai"
+        },
+        temperature: 0.5
+      });
+
+      const summaryText = res?.text?.trim() || "剧情摘要已生成。";
+
+      const newCard: TheaterSummaryCard = {
+        id: `summary-${Date.now()}`,
+        rangeText: rangeInfo.rangeText,
+        startIndex: rangeInfo.startIndex,
+        endIndex: rangeInfo.endIndex,
+        startRound: rangeInfo.startRound,
+        endRound: rangeInfo.endRound,
+        summary: summaryText,
+        timestamp: Date.now()
+      };
+
+      const updatedSummaries = [...summaries, newCard];
+      setSummaries(updatedSummaries);
+      saveCurrentSession(messages, { summaries: updatedSummaries });
+
+      showToast(`已生成 ${rangeInfo.rangeText} 剧情记忆卡片！`);
+    } catch (err: any) {
+      console.error("[Summarize Error]:", err);
+      showToast("剧情总结卡片生成失败：" + (err?.message || "网络错误"));
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   // End and archive current session
@@ -528,6 +737,11 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
     setMessages(newMessages);
 
     try {
+      const charMemories = getCharacterMemories(selectedChar);
+      const memoryText = charMemories.length > 0 
+        ? charMemories.map((m, idx) => `${idx + 1}. ${m}`).join('\n')
+        : '（暂无角色记忆数据）';
+
       const mountedLores = (loreList || []).filter(l => mountedLoreIds.includes(l.id));
       const mountedLoreText = mountedLores.length > 0 
         ? mountedLores.map(l => `【世界书：《${l.title}》】\n关键词：${(l.keys || []).join('、')}\n设定内容：${l.content}`).join('\n\n')
@@ -535,48 +749,62 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
 
       const isOpeningScene = newMessages.length === 0 || (newMessages.length === 1 && newMessages[0].role === 'user' && newMessages[0].content.includes('开场'));
 
+      // Perspective rule
+      let perspectiveInstruction = "";
+      if (perspective === 'first') {
+        perspectiveInstruction = `第一人称：角色自称用“我”，称呼用户用“你”。`;
+      } else if (perspective === 'second') {
+        perspectiveInstruction = `第二人称：角色自称用角色姓名（“${selectedChar.name}”），称呼用户用“你”。`;
+      } else {
+        perspectiveInstruction = `第三人称：角色使用姓名（“${selectedChar.name}”），称呼用户亦使用姓名。`;
+      }
+
       const systemInstruction = `
 你现在正在进行【小剧场独立架空演绎模式】。这是一个纯文学小说/剧本演绎环境。用户是故事的【观看者/旁观者】，而不是对话对象，角色绝对不能对用户说话。
 
-【第一部分：必须强制读取的底层核心数据】：
-1. 【剧场世界设定】：
+【第一部分：强制读取的底层核心数据（必须全面结合）】：
+1. 【剧场上下文】：已由系统完整加载（包括前期剧情记忆卡片摘要与未总结段落原文）。
+2. 【剧场世界设定】：
 ${worldSetting}
 
-2. 【已挂载的世界书内容】：
+3. 【已挂载的世界书内容】：
 ${mountedLoreText}
 
-3. 【参演角色人设】：
+4. 【参演角色人设】：
 - 角色姓名：${selectedChar.name}
 - 角色性格与背景：${selectedChar.description}
 ${selectedChar.systemInstruction || ''}
 
-4. 【用户选择的叙述视角】：
-${perspective === 'first' ? '第一人称（必须通篇使用“我”进行主视角描写与叙述）' : perspective === 'second' ? '第二人称（必须通篇使用“你”来称呼和叙述主角的经历与感受）' : '第三人称（必须使用“他/她”或角色名字进行客观的叙述）'}
+5. 【角色记忆库（强制读取）】：
+${memoryText}
+
+6. 【人称规则（最高级别强制，仅对 AI 生成的剧情描述生效）】：
+- ${perspectiveInstruction}
+- 注意：用户发送的剧情描述不受限制，不影响角色的人称变化。
 
 【第二部分：严格执行的演绎规则与绝对红线】：
-1. 【视角统一】：必须严格根据用户选择的视角（${perspective === 'first' ? '第一人称' : perspective === 'second' ? '第二人称' : '第三人称'}）进行文学描写与叙述。
-2. 【绝对禁止出现以下内容（最高级别红线）】：
+1. 【视角统一】：必须严格根据人称规则（${perspective === 'first' ? '第一人称' : perspective === 'second' ? '第二人称' : '第三人称'}）进行文学描写与叙述。
+2. 【用户输入描写规则（区分听到的台词与观察到的动作/心理）】：
+   - 用户输入的【未加双引号】的内容（如：走到窗前、叹了口气、若有所思），视为用户的动作、神态或心理描写。角色无法直接“听到”或读取用户的内心原话，只能通过观察用户的外部表现、动作、表情来推测。
+   - 用户输入的【加双引号】的内容（如：“我想一个人静一静”），视为角色/人物说出来的话。
+   - 写作时必须严格区分“听到的话”和“观察到的动作/心理”，不能把用户的心理描写当成直接的对话内容。
+3. 【绝对禁止出现以下内容（最高级别红线）】：
    - 绝对禁止出现“网络信号”、“我是AI”、“加载中”、“大模型”、“API”、“服务器”等任何与剧情和文学演绎无关的现代科技或AI身份用语！
-   - 绝对禁止角色直接对用户说话（用户是故事的观看者，不是对话对象。角色在剧场剧情中独白或互动，不能把用户当成聊天对象说“你好我是...”或“你想聊什么”）。
-3. 内容必须以细腻的环境描写、心理描写、动作描写为主，对话为辅，文学代入感极强。
-4. 【排版与格式要求（绝对强制）】：
+   - 绝对禁止角色直接对用户说话（用户是故事的观看者，不是对话对象）。
+4. 内容必须以细腻的环境描写、心理描写、动作描写为主，对话为辅，文学代入感极强。
+5. 【排版与格式要求（绝对强制）】：
    - 对话内容必须使用全角双引号（“ ”）包裹，绝对不能使用星号（* *）。
    - 对话内容必须单独成行，与其他动作、环境描写段落分开。
    - 示例格式：
      他站在窗边，外面的雨刚停。
      “你来了。”
      她推开门，水珠从伞尖滴落。
-5. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
-6. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
+6. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
+7. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
 ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入，自然地开启剧情，不要附带任何多余解释。' : ''}
 `;
 
-      let payloadMessages = newMessages
-        .filter(m => m.role === "user" || m.role === "assistant")
-        .map(m => ({
-          role: m.role,
-          content: m.content
-        }));
+      let payloadMessages = buildPayloadMessages(newMessages, summaries);
 
       if (payloadMessages.length === 0) {
         payloadMessages = [{
@@ -607,7 +835,7 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
         replyLength: "long",
         replyCount: 1,
         mood: "沉浸",
-        memories: selectedChar.memories || [],
+        memories: charMemories,
         isGroup: false,
         temperature: 0.8
       });
@@ -685,6 +913,11 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
     showToast("正在重新生成该段剧情...");
 
     try {
+      const charMemories = getCharacterMemories(selectedChar);
+      const memoryText = charMemories.length > 0 
+        ? charMemories.map((m, idx) => `${idx + 1}. ${m}`).join('\n')
+        : '（暂无角色记忆数据）';
+
       const mountedLores = (loreList || []).filter(l => mountedLoreIds.includes(l.id));
       const mountedLoreText = mountedLores.length > 0 
         ? mountedLores.map(l => `【世界书：《${l.title}》】\n关键词：${(l.keys || []).join('、')}\n设定内容：${l.content}`).join('\n\n')
@@ -692,26 +925,41 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
 
       const isOpeningScene = contextBefore.length === 0;
 
+      // Perspective rule
+      let perspectiveInstruction = "";
+      if (perspective === 'first') {
+        perspectiveInstruction = `第一人称：角色自称用“我”，称呼用户用“你”。`;
+      } else if (perspective === 'second') {
+        perspectiveInstruction = `第二人称：角色自称用角色姓名（“${selectedChar.name}”），称呼用户用“你”。`;
+      } else {
+        perspectiveInstruction = `第三人称：角色使用姓名（“${selectedChar.name}”），称呼用户亦使用姓名。`;
+      }
+
       const systemInstruction = `
 你现在正在进行【小剧场独立架空演绎模式】。这是一个纯文学小说/剧本演绎环境。用户是故事的【观看者/旁观者】，而不是对话对象，角色绝对不能对用户说话。
 
-【第一部分：必须强制读取的底层核心数据】：
-1. 【剧场世界设定】：
+【第一部分：强制读取的底层核心数据（必须全面结合）】：
+1. 【剧场上下文】：已由系统完整加载（包括前期剧情记忆卡片摘要与未总结段落原文）。
+2. 【剧场世界设定】：
 ${worldSetting}
 
-2. 【已挂载的世界书内容】：
+3. 【已挂载的世界书内容】：
 ${mountedLoreText}
 
-3. 【参演角色人设】：
+4. 【参演角色人设】：
 - 角色姓名：${selectedChar.name}
 - 角色性格与背景：${selectedChar.description}
 ${selectedChar.systemInstruction || ''}
 
-4. 【用户选择的叙述视角】：
-${perspective === 'first' ? '第一人称（必须通篇使用“我”进行主视角描写与叙述）' : perspective === 'second' ? '第二人称（必须通篇使用“你”来称呼和叙述主角的经历与感受）' : '第三人称（必须使用“他/她”或角色名字进行客观的叙述）'}
+5. 【角色记忆库（强制读取）】：
+${memoryText}
+
+6. 【人称规则（最高级别强制，仅对 AI 生成的剧情描述生效）】：
+- ${perspectiveInstruction}
+- 注意：用户发送的剧情描述不受限制，不影响角色的人称变化。
 
 【第二部分：严格执行的演绎规则与绝对红线】：
-1. 【视角统一】：必须严格根据用户选择的视角（${perspective === 'first' ? '第一人称' : perspective === 'second' ? '第二人称' : '第三人称'}）进行文学描写与叙述。
+1. 【视角统一】：必须严格根据人称规则（${perspective === 'first' ? '第一人称' : perspective === 'second' ? '第二人称' : '第三人称'}）进行文学描写与叙述。
 2. 【绝对禁止出现以下内容（最高级别红线）】：
    - 绝对禁止出现“网络信号”、“我是AI”、“加载中”、“大模型”、“API”、“服务器”等任何与剧情和文学演绎无关的现代科技或AI身份用语！
    - 绝对禁止角色直接对用户说话（用户是故事的观看者，不是对话对象）。
@@ -729,12 +977,7 @@ ${perspective === 'first' ? '第一人称（必须通篇使用“我”进行主
 ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入。' : ''}
 `;
 
-      let payloadMessages = contextBefore
-        .filter(m => m.role === "user" || m.role === "assistant")
-        .map(m => ({
-          role: m.role,
-          content: m.content
-        }));
+      let payloadMessages = buildPayloadMessages(contextBefore, summaries);
 
       if (targetMsg.role === 'user') {
         payloadMessages.push({ role: 'user', content: targetMsg.content });
@@ -769,7 +1012,7 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
         replyLength: "long",
         replyCount: 1,
         mood: "沉浸",
-        memories: selectedChar.memories || [],
+        memories: charMemories,
         isGroup: false,
         temperature: 0.8
       });
@@ -1077,6 +1320,7 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
                     <p className="text-xs text-neutral-600 line-clamp-2 leading-relaxed bg-neutral-50 p-2 rounded-lg italic">
                       “{card.summary}”
                     </p>
+                    <div className="text-[10px] text-neutral-400 text-right">共 {card.summary?.length || 0} 字</div>
 
                     {card.mountedLoreTitles && card.mountedLoreTitles.length > 0 && (
                       <div className="flex items-center gap-1 flex-wrap">
@@ -1275,6 +1519,7 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
                 <div className="text-xs text-neutral-600 leading-relaxed bg-neutral-50 p-2.5 rounded-xl border border-neutral-100 italic">
                   “{card.summary}”
                 </div>
+                <div className="text-[10px] text-neutral-400 text-right pt-1">共 {card.summary?.length || 0} 字</div>
 
                 {card.mountedLoreTitles && card.mountedLoreTitles.length > 0 && (
                   <div className="flex items-center gap-1 flex-wrap pt-1">
@@ -1355,6 +1600,27 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
 
       {/* Messages Feed */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 relative">
+        {summaries.length > 0 && (
+          <div className="bg-amber-50/90 border border-amber-200/80 rounded-2xl p-3 shadow-2xs space-y-1.5 mb-2">
+            <div className="flex items-center justify-between text-xs font-bold text-amber-950">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                <span>已生成 {summaries.length} 张剧情记忆卡片</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowSummaryModal(true)}
+                className="text-[11px] text-amber-800 hover:text-amber-950 underline font-medium"
+              >
+                查看卡片列表
+              </button>
+            </div>
+            <p className="text-[10px] text-amber-800/80 line-clamp-2 leading-relaxed">
+              最新 ({summaries[summaries.length - 1].rangeText})：{summaries[summaries.length - 1].summary}
+            </p>
+          </div>
+        )}
+
         {messages.length === 0 && !isGenerating && (
           <div className="text-center py-12 px-6">
             <div className="w-12 h-12 rounded-full bg-neutral-200/60 flex items-center justify-center mx-auto mb-3">
@@ -1468,26 +1734,89 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Action Panel Sliding Out above input */}
+      {showActionPanel && (
+        <div className="bg-white border-t border-neutral-200/90 p-3 shadow-lg animate-fade-in space-y-2 border-b shrink-0 z-20">
+          <div className="flex items-center justify-between text-[11px] font-bold text-neutral-400 px-1 pb-1 border-b border-neutral-100">
+            <span>小剧场功能扩展</span>
+            <button 
+              type="button" 
+              onClick={() => setShowActionPanel(false)}
+              className="p-1 hover:bg-neutral-100 rounded-full text-neutral-400 hover:text-black"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {/* 选项 1：结束该剧场并生成卡片存档 */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowActionPanel(false);
+                setConfirmModal({
+                  show: true,
+                  title: "结束剧场？",
+                  message: "确定要结束当前剧场吗？系统将生成剧情卡片并归档至历史列表中。",
+                  onConfirm: () => {
+                    setConfirmModal(null);
+                    archiveTheater();
+                  }
+                });
+              }}
+              className="p-3 bg-neutral-50 hover:bg-neutral-100 border border-neutral-200/80 rounded-xl text-left flex flex-col gap-1 transition-all active:scale-98 group"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-neutral-900 text-white flex items-center justify-center shrink-0">
+                  <Square className="w-3.5 h-3.5 fill-current" />
+                </div>
+                <span className="font-bold text-xs text-neutral-900 group-hover:text-black">结束剧场并存档</span>
+              </div>
+              <p className="text-[10px] text-neutral-400 leading-tight">
+                结束当前剧场，生成剧情卡片归档到历史剧场
+              </p>
+            </button>
+
+            {/* 选项 2：总结 */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowActionPanel(false);
+                handleSummarizeTheater();
+              }}
+              disabled={isGenerating}
+              className="p-3 bg-amber-50/80 hover:bg-amber-100 border border-amber-200/80 rounded-xl text-left flex flex-col gap-1 transition-all active:scale-98 disabled:opacity-50 group"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-600 text-white flex items-center justify-center shrink-0">
+                  <Sparkles className="w-3.5 h-3.5" />
+                </div>
+                <span className="font-bold text-xs text-amber-950 group-hover:text-black">剧情总结</span>
+              </div>
+              <p className="text-[10px] text-amber-700/80 leading-tight">
+                {summaries.length > 0 
+                  ? `自动总结下 10 段 (已有 ${summaries.length} 张卡片)` 
+                  : "自动总结前 10 段并生成记忆卡片"}
+              </p>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Control Bar & Input Section */}
       <div className="p-3 bg-white border-t border-neutral-200/80 shrink-0 space-y-2">
         <div className="flex items-end gap-2">
-          {/* 结束剧场按钮 */}
+          {/* 输入框左侧“+”号按钮 */}
           <button 
-            onClick={() => {
-              setConfirmModal({
-                show: true,
-                title: "结束剧场？",
-                message: "确定要结束当前剧场吗？系统将生成剧情卡片并归档至历史列表中。",
-                onConfirm: () => {
-                  setConfirmModal(null);
-                  archiveTheater();
-                }
-              });
-            }}
-            className="p-2.5 text-neutral-400 hover:text-red-600 hover:bg-neutral-100 rounded-xl transition-all active:scale-95 flex items-center justify-center shrink-0 mb-0.5"
-            title="结束剧场"
+            type="button"
+            onClick={() => setShowActionPanel(!showActionPanel)}
+            className={`p-2.5 rounded-xl transition-all active:scale-95 flex items-center justify-center shrink-0 mb-0.5 border ${
+              showActionPanel 
+                ? 'bg-neutral-900 text-white border-black' 
+                : 'text-neutral-600 hover:text-black bg-neutral-100 hover:bg-neutral-200/80 border-neutral-200/80'
+            }`}
+            title="小剧场扩展功能面板"
           >
-            <Square className="w-4 h-4 fill-current" />
+            <Plus className={`w-4 h-4 transition-transform duration-200 ${showActionPanel ? 'rotate-45' : ''}`} />
           </button>
 
           {/* 输入框（支持内容多时自适应展开与手动展开/收起） */}
@@ -1627,6 +1956,51 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
               >
                 确定
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Memory Summary Cards Modal */}
+      {showSummaryModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl border border-neutral-200 flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-amber-100 text-amber-700">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <h3 className="font-bold text-sm text-neutral-900">剧情记忆卡片 ({summaries.length})</h3>
+              </div>
+              <button 
+                type="button" 
+                onClick={() => setShowSummaryModal(false)}
+                className="p-1 rounded-full text-neutral-400 hover:text-black hover:bg-neutral-100"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+              {summaries.length === 0 ? (
+                <div className="text-center py-8 text-neutral-400 text-xs">
+                  暂无剧情总结记忆卡片，可在输入框左侧“+”号面板中点击“剧情总结”生成。
+                </div>
+              ) : (
+                summaries.map((card, idx) => (
+                  <div key={card.id || idx} className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/70 text-xs space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-amber-900 border-b border-amber-200/40 pb-1">
+                      <span>卡片 {idx + 1} · {card.rangeText}</span>
+                      <span className="text-[10px] text-amber-700/60 font-normal">
+                        {new Date(card.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    <p className="text-neutral-800 leading-relaxed whitespace-pre-wrap pt-0.5">
+                      {card.summary}
+                    </p>
+                    <div className="text-[10px] text-amber-800/70 font-medium text-right pt-1">共 {card.summary?.length || 0} 字</div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

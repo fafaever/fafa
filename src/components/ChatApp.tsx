@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
-import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2, CheckSquare } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2, CheckSquare, Mic, Volume2 } from "lucide-react";
 import { apiChat, getPhoneContent, getThreeDataSourcesPrompt } from "../lib/api";
 import { getDefaultAvatar } from "../lib/avatarUtils";
-import { Character, Message, LoreEntry, AppSettings, ChatSession, UserPersona, MomentPost, MomentComment } from "../types";
+import { Character, Message, LoreEntry, AppSettings, ChatSession, UserPersona, MomentPost, MomentComment, BoundNPC } from "../types";
 import ProfileView from "./ProfileView";
 import { OfflineMeetView } from "./OfflineMeetView";
 
 import { CharacterAvatar } from "./CharacterAvatar";
+import { generateDefaultNpcsForCharacter } from "./CharacterCreatorApp";
 
 interface ChatAppProps {
   characters: Character[];
@@ -158,15 +159,16 @@ export default function ChatApp({
     const handleResize = () => {
       if (!window.visualViewport) return;
       const isFs = document.documentElement.classList.contains("is-fullscreen") || !!document.fullscreenElement;
+      setIsFullscreen(isFs);
       if (!isFs) {
-        // 非全屏模式下，键盘弹出时不改变输入框位置
         setKeyboardHeight(0);
         return;
       }
       // 全屏模式下，使用 window.visualViewport 获取键盘高度
-      const diff = window.innerHeight - window.visualViewport.height;
-      if (diff > 100) {
-        setKeyboardHeight(diff);
+      const viewport = window.visualViewport;
+      const diff = window.innerHeight - viewport.height - viewport.offsetTop;
+      if (diff > 80) {
+        setKeyboardHeight(Math.round(diff));
       } else {
         setKeyboardHeight(0);
       }
@@ -185,9 +187,17 @@ export default function ChatApp({
     };
   }, [isFullscreen]);
 
+  useEffect(() => {
+    if (keyboardHeight > 0) {
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }, 100);
+    }
+  }, [keyboardHeight]);
+
   const inputAreaStyle = isFullscreen && keyboardHeight > 0 ? {
     position: "absolute" as const,
-    bottom: `${keyboardHeight + 4}px`,
+    bottom: `${keyboardHeight}px`,
     left: 0,
     right: 0,
     zIndex: 30,
@@ -209,6 +219,29 @@ export default function ChatApp({
     return localStorage.getItem("mobile_ai_user_avatar_v1") || "";
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const chatImageInputRef = useRef<HTMLInputElement>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
+  // Dedicated Moments User Profile details (Independent from Chat persona & Forum)
+  const [momentsUserNickname, setMomentsUserNickname] = useState(() => {
+    return localStorage.getItem("mobile_ai_moments_user_nickname") || "用户";
+  });
+  const [momentsUserAvatar, setMomentsUserAvatar] = useState(() => {
+    return localStorage.getItem("mobile_ai_moments_user_avatar") || "👤";
+  });
+  const momentsAvatarInputRef = useRef<HTMLInputElement>(null);
+
+  // Helper: Check if a moment post is visible to a specific character
+  const isPostVisibleToCharacter = (post: MomentPost, charId: string): boolean => {
+    if (!post.visibility || post.visibility === "all") return true;
+    if (post.visibility === "visible_some") {
+      return Array.isArray(post.targetCharacterIds) && post.targetCharacterIds.includes(charId);
+    }
+    if (post.visibility === "invisible_some") {
+      return !Array.isArray(post.targetCharacterIds) || !post.targetCharacterIds.includes(charId);
+    }
+    return true;
+  };
 
   // Contacts searching
   const [searchQuery, setSearchQuery] = useState("");
@@ -379,6 +412,80 @@ export default function ChatApp({
   const [groupError, setGroupError] = useState("");
   const [showGroupPlusMenu, setShowGroupPlusMenu] = useState(false);
   const [showGroupSettingsModal, setShowGroupSettingsModal] = useState(false);
+  const [showVoiceMenu, setShowVoiceMenu] = useState(false);
+  const [showTtsModal, setShowTtsModal] = useState(false);
+  const [ttsText, setTtsText] = useState("");
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+
+  const sendGroupVoiceMessageContent = (content: string) => {
+    if (!activeSession || !activeSession.isGroup) return;
+    const userMsg: Message = {
+      id: `msg-${Date.now()}-user`,
+      role: "user",
+      content,
+      timestamp: Date.now(),
+    };
+    onUpdateSessionMessages(activeSession.id, [...activeSession.messages, userMsg], undefined, {
+      groupName: activeSession.groupName,
+      groupAvatar: activeSession.groupAvatar,
+      memberIds: activeSession.memberIds,
+      syncMemory: activeSession.syncMemory,
+      isGroup: true,
+    });
+    setTimeout(scrollToBottom, 100);
+  };
+
+  const handleStartVoiceRecord = async () => {
+    setShowVoiceMenu(false);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      const audioChunks: Blob[] = [];
+      
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const durationSec = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
+        const durationStr = durationSec < 10 ? `00:0${durationSec}` : `00:${durationSec}`;
+        
+        const voiceMsgContent = `[语音消息] ${durationStr}|${audioUrl}`;
+        sendGroupVoiceMessageContent(voiceMsgContent);
+        
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      const startTime = Date.now();
+      setIsRecordingVoice(true);
+
+      const stopTimer = setTimeout(() => {
+        if (mediaRecorder.state === 'recording') {
+          mediaRecorder.stop();
+          setIsRecordingVoice(false);
+        }
+      }, 30000);
+
+      (window as any).__activeMediaRecorder = mediaRecorder;
+      (window as any).__activeStopTimer = stopTimer;
+    } catch (err) {
+      alert("无法访问麦克风，已为您生成模拟语音消息。");
+      const durationStr = "00:06";
+      sendGroupVoiceMessageContent(`[语音消息] ${durationStr}`);
+      setIsRecordingVoice(false);
+    }
+  };
+
+  const handleStopVoiceRecord = () => {
+    if ((window as any).__activeMediaRecorder) {
+      clearTimeout((window as any).__activeStopTimer);
+      (window as any).__activeMediaRecorder.stop();
+    }
+    setIsRecordingVoice(false);
+  };
 
   const getCharacterGroupRoleType = (char: Character) => {
     const text = `${char.systemInstruction || ""} ${char.description || ""}`.toLowerCase();
@@ -612,10 +719,6 @@ export default function ChatApp({
         let systemInstruction = `你正在参与群聊「${activeSession.groupName}」。同群成员有：${characters.filter(c => memberIds.includes(c.id)).map(c => c.name).join('、')}。`;
         systemInstruction += getPhoneContent(respondingCharId);
         
-        if (activeSession.worldSetting && activeSession.worldSetting.trim()) {
-          systemInstruction += `\n\n【当前群聊的世界设定/叙事背景】：\n${activeSession.worldSetting.trim()}\n\n【注意】：此世界设定只作为你当前在群聊中的身份定位、叙事背景 and 对话氛围，绝对不能改变或覆盖你原本的性格特征、说话风格和人设偏好。请保持你原本人设的同时，自然地融入并符合这一背景设定与氛围，在发言和互动时予以符合。`;
-        }
-        
         systemInstruction += `\n\n请保持你的人设，自然地在群聊中回复用户或其他成员。`;
 
         systemInstruction += `\n\n【群聊发言及互动规则】：
@@ -656,7 +759,8 @@ export default function ChatApp({
           memories: memories,
           isGroup: true,
           // Mandatory data sources injection
-          systemInstruction: systemInstruction + "\n\n" + getThreeDataSourcesPrompt(respondingChar, memories, [])
+          systemInstruction: systemInstruction + "\n\n" + getThreeDataSourcesPrompt(respondingChar, memories, []),
+          temperature: getCharacterTemperature(respondingChar.id)
         };
 
         const data = await apiChat(requestParams);
@@ -820,6 +924,25 @@ export default function ChatApp({
   const [newMemoryInput, setNewMemoryInput] = useState<string>("");
   const [chatWallpapers, setChatWallpapers] = useState<string[]>([]);
   const [currentChatWallpaper, setCurrentChatWallpaper] = useState<string | null>(null);
+  const [customTemperature, setCustomTemperature] = useState<number | undefined>(undefined);
+
+  const getCharacterTemperature = (charId: string): number => {
+    if (charId === activeCharId && customTemperature !== undefined) {
+      return customTemperature;
+    }
+    try {
+      const saved = localStorage.getItem(`char_settings_v1_${charId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed.customTemperature === "number") {
+          return parsed.customTemperature;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return settings.temperature ?? 0.8;
+  };
 
   const compressImage = (file: File, maxSizeKB: number = 300): Promise<string> => {
     return new Promise((resolve) => {
@@ -1278,13 +1401,13 @@ export default function ChatApp({
   const handlePublishMoment = () => {
     if (!newMomentContent.trim() && !newMomentImage) return;
 
-    const userNickname = localStorage.getItem("mobile_ai_forum_user_nickname") || "用户";
-    const userAvatar = localStorage.getItem("mobile_ai_forum_user_avatar") || "";
+    const userNickname = momentsUserNickname || localStorage.getItem("mobile_ai_moments_user_nickname") || "用户";
+    const userAvatar = momentsUserAvatar || localStorage.getItem("mobile_ai_moments_user_avatar") || "👤";
 
     const newPost: MomentPost = {
       id: `moment-user-${Date.now()}`,
       authorName: userNickname,
-      authorAvatar: userAvatar || "👤",
+      authorAvatar: userAvatar,
       content: newMomentContent.trim(),
       image: newMomentImage || undefined,
       visibility: newMomentVisibility,
@@ -1299,14 +1422,57 @@ export default function ChatApp({
     setMoments(updated);
     localStorage.setItem("mobile_ai_moments_posts_v1", JSON.stringify(updated));
 
+    // 1. 朋友圈记忆同步：针对【可见角色】同步写入朋友圈记忆
+    const visibleChars = characters.filter(c => c.id !== 'char-preset-fafa' && isPostVisibleToCharacter(newPost, c.id));
+    visibleChars.forEach((char) => {
+      try {
+        const key = `char_settings_v1_${char.id}`;
+        const saved = localStorage.getItem(key);
+        const parsed = saved ? JSON.parse(saved) : {};
+        const currentMemories = Array.isArray(parsed.memories) ? parsed.memories : [];
+        const memoryText = `[朋友圈动态记忆] 用户发布了动态："${newPost.content || '(生活感动态)'}" (${new Date().toLocaleDateString()})`;
+        if (!currentMemories.includes(memoryText)) {
+          parsed.memories = [memoryText, ...currentMemories].slice(0, 30);
+          localStorage.setItem(key, JSON.stringify(parsed));
+        }
+      } catch (e) {
+        console.error("Failed to sync moment memory to character:", char.name, e);
+      }
+    });
+
+    // 2. 触发朋友圈动态自动回复评论
+    handleGenerateCommentsForPost(newPost.id, updated);
+
+    // 3. 概率触发可见角色的主动私信询问（随机挑选1个可见角色，约 35% 概率触发）
+    if (visibleChars.length > 0 && Math.random() < 0.35) {
+      const randomChar = visibleChars[Math.floor(Math.random() * visibleChars.length)];
+      const dmPrompts = [
+        "刚才看到你发的朋友圈了，感觉挺有意思的～",
+        "刷到你刚才发的那条朋友圈了，今天心情看起来不错呀。",
+        "你刚才发的那条朋友圈说的什么呀？好有氛围感。",
+        "看见你朋友圈发的那个了，是在哪拍的呀？"
+      ];
+      const dmText = dmPrompts[Math.floor(Math.random() * dmPrompts.length)];
+
+      setTimeout(() => {
+        let session = sessions.find((s) => s.characterId === randomChar.id);
+        const currentMsgs = session ? session.messages : [];
+        const proactiveMsg: Message = {
+          id: `msg-${Date.now()}-proactive-moment`,
+          role: "assistant",
+          content: dmText,
+          timestamp: Date.now(),
+        };
+        onUpdateSessionMessages(randomChar.id, [...currentMsgs, proactiveMsg]);
+        setUnreads(prev => ({ ...prev, [randomChar.id]: true }));
+      }, 1500);
+    }
+
     setNewMomentContent("");
     setNewMomentImage(null);
     setNewMomentVisibility("all");
     setSelectedCharIdsForVisibility([]);
     setIsPublishMomentOpen(false);
-
-    // 朋友圈动态发布同步生成评论：自动触发生成一轮3-6条互动评论
-    handleGenerateCommentsForPost(newPost.id, updated);
   };
 
   const handleConfirmShareToCharacter = (char: Character, post: MomentPost) => {
@@ -1519,7 +1685,7 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
     }
   };
 
-  // 生成一轮新评论（包含角色回复用户、角色回复NPC、NPC回复角色、NPC之间互相回复，每轮3-6条）
+  // 生成一轮新评论（受可见范围限制，角色及NPC可互相回复）
   const handleGenerateCommentsForPost = async (postId: string, customPostList?: MomentPost[]) => {
     const targetMomentsList = customPostList || moments;
     const post = targetMomentsList.find(m => m.id === postId);
@@ -1528,8 +1694,22 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
     setIsGeneratingComments(prev => ({ ...prev, [postId]: true }));
 
     try {
-      const commentCount = Math.floor(Math.random() * 4) + 3; // 3 to 6 comments
+      const commentCount = Math.floor(Math.random() * 3) + 2; // 2 to 4 comments
       let newComments: MomentComment[] = [];
+
+      // 仅过滤对该动态可见的角色
+      const visibleChars = characters.filter(c => c.id !== 'char-preset-fafa' && isPostVisibleToCharacter(post, c.id));
+
+      // 汇总可见角色的绑定 NPC 列表
+      const boundNpcs: BoundNPC[] = [];
+      visibleChars.forEach(c => {
+        if (c.boundNpcs && c.boundNpcs.length > 0) {
+          boundNpcs.push(...c.boundNpcs);
+        }
+      });
+      if (boundNpcs.length === 0) {
+        boundNpcs.push(...generateDefaultNpcsForCharacter(post.authorName || "角色", "", ""));
+      }
 
       if (settings && (settings.apiKey || settings.apiUrl)) {
         try {
@@ -1538,28 +1718,36 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
             .join("\n");
 
           const prompt = `你是一个朋友圈动态评论区AI生成器。
-当前朋友圈动态如下：
+【可见范围准则 (绝对硬性规定)】：
+1. 只有【可见角色列表】和【绑定NPC列表】中的角色能够看到并评论此朋友圈！不在列表中的角色绝对不能评论！
+2. 角色和NPC可自主决定评论或不评论，不需要全员发言。
+
+【可见角色列表】：
+${visibleChars.map(c => `- 角色名: "${c.name}", 人设/性格: "${c.description || '无'}"`).join("\n")}
+
+【绑定NPC列表】：
+${boundNpcs.map(n => `- 名字: "${n.name}", 身份: "${n.relationship || '朋友'}", 简介: "${n.description || '无'}"`).join("\n")}
+
+【当前朋友圈动态】：
 - 发布者：【${post.authorName}】
-- 内容：【${post.content || "(图片动态)"}】
+- 正文内容：【${post.content || "(图片动态)"}】
 - 现有评论：
 ${existingCommentsText || "暂无评论"}
 
-应用中角色列表：
-${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}"`).join("\n")}
+【评论互动与角色约束规则 (严格遵从)】：
+1. 多个可见角色/NPC可以在评论区互动，能看到对方评论并相互回复 (正确填写 replyToName)。
+2. 允许的交互语气风格：吃醋、互呛、嘲讽、调侃、攀比。
+3. 【三大绝对禁止项 (违反即失败)】：
+   - 严禁质问对方身份（绝对不能问“你是谁”、“不认识你”）。
+   - 严禁询问对方与发布者/用户的关系（绝对不能问“你和TA什么关系”）。
+   - 严禁追问对方隐私。
+4. 所有互动停留在评论区，绝不因评论而在私信中找用户对质。
+5. NPC评论可先于或与角色同时出现，角色看到NPC评论可接茬回应，但绝不暴露与用户的私密关系。
 
-现在请为此动态生成新一轮评论，必须恰好生成 ${commentCount} 条评论。
-互动关系要求丰富多样，包含以下形式：
-1. 角色回复动态发布者或用户；
-2. 角色回复 NPC（如：路人甲、邻居大叔、咖啡师、吃瓜群众等）；
-3. NPC 回复角色；
-4. NPC 之间互相回复（必须正确填写 replyToName）。
-
-请严格返回纯 JSON 数组格式（不要包含 Markdown 代码块）：
+请生成 1~3 条符合人设的生动新评论，必须返回纯 JSON 数组：
 [
   {
-    "authorName": "名字（可以是角色名或NPC名）",
-    "authorAvatar": "Emoji或头像",
-    "isNpc": false,
+    "authorName": "必须来自于上面可见角色列表或NPC列表的名字",
     "replyToName": "被回复者的名字或空字符串",
     "content": "评论内容"
   }
@@ -1569,62 +1757,83 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
             character: { id: "comments-generator", name: "评论生成助手", description: "评论区生成" },
             messages: [{ role: "user", content: prompt }],
             settings,
-            systemInstruction: "你是一个朋友圈评论生成器，生成生动有爱的互动评论。必须只返回纯JSON数组。"
+            systemInstruction: "你是一个朋友圈评论生成器，生成符合人设的生动互动评论。必须只返回纯JSON数组。"
           });
 
           const rawText = res.text || "";
           const jsonMatch = rawText.match(/\[[\s\S]*\]/);
           if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            newComments = parsed.map((item: any, idx: number) => ({
-              id: `cmt-gen-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-              authorName: item.authorName || "吃瓜群众",
-              authorAvatar: item.authorAvatar || (item.isNpc ? "💬" : "🤖"),
-              isNpc: item.isNpc !== false,
-              replyToName: item.replyToName || undefined,
-              content: item.content || "说得太对了！",
-              timestamp: Date.now() + idx * 1000
-            }));
+            newComments = parsed.map((item: any, idx: number) => {
+              const charObj = characters.find(c => c.name === item.authorName);
+              const isNpc = !charObj;
+              let avatar = "💬";
+              if (charObj) {
+                avatar = charObj.realImage || charObj.chatAvatar || getDefaultAvatar(charObj.name);
+              } else {
+                const npcObj = boundNpcs.find(n => n.name === item.authorName);
+                avatar = npcObj?.avatar || "💬";
+              }
+
+              return {
+                id: `cmt-gen-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+                authorName: item.authorName || (charObj ? charObj.name : "NPC朋友"),
+                authorAvatar: avatar,
+                characterId: charObj?.id,
+                isNpc,
+                replyToName: item.replyToName || undefined,
+                content: item.content || "给这条朋友圈点赞！",
+                timestamp: Date.now() + idx * 1000
+              };
+            });
           }
         } catch (e) {
           console.warn("API comment generation failed, using local offline generator", e);
         }
       }
 
-      // Offline generator fallback for 3-6 comments
+      // Offline generator fallback using visible characters and bound NPCs
       if (newComments.length === 0) {
-        const npcPool = ["路人甲", "隔壁小明", "咖啡馆店长", "吃瓜群众", "吃货小张", "社恐网友", "热心邻居"];
-        const charPool = characters.length > 0 ? characters : [{ id: "c1", name: "角色小助手", avatar: "🤖", chatAvatar: "", description: "" }];
-        const userNickname = localStorage.getItem("mobile_ai_forum_user_nickname") || "用户";
+        const char1 = visibleChars[0];
+        const char2 = visibleChars[1];
+        const npc1 = boundNpcs[0] || { name: "阿杰", avatar: "👦" };
 
-        const c1 = charPool[0];
-        const c2 = charPool[1] || charPool[0];
-        const npc1 = npcPool[Math.floor(Math.random() * npcPool.length)];
-        const npc2 = npcPool[(Math.floor(Math.random() * npcPool.length) + 1) % npcPool.length];
+        const fallbackItems: any[] = [];
+        if (char1) {
+          fallbackItems.push({
+            author: char1.name,
+            avatar: char1.realImage || char1.chatAvatar || getDefaultAvatar(char1.name),
+            charId: char1.id,
+            isNpc: false,
+            replyTo: "",
+            content: "朋友圈发得很棒呀！给大佬点赞👍"
+          });
+        } else {
+          fallbackItems.push({
+            author: npc1.name,
+            avatar: npc1.avatar || "💬",
+            isNpc: true,
+            replyTo: "",
+            content: "拍得真不错，前排打卡围观～"
+          });
+        }
 
-        const patterns = [
-          [
-            { author: c1.name, avatar: c1.chatAvatar || c1.avatar || "🤖", isNpc: false, replyTo: "", content: "哇，这篇写得太棒了！强推顶一下！" },
-            { author: npc1, avatar: "💬", isNpc: true, replyTo: c1.name, content: `@${c1.name} 哈哈完全同意！我也想去同款地点` },
-            { author: userNickname, avatar: "👤", isNpc: false, replyTo: npc1, content: `@${npc1} 真的假的？环境确实超好看` },
-            { author: c2.name, avatar: c2.chatAvatar || c2.avatar || "🤖", isNpc: false, replyTo: userNickname, content: `@${userNickname} 下次也带上我吧～` },
-            { author: npc2, avatar: "💬", isNpc: true, replyTo: c2.name, content: `@${c2.name} 围观吃瓜，排队加一！` },
-            { author: c1.name, avatar: c1.chatAvatar || c1.avatar || "🤖", isNpc: false, replyTo: npc2, content: `@${npc2} 评论区好热闹呀！` }
-          ],
-          [
-            { author: npc1, avatar: "💬", isNpc: true, replyTo: "", content: "前排围观，抢个沙发～" },
-            { author: c1.name, avatar: c1.chatAvatar || c1.avatar || "🤖", isNpc: false, replyTo: npc1, content: `@${npc1} 抢得真快，板凳留给我！` },
-            { author: npc2, avatar: "💬", isNpc: true, replyTo: c1.name, content: `@${c1.name} 哈哈哈哈，大家都好有梗` },
-            { author: c2.name, avatar: c2.chatAvatar || c2.avatar || "🤖", isNpc: false, replyTo: npc2, content: `@${npc2} 保持队形，继续盖楼！` }
-          ]
-        ];
+        if (char2) {
+          fallbackItems.push({
+            author: char2.name,
+            avatar: char2.realImage || char2.chatAvatar || getDefaultAvatar(char2.name),
+            charId: char2.id,
+            isNpc: false,
+            replyTo: char1 ? char1.name : "",
+            content: char1 ? `@${char1.name} 赞同！今天这帧画面很有感觉` : "看到你发朋友圈了，挺有意思的"
+          });
+        }
 
-        const chosenPattern = patterns[Math.floor(Math.random() * patterns.length)].slice(0, commentCount);
-
-        newComments = chosenPattern.map((item, idx) => ({
+        newComments = fallbackItems.slice(0, commentCount).map((item, idx) => ({
           id: `cmt-offgen-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
           authorName: item.author,
           authorAvatar: item.avatar,
+          characterId: item.charId,
           isNpc: item.isNpc,
           replyToName: item.replyTo || undefined,
           content: item.content,
@@ -1655,13 +1864,13 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
   const handleAddUserComment = (postId: string) => {
     if (!commentInputText.trim()) return;
 
-    const userNickname = localStorage.getItem("mobile_ai_forum_user_nickname") || "用户";
-    const userAvatar = localStorage.getItem("mobile_ai_forum_user_avatar") || "";
+    const userNickname = momentsUserNickname || localStorage.getItem("mobile_ai_moments_user_nickname") || "用户";
+    const userAvatar = momentsUserAvatar || localStorage.getItem("mobile_ai_moments_user_avatar") || "👤";
 
     const newCmt: MomentComment = {
       id: `cmt-user-${Date.now()}`,
       authorName: userNickname,
-      authorAvatar: userAvatar || "👤",
+      authorAvatar: userAvatar,
       isNpc: false,
       content: commentInputText.trim(),
       replyToName: activeReplyToName || undefined,
@@ -1843,6 +2052,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
       setTimePerception(parsedSelf.timePerception !== undefined ? parsedSelf.timePerception : false);
       setIsBlocked(parsedSelf.isBlocked !== undefined ? parsedSelf.isBlocked : false);
       setMemories(memoriesToLoad);
+      setCustomTemperature(parsedSelf.customTemperature);
 
       const savedWallpapers = localStorage.getItem(`chat_wallpapers_${activeCharId}`);
       if (savedWallpapers) {
@@ -1870,6 +2080,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
     isBlocked: boolean;
     memories: string[];
     userPersonaId?: string;
+    customTemperature?: number;
   }>) => {
     if (!activeCharId) return;
     const activeChar = characters.find(c => c.id === activeCharId);
@@ -1883,8 +2094,12 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
       timePerception,
       isBlocked,
       memories,
+      customTemperature,
       ...updated,
     };
+    if (updated.customTemperature === undefined) {
+      delete (current as any).customTemperature;
+    }
     localStorage.setItem(`char_settings_v1_${activeCharId}`, JSON.stringify(current));
 
     // If active character is a sub-account, also save memories to the parent's settings
@@ -2115,7 +2330,70 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
     }
   }, [activeChar]);
   
-  // Send message
+  const handleTriggerImageAiResponse = async (imageUrl: string, messagesList: Message[]) => {
+    if (!activeChar || !activeCharId) return;
+    setIsGenerating(true);
+
+    try {
+      const prompt = `用户刚刚向你发送了一张图片（图片内容已编码或上传）。请作为 ${activeChar.name}，结合你的角色人设 (${activeChar.description})，对这张图片进行自然、生动、符合你人设性格的识别与回应（例如：“这张照片是在海边拍的吗？”、“这个猫好可爱”等）。不要使用多余的系统说明，直接以你的语气进行回复。`;
+
+      const res = await apiChat({
+        character: activeChar,
+        messages: [
+          ...messagesList.map(m => ({ role: m.role, content: m.content })),
+          { role: "user", content: `[用户发来了一张图片] ${prompt}` }
+        ],
+        settings,
+        systemInstruction: activeChar.systemInstruction,
+        temperature: getCharacterTemperature(activeCharId)
+      });
+
+      const replyContent = res.text || "这张照片挺有意思的呀，能跟我讲讲吗？";
+      const assistantMsg: Message = {
+        id: `msg-${Date.now()}-ai-img-reply`,
+        role: "assistant",
+        content: replyContent,
+        timestamp: Date.now(),
+      };
+
+      const finalMessages = [...messagesList, assistantMsg];
+      if (activeSession?.isGroup) {
+        onUpdateSessionMessages(activeSession.id, finalMessages, undefined, {
+          groupName: activeSession.groupName,
+          groupAvatar: activeSession.groupAvatar,
+          memberIds: activeSession.memberIds,
+          syncMemory: activeSession.syncMemory,
+          worldSetting: activeSession.worldSetting,
+          isGroup: true,
+        });
+      } else {
+        onUpdateSessionMessages(activeCharId, finalMessages);
+      }
+    } catch (e) {
+      console.error("Failed to generate image AI response:", e);
+      const fallbackMsg: Message = {
+        id: `msg-${Date.now()}-ai-img-reply`,
+        role: "assistant",
+        content: "照片收到了！拍得真不错呢。",
+        timestamp: Date.now(),
+      };
+      if (activeSession?.isGroup) {
+        onUpdateSessionMessages(activeSession.id, [...messagesList, fallbackMsg], undefined, {
+          groupName: activeSession.groupName,
+          groupAvatar: activeSession.groupAvatar,
+          memberIds: activeSession.memberIds,
+          syncMemory: activeSession.syncMemory,
+          worldSetting: activeSession.worldSetting,
+          isGroup: true,
+        });
+      } else {
+        onUpdateSessionMessages(activeCharId, [...messagesList, fallbackMsg]);
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || isGenerating || !activeCharId || !activeSession || isBlocked) return;
@@ -2263,6 +2541,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
         replyCount: count,
         mood: mood,
         memories: memories,
+        temperature: getCharacterTemperature(activeCharId)
       };
       console.log('请求参数:', requestParams);
       let data;
@@ -2562,9 +2841,83 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
     return false;
   };
 
+  const VoiceMessageBubble = ({ duration, audioUrl, textContent, isUser }: { duration: string; audioUrl?: string; textContent?: string; isUser?: boolean }) => {
+    const [isPlaying, setIsPlaying] = useState(false);
+
+    const handlePlay = () => {
+      if (isPlaying) return;
+      setIsPlaying(true);
+
+      if (audioUrl) {
+        const audio = new Audio(audioUrl);
+        audio.onended = () => setIsPlaying(false);
+        audio.onerror = () => setIsPlaying(false);
+        audio.play().catch(() => setIsPlaying(false));
+      } else if (textContent && 'speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(textContent);
+        utterance.lang = 'zh-CN';
+        utterance.onend = () => setIsPlaying(false);
+        utterance.onerror = () => setIsPlaying(false);
+        window.speechSynthesis.speak(utterance);
+      } else {
+        setTimeout(() => {
+          setIsPlaying(false);
+        }, 3000);
+      }
+    };
+
+    return (
+      <div 
+        onClick={handlePlay}
+        className="flex items-center gap-3 py-1 cursor-pointer select-none group min-w-[140px] max-w-[210px]"
+      >
+        <div className="flex items-center gap-1.5 flex-1">
+          <div className="flex items-center gap-0.5 h-4">
+            {[12, 20, 8, 16, 24, 10, 18, 14, 22, 8].map((h, i) => (
+              <div 
+                key={i} 
+                className={`w-1 rounded-full transition-all duration-300 ${
+                  isUser ? "bg-white" : "bg-neutral-900"
+                } ${isPlaying ? "animate-pulse" : ""}`}
+                style={{ 
+                  height: isPlaying ? `${Math.max(4, (h * (i % 2 === 0 ? 1.4 : 0.8)))}px` : `${h}px`,
+                  opacity: isPlaying ? 1 : 0.7 
+                }}
+              />
+            ))}
+          </div>
+          <span className={`text-[11px] font-mono font-medium ml-2 ${isUser ? "text-white/90" : "text-neutral-800"}`}>
+            {duration}
+          </span>
+        </div>
+        <div className={`w-6 h-6 rounded-full flex items-center justify-center border transition-all ${
+          isUser ? "border-white/30 text-white bg-white/10" : "border-neutral-300 text-neutral-900 bg-neutral-100"
+        }`}>
+          {isPlaying ? (
+            <span className="text-[10px]">⏸</span>
+          ) : (
+            <span className="text-[10px] ml-0.5">▶</span>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   // Beautiful Markdown/Asterisk parser for roleplay:
   // e.g., *looks around nervously* Hello -> looks around nervously (italicized, lighter text) + Hello (normal)
   const renderMessageContent = (content: string, msg?: Message) => {
+    if (content.startsWith("[语音消息]")) {
+      const rawContent = content.replace("[语音消息]", "").trim();
+      const parts = rawContent.split("|");
+      const duration = parts[0] || "00:05";
+      const audioUrl = parts.find(p => p.startsWith("blob:") || p.startsWith("http"));
+      const textContent = parts.find(p => p.startsWith("text:"))?.replace("text:", "") || (parts.length === 1 ? parts[0] : "");
+
+      return (
+        <VoiceMessageBubble duration={duration} audioUrl={audioUrl} textContent={textContent} isUser={msg?.role === "user"} />
+      );
+    }
+
     if (msg?.role === "user" && !msg?.type && !content.startsWith("[CHARACTER_TRANSFER]") && !content.startsWith("[OFFLINE_INVITATION]") && !content.startsWith("[OFFLINE_MEET_SESSION]") && !content.startsWith("[TRANSFER]") && !content.startsWith("[LOCATION]") && !content.startsWith("[REDPACKET]") && !content.startsWith("[图片")) {
       return <span>{content}</span>;
     }
@@ -3880,6 +4233,93 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
                 {/* Profile Content */}
                 <div className="flex-1 overflow-y-auto p-5 space-y-5">
+                  {/* Moments Dedicated Profile Settings */}
+                  <div className="bg-white rounded-[24px] border border-neutral-200/50 shadow-sm p-4 space-y-3 select-none">
+                    <div className="flex items-center justify-between pb-2 border-b border-neutral-100">
+                      <div className="flex items-center gap-2">
+                        <Compass className="w-4 h-4 text-neutral-800" />
+                        <span className="font-bold text-xs text-neutral-900">朋友圈专属资料</span>
+                      </div>
+                      <span className="text-[10px] text-neutral-400 bg-neutral-100 px-2 py-0.5 rounded-full font-medium">仅朋友圈显示</span>
+                    </div>
+
+                    <p className="text-[11px] text-neutral-500 leading-relaxed">
+                      在此设置发布朋友圈和评论时显示的昵称与头像，与线上聊天的用户人设完全独立。
+                    </p>
+
+                    <div className="flex items-center gap-4 pt-1">
+                      {/* Avatar Upload / Preview */}
+                      <div className="relative shrink-0">
+                        <div className="w-14 h-14 rounded-2xl bg-neutral-100 border border-neutral-200 overflow-hidden flex items-center justify-center text-2xl shadow-xs">
+                          {momentsUserAvatar.startsWith('data:') || momentsUserAvatar.startsWith('http') ? (
+                            <img src={momentsUserAvatar} alt="朋友圈头像" className="w-full h-full object-cover" />
+                          ) : (
+                            momentsUserAvatar || "👤"
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => momentsAvatarInputRef.current?.click()}
+                          className="absolute -bottom-1 -right-1 bg-neutral-900 hover:bg-black text-white p-1 rounded-full shadow-xs active:scale-95 transition-all"
+                          title="更换头像"
+                        >
+                          <Camera className="w-3 h-3" />
+                        </button>
+                        <input
+                          ref={momentsAvatarInputRef}
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              const file = e.target.files[0];
+                              const compressed = await compressImage(file, 200);
+                              setMomentsUserAvatar(compressed);
+                              localStorage.setItem("mobile_ai_moments_user_avatar", compressed);
+                              e.target.value = "";
+                            }
+                          }}
+                        />
+                      </div>
+
+                      {/* Nickname Input */}
+                      <div className="flex-1 space-y-1">
+                        <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">朋友圈昵称</label>
+                        <input
+                          type="text"
+                          value={momentsUserNickname}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setMomentsUserNickname(val);
+                            localStorage.setItem("mobile_ai_moments_user_nickname", val);
+                          }}
+                          placeholder="请输入朋友圈显示的昵称"
+                          className="w-full text-xs font-bold border border-neutral-200 focus:border-neutral-900 bg-neutral-50 focus:bg-white px-3 py-2 rounded-xl outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Emoji Preset Selector */}
+                    <div className="flex items-center gap-1.5 pt-1 overflow-x-auto">
+                      <span className="text-[10px] font-mono text-neutral-400 shrink-0">预设头像:</span>
+                      {['👤', '🦊', '🐱', '🐶', '🐼', '🌿', '☕', '✨', '🌙', '🎧'].map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => {
+                            setMomentsUserAvatar(emoji);
+                            localStorage.setItem("mobile_ai_moments_user_avatar", emoji);
+                          }}
+                          className={`w-7 h-7 rounded-lg text-sm flex items-center justify-center border shrink-0 transition-all ${
+                            momentsUserAvatar === emoji ? 'border-black bg-neutral-100 font-bold' : 'border-neutral-200/60 hover:bg-neutral-50'
+                          }`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Elegant Settings Rows */}
                   <div className="bg-white rounded-[24px] border border-neutral-200/50 shadow-sm overflow-hidden divide-y divide-neutral-100 select-none">
                     <div 
@@ -4127,16 +4567,48 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
 
           {/* Action Panel for plus menu */}
           {showGroupPlusMenu && (
-            <div className="px-4 py-3 bg-neutral-50 border-t border-neutral-100 flex items-center gap-4 transition-all">
-              <button
-                onClick={handleSendGroupVoiceMessage}
-                className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-neutral-100 active:scale-95 transition-all text-neutral-600"
-              >
-                <div className="w-12 h-12 rounded-2xl bg-white border border-neutral-200/60 flex items-center justify-center text-xl shadow-sm">
-                  🎙️
-                </div>
-                <span className="text-[10px] text-neutral-500 font-medium">语音消息</span>
-              </button>
+            <div className="px-4 py-3 bg-neutral-50 border-t border-neutral-100 flex items-center gap-4 transition-all relative">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowVoiceMenu(!showVoiceMenu)}
+                  className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-neutral-100 active:scale-95 transition-all text-neutral-800 group"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-white border border-neutral-200 flex items-center justify-center text-neutral-800 shadow-sm group-hover:border-black transition-colors">
+                    <Mic className="w-5 h-5 text-neutral-900 stroke-[1.75]" />
+                  </div>
+                  <span className="text-[10px] text-neutral-700 font-medium">语音消息</span>
+                </button>
+
+                {/* Voice options popup */}
+                {showVoiceMenu && (
+                  <div className="absolute bottom-16 left-0 w-44 bg-white border border-neutral-200 rounded-2xl shadow-xl py-2 z-50 text-xs animate-fade-in">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowVoiceMenu(false);
+                        setShowGroupPlusMenu(false);
+                        handleStartVoiceRecord();
+                      }}
+                      className="w-full px-3.5 py-2.5 text-left hover:bg-neutral-50 flex items-center gap-2.5 font-medium text-neutral-900 transition-colors"
+                    >
+                      <Mic className="w-4 h-4 text-neutral-600" /> 语音输入 (录音)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowVoiceMenu(false);
+                        setShowGroupPlusMenu(false);
+                        setTtsText("");
+                        setShowTtsModal(true);
+                      }}
+                      className="w-full px-3.5 py-2.5 text-left hover:bg-neutral-50 flex items-center gap-2.5 font-medium text-neutral-900 transition-colors border-t border-neutral-100"
+                    >
+                      <Volume2 className="w-4 h-4 text-neutral-600" /> 打字转语音
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -4570,6 +5042,18 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                                 }`}
                                 title="长按、右键或双击此消息可唤出操作菜单"
                               >
+                                {msg.image && segIdx === 0 && (
+                                  <div 
+                                    className="mb-2 rounded-xl overflow-hidden cursor-pointer max-w-xs border border-black/10"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setPreviewImageUrl(msg.image!);
+                                    }}
+                                  >
+                                    <img src={msg.image} alt="图片消息" className="w-full max-h-48 object-cover hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                  </div>
+                                )}
+
                                 {/* Quoted item block (inside bubble) */}
                                 {msg.quotedMsg && segIdx === 0 && (
                                   <div className="mb-1.5 p-2 bg-neutral-100/80 border-l-2 border-neutral-400 rounded text-[10px] text-neutral-600  truncate max-w-full">
@@ -4814,20 +5298,57 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                         <span className="text-[11px]  text-neutral-600">红包</span>
                       </button>
 
-                      {/* 6. 发照片 */}
+                      {/* 6. 图片 */}
                       <button
                         type="button"
                         onClick={() => {
                           setShowActionPanel(false);
-                          handleTriggerAiAction("photo");
+                          chatImageInputRef.current?.click();
                         }}
                         className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
                       >
                         <div className="w-11 h-11 rounded-full bg-blue-50 group-hover:bg-blue-600 group-hover:text-white text-blue-600 flex items-center justify-center transition-all shadow-sm">
                           <Image className="w-5 h-5" />
                         </div>
-                        <span className="text-[11px]  text-neutral-600">发照片</span>
+                        <span className="text-[11px]  text-neutral-600">图片</span>
                       </button>
+                      <input
+                        ref={chatImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          if (e.target.files && e.target.files[0]) {
+                            const file = e.target.files[0];
+                            const dataUrl = await compressImage(file, 400);
+                            e.target.value = "";
+
+                            const userMsg: Message = {
+                              id: `msg-${Date.now()}-img`,
+                              role: "user",
+                              content: "[图片]",
+                              image: dataUrl,
+                              timestamp: Date.now(),
+                            };
+
+                            const updatedMessages = [...(activeSession?.messages || []), userMsg];
+                            if (activeSession?.isGroup) {
+                              onUpdateSessionMessages(activeSession.id, updatedMessages, undefined, {
+                                groupName: activeSession.groupName,
+                                groupAvatar: activeSession.groupAvatar,
+                                memberIds: activeSession.memberIds,
+                                syncMemory: activeSession.syncMemory,
+                                worldSetting: activeSession.worldSetting,
+                                isGroup: true,
+                              });
+                            } else {
+                              onUpdateSessionMessages(activeCharId!, updatedMessages);
+                            }
+
+                            handleTriggerImageAiResponse(dataUrl, updatedMessages);
+                          }
+                        }}
+                      />
 
                       {/* 7. 发邀请 */}
                       <button
@@ -5172,85 +5693,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               </select>
             </div>
 
-            {/* 1.6 Chat Wallpaper Customization */}
-            <div className="border border-neutral-200/50 rounded-2xl p-4 bg-white space-y-3">
-              <div className="flex justify-between items-center">
-                <div className="space-y-0.5">
-                  <span className="text-base font-bold text-neutral-900 block">聊天壁纸</span>
-                  <span className="text-[10px] text-neutral-400 font-mono block">CHAT WALLPAPER</span>
-                </div>
-                {currentChatWallpaper && (
-                  <button
-                    onClick={() => {
-                      setCurrentChatWallpaper(null);
-                      localStorage.removeItem(`chat_current_wallpaper_${activeCharId}`);
-                    }}
-                    className="text-xs text-neutral-500 hover:text-neutral-900 px-2.5 py-1 rounded-lg border border-neutral-200 bg-neutral-50"
-                  >
-                    取消壁纸
-                  </button>
-                )}
-              </div>
 
-              {/* Wallpaper Grid */}
-              <div className="grid grid-cols-4 gap-2 pt-1">
-                {chatWallpapers.map((wp, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`relative w-[60px] h-[60px] rounded-xl overflow-hidden border-2 cursor-pointer group transition-all ${
-                      currentChatWallpaper === wp ? "border-black shadow-md scale-105" : "border-neutral-200 hover:border-neutral-400"
-                    }`}
-                    onClick={() => {
-                      setCurrentChatWallpaper(wp);
-                      localStorage.setItem(`chat_current_wallpaper_${activeCharId}`, wp);
-                    }}
-                  >
-                    <img src={wp} alt={`wallpaper-${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        const updated = chatWallpapers.filter((_, i) => i !== idx);
-                        setChatWallpapers(updated);
-                        localStorage.setItem(`chat_wallpapers_${activeCharId}`, JSON.stringify(updated));
-                        if (currentChatWallpaper === wp) {
-                          setCurrentChatWallpaper(null);
-                          localStorage.removeItem(`chat_current_wallpaper_${activeCharId}`);
-                        }
-                      }}
-                      className="absolute top-1 right-1 w-5 h-5 bg-black/60 text-white rounded-full flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity"
-                      title="删除壁纸"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-
-                {/* Upload Button */}
-                <label className="w-[60px] h-[60px] rounded-xl border-2 border-dashed border-neutral-300 hover:border-neutral-400 bg-neutral-50 flex flex-col items-center justify-center cursor-pointer text-neutral-400 hover:text-neutral-600 transition-colors">
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="hidden"
-                    onChange={async (e) => {
-                      if (e.target.files && e.target.files[0]) {
-                        const file = e.target.files[0];
-                        const dataUrl = await compressImage(file, 300);
-                        const updated = [...chatWallpapers, dataUrl];
-                        setChatWallpapers(updated);
-                        localStorage.setItem(`chat_wallpapers_${activeCharId}`, JSON.stringify(updated));
-                        if (!currentChatWallpaper) {
-                          setCurrentChatWallpaper(dataUrl);
-                          localStorage.setItem(`chat_current_wallpaper_${activeCharId}`, dataUrl);
-                        }
-                        e.target.value = "";
-                      }
-                    }}
-                  />
-                  <span className="text-xl">+</span>
-                  <span className="text-[10px] font-mono">上传</span>
-                </label>
-              </div>
-            </div>
 
             {/* 2. Reply Count (回复条数) */}
             <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
@@ -5436,6 +5879,125 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                   timePerception ? "translate-x-5" : "translate-x-0"
                 }`} />
               </button>
+            </div>
+
+            {/* API Temperature Setting */}
+            <div className="border border-neutral-200/50 rounded-2xl p-4 bg-white space-y-3">
+              <div className="flex justify-between items-center">
+                <div className="space-y-0.5">
+                  <span className="text-base font-bold text-neutral-900 block">API 温度设定</span>
+                  <span className="text-[10px] text-neutral-400 font-mono block">API TEMPERATURE</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-mono font-bold bg-neutral-100 px-2 py-1 rounded-md text-neutral-800">
+                    {customTemperature !== undefined ? customTemperature.toFixed(1) : `${(settings.temperature ?? 0.8).toFixed(1)} (系统)`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <input 
+                  type="range"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={customTemperature !== undefined ? customTemperature : (settings.temperature ?? 0.8)}
+                  onChange={e => {
+                    const val = parseFloat(e.target.value);
+                    setCustomTemperature(val);
+                    saveSettings({ customTemperature: val });
+                  }}
+                  className="w-full h-1 bg-neutral-200 rounded-lg appearance-none cursor-pointer accent-black"
+                />
+                
+                <div className="flex justify-between items-center text-[10px] text-neutral-400 px-1">
+                  <span>保守 (0.0)</span>
+                  {customTemperature !== undefined && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomTemperature(undefined);
+                        saveSettings({ customTemperature: undefined });
+                      }}
+                      className="text-stone-500 hover:text-black font-bold hover:underline"
+                    >
+                      恢复跟随系统
+                    </button>
+                  )}
+                  <span>创造性 (2.0)</span>
+                </div>
+                <p className="text-[10px] text-neutral-400 leading-normal mt-1">
+                  控制回复的确定性。低数值表现更严谨保守，高数值则更富于想象力。默认跟随系统全局温度设定。
+                </p>
+              </div>
+            </div>
+
+            {/* Chat Wallpaper Customization (Moved above Delete All Chat History) */}
+            <div className="border border-neutral-200/50 rounded-2xl p-4 bg-white space-y-3">
+              <div className="flex justify-between items-center">
+                <div className="space-y-0.5">
+                  <span className="text-base font-bold text-neutral-900 block">聊天壁纸</span>
+                  <span className="text-[10px] text-neutral-400 font-mono block">CHAT WALLPAPER</span>
+                </div>
+              </div>
+
+              {/* Wallpaper Grid */}
+              <div className="grid grid-cols-4 gap-2 pt-1">
+                {chatWallpapers.map((wp, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`relative w-14 h-14 rounded-xl overflow-hidden border-2 cursor-pointer group transition-all ${
+                      currentChatWallpaper === wp ? "border-black shadow-md scale-105" : "border-neutral-200 hover:border-neutral-400"
+                    }`}
+                    onClick={() => {
+                      setCurrentChatWallpaper(wp);
+                      localStorage.setItem(`chat_current_wallpaper_${activeCharId}`, wp);
+                    }}
+                  >
+                    <img src={wp} alt={`wallpaper-${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const updated = chatWallpapers.filter((_, i) => i !== idx);
+                        setChatWallpapers(updated);
+                        localStorage.setItem(`chat_wallpapers_${activeCharId}`, JSON.stringify(updated));
+                        if (currentChatWallpaper === wp) {
+                          setCurrentChatWallpaper(null);
+                          localStorage.removeItem(`chat_current_wallpaper_${activeCharId}`);
+                        }
+                      }}
+                      className="absolute bottom-1 right-1 w-5 h-5 bg-black/70 hover:bg-black text-white rounded-full flex items-center justify-center text-[10px] shadow-sm transition-all"
+                      title="删除壁纸"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+
+                {/* Upload Button */}
+                <label className="w-14 h-14 rounded-xl border-2 border-dashed border-neutral-300 hover:border-neutral-400 bg-neutral-50 flex flex-col items-center justify-center cursor-pointer text-neutral-400 hover:text-neutral-600 transition-colors">
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                    onChange={async (e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        const file = e.target.files[0];
+                        const dataUrl = await compressImage(file, 300);
+                        const updated = [...chatWallpapers, dataUrl];
+                        setChatWallpapers(updated);
+                        localStorage.setItem(`chat_wallpapers_${activeCharId}`, JSON.stringify(updated));
+                        setCurrentChatWallpaper(dataUrl);
+                        localStorage.setItem(`chat_current_wallpaper_${activeCharId}`, dataUrl);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                  <span className="text-xl">+</span>
+                  <span className="text-[10px] font-mono">上传</span>
+                </label>
+              </div>
             </div>
 
             {/* 5. Delete All Chat History (Renamed from Reset Conversation) */}
@@ -6732,50 +7294,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                 />
               </div>
 
-              {/* World Setting (世界设定) */}
-              <div className="space-y-1.5 border-t border-neutral-100 pt-3">
-                <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">世界设定 (WORLD SETTING)</label>
-                <textarea
-                  rows={4}
-                  placeholder="如：“这是一个梦境空间，角色们知道自己在做梦，但无法主动醒来。”（留空则角色按各自原有人设回复）"
-                  value={activeSession.worldSetting || ""}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
-                      ...activeSession,
-                      worldSetting: val,
-                      isGroup: true,
-                    });
-                  }}
-                  className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none resize-none "
-                />
-                
-                <div className="space-y-1">
-                  <span className="text-[9px] font-mono font-bold text-neutral-400 uppercase block">常用设定推荐 (点击快速填入)：</span>
-                  <div className="flex flex-col gap-1.5">
-                    {[
-                      "所有角色都知道自己来自不同的世界，但在这个群聊中他们默认不谈论此事。",
-                      "这是一个梦境空间，角色们知道自己在做梦，但无法主动醒来。",
-                      "这是侦探聚会，所有人都知道正在调查一起案件。"
-                    ].map((presetText) => (
-                      <button
-                        key={presetText}
-                        type="button"
-                        onClick={() => {
-                          onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
-                            ...activeSession,
-                            worldSetting: presetText,
-                            isGroup: true,
-                          });
-                        }}
-                        className="text-left text-[11px] text-neutral-600 hover:text-neutral-900 hover:bg-neutral-50 px-2.5 py-1.5 border border-neutral-200/50 rounded-xl transition-all  active:scale-[0.98]"
-                      >
-                        · {presetText}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
+
 
               {/* Memory Sync Toggle */}
               <div className="border border-neutral-200/50 rounded-2xl p-4 flex justify-between items-center bg-white">
@@ -6848,7 +7367,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
       {/* Publish Moment Modal */}
       {isPublishMomentOpen && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-4 shadow-2xl relative">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-sm max-h-[85vh] overflow-y-auto my-auto space-y-4 shadow-2xl relative">
             <div className="flex items-center justify-between border-b border-neutral-100 pb-3">
               <span className="font-bold text-base text-neutral-900">发布朋友圈</span>
               <button 
@@ -6966,7 +7485,7 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
                       return (
                         <label key={char.id} className="flex items-center justify-between p-2 rounded-lg bg-white border border-neutral-100 hover:border-neutral-300 cursor-pointer text-xs">
                           <div className="flex items-center gap-2">
-                            <span className="text-base">{char.avatar || "🤖"}</span>
+                            <CharacterAvatar character={char} avatar={char.chatAvatar || char.avatar} name={char.name} mode="real" size={24} className="border border-neutral-200/50" />
                             <span className="font-bold text-neutral-800">{char.name}</span>
                           </div>
                           <input
@@ -7087,6 +7606,96 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
               className="w-full bg-neutral-100 hover:bg-neutral-200 text-neutral-700 py-2.5 rounded-xl text-xs font-bold transition-colors"
             >
               取消
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- IMAGE PREVIEW LIGHTBOX MODAL -------------------- */}
+      {previewImageUrl && (
+        <div className="fixed inset-0 z-[110] bg-black/85 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in" onClick={() => setPreviewImageUrl(null)}>
+          <div className="relative max-w-4xl max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <img src={previewImageUrl} alt="大图预览" className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl" referrerPolicy="no-referrer" />
+            <button 
+              type="button"
+              onClick={() => setPreviewImageUrl(null)}
+              className="absolute -top-4 -right-4 w-8 h-8 rounded-full bg-white text-black font-bold flex items-center justify-center shadow-lg hover:bg-neutral-200 transition-transform active:scale-95"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* TTS Modal */}
+      {showTtsModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl space-y-4">
+            <div className="flex justify-between items-center pb-3 border-b border-neutral-100">
+              <h3 className="font-bold text-base text-neutral-950">打字转语音</h3>
+              <button onClick={() => setShowTtsModal(false)} className="text-neutral-400 hover:text-neutral-700 p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">输入要转为语音的文字</label>
+              <textarea
+                rows={3}
+                placeholder="请输入你想说的话..."
+                value={ttsText}
+                onChange={(e) => setTtsText(e.target.value)}
+                className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none resize-none"
+              />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowTtsModal(false)}
+                className="flex-1 py-2 text-xs font-bold text-neutral-600 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-colors"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!ttsText.trim()) {
+                    alert("请输入文字内容");
+                    return;
+                  }
+                  const text = ttsText.trim();
+                  setShowTtsModal(false);
+                  const charCount = text.length;
+                  const sec = Math.max(2, Math.min(15, Math.ceil(charCount / 3)));
+                  const durationStr = sec < 10 ? `00:0${sec}` : `00:${sec}`;
+                  const content = `[语音消息] ${durationStr}|text:${text}`;
+                  sendGroupVoiceMessageContent(content);
+                }}
+                className="flex-1 py-2 text-xs font-bold text-white bg-black hover:bg-neutral-800 rounded-xl transition-colors"
+              >
+                生成发送
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recording Indicator Overlay */}
+      {isRecordingVoice && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-xs p-6 shadow-2xl flex flex-col items-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-neutral-100 border border-neutral-300 flex items-center justify-center animate-pulse">
+              <Mic className="w-8 h-8 text-neutral-900" />
+            </div>
+            <div className="text-center space-y-1">
+              <h3 className="font-bold text-sm text-neutral-950">正在录音...</h3>
+              <p className="text-[11px] text-neutral-500 font-mono">点击下方按钮结束录音并发送</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleStopVoiceRecord}
+              className="w-full py-2.5 text-xs font-bold text-white bg-black hover:bg-neutral-800 rounded-xl transition-colors shadow-sm"
+            >
+              完成并发送
             </button>
           </div>
         </div>

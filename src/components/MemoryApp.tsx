@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ChevronLeft } from "lucide-react";
 import { Character, AppSettings, ChatSession } from "../types";
 import { MemoryDashboard } from "./MemoryDashboard";
@@ -14,6 +14,27 @@ interface MemoryAppProps {
 export default function MemoryApp({ characters, settings, sessions, onClose }: MemoryAppProps) {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
 
+  // Read vectorMemoryEnabled state from localStorage for the active character
+  const [vectorMemoryEnabled, setVectorMemoryEnabled] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (selectedCharacterId) {
+      const savedVal = localStorage.getItem(`vector_memory_enabled_${selectedCharacterId}`);
+      setVectorMemoryEnabled(savedVal === "true");
+    } else {
+      setVectorMemoryEnabled(false);
+    }
+  }, [selectedCharacterId]);
+
+  const handleToggleVectorMemory = () => {
+    if (!selectedCharacterId) return;
+    const nextVal = !vectorMemoryEnabled;
+    setVectorMemoryEnabled(nextVal);
+    localStorage.setItem(`vector_memory_enabled_${selectedCharacterId}`, nextVal ? "true" : "false");
+  };
+
+  const activeChar = selectedCharacterId ? characters.find(c => c.id === selectedCharacterId) : null;
+
   return (
     <div className="flex-1 flex flex-col h-full bg-neutral-50 relative overflow-hidden ">
       <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-neutral-100 shrink-0 shadow-sm z-10 relative">
@@ -23,18 +44,36 @@ export default function MemoryApp({ characters, settings, sessions, onClose }: M
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
-        <span className="font-bold text-base text-neutral-950">
-          {selectedCharacterId ? characters.find(c => c.id === selectedCharacterId)?.name : "记忆"}
-        </span>
+        
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-base text-neutral-950">
+            {activeChar ? activeChar.name : "记忆"}
+          </span>
+          {selectedCharacterId && (
+            <button
+              onClick={handleToggleVectorMemory}
+              className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-all active:scale-95 select-none ${
+                vectorMemoryEnabled
+                  ? "bg-neutral-900 text-white border-neutral-900 shadow-sm"
+                  : "bg-neutral-100 text-neutral-500 border-neutral-200"
+              }`}
+            >
+              <span>向量记忆</span>
+              <div className={`w-1.5 h-1.5 rounded-full ${vectorMemoryEnabled ? "bg-emerald-400 animate-pulse" : "bg-neutral-300"}`} />
+            </button>
+          )}
+        </div>
+
         <div className="w-7 h-7" />
       </div>
       
       <div className="flex-1 overflow-y-auto">
-        {selectedCharacterId ? (
+        {selectedCharacterId && activeChar ? (
           <MemoryManager 
-            character={characters.find(c => c.id === selectedCharacterId)!} 
+            character={activeChar} 
             settings={settings}
             sessions={sessions}
+            vectorMemoryEnabled={vectorMemoryEnabled}
           />
         ) : (
           <MemoryDashboard characters={characters} onSelectCharacter={setSelectedCharacterId} />

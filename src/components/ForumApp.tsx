@@ -6,7 +6,7 @@ import {
   ThumbsUp, ThumbsDown, Share2, Trash2, Edit3, Copy, RotateCcw
 } from "lucide-react";
 import { Character, AppSettings, LoreEntry } from "../types";
-import { apiChat, callLLM } from "../lib/api";
+import { apiChat, callLLM, showGlobalToast } from "../lib/api";
 import { CharacterAvatar } from "./CharacterAvatar";
 import { ConfirmModal } from "./ConfirmModal";
 
@@ -53,6 +53,7 @@ interface ForumPost {
   dislikes?: number;
   isLiked?: boolean;
   comments: ForumComment[];
+  chatLogs?: any[];
 }
 
 interface PrivateMessage {
@@ -123,6 +124,18 @@ const isHorrorBoard = (board?: Board | null): boolean => {
     name.includes("恐怖") || name.includes("灵异") || name.includes("怪谈") || name.includes("悬疑") || name.includes("鬼") ||
     desc.includes("恐怖") || desc.includes("灵异") || desc.includes("悬疑") ||
     kw.includes("恐怖") || kw.includes("灵异") || kw.includes("悬疑");
+};
+
+// Helper to detect found phone boards
+const isFoundPhoneBoard = (board?: Board | null): boolean => {
+  if (!board) return false;
+  return board.name === '捡手机文学' || board.id === 'board-3';
+};
+
+// Helper to detect "不可以涩涩" boards
+const isSeseBoard = (board?: Board | null): boolean => {
+  if (!board) return false;
+  return board.id === 'board-1' || board.name === '不可以涩涩' || (board.description || "").includes('涩涩');
 };
 
 // Helper to validate horror / supernatural content keywords
@@ -256,7 +269,19 @@ const saveCharForumNickname = (charId: string, nickname: string) => {
 
 export function ForumApp({ characters, settings, loreList = [], onClose }: ForumAppProps) {
   const [activeTab, setActiveTab] = useState<'public' | 'private' | 'profile'>('public');
-  const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
+  const [activeBoardId, setActiveBoardId] = useState<string | null>(() => {
+    try {
+      const saved = localStorage.getItem("mobile_ai_forum_last_board_id");
+      if (saved) return saved;
+    } catch (e) {}
+    return "board-1";
+  });
+
+  useEffect(() => {
+    if (activeBoardId) {
+      localStorage.setItem("mobile_ai_forum_last_board_id", activeBoardId);
+    }
+  }, [activeBoardId]);
 
   // User Profile State (Avatar, Nickname, Bookmarks)
   const [userAvatar, setUserAvatar] = useState<string>(() => {
@@ -335,8 +360,8 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
       if (saved) return JSON.parse(saved);
     } catch (e) {}
     return [
-      { id: 'board-1', name: '不可以涩涩', icon: 'love', description: '关于性爱、xp分享、亲密关系讨论的板块。', keywords: '情感, 亲密, 恋爱' },
-      { id: 'board-2', name: '深夜食堂', icon: 'skull', description: '关于灵异事件、恐怖经历的分享板块。', keywords: '悬疑, 灵异, 故事' },
+      { id: 'board-1', name: '不可以涩涩', icon: 'love', description: '轻松有趣的“涩涩”生活吐槽、戒涩挑战失败记录与暧昧期互动脑洞。', keywords: '日常吐槽, 脑洞, 冷知识' },
+      { id: 'board-2', name: '深夜食堂', icon: 'skull', description: '恐怖灵异故事分享与求助，涵盖真实灵异事件、所闻恐怖故事、身边异常求助与原创脑洞怪谈。', keywords: '悬疑, 灵异, 故事' },
       { id: 'board-3', name: '捡手机文学', icon: 'phone', description: '太太们创作的捡手机文学板块。', keywords: '脑洞, 创作, 记录' },
     ];
   });
@@ -546,10 +571,32 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
     return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
   };
 
-  const saveConfig = (p: number, c: number, boardId?: string, loreIds?: string[]) => {
-    setPostGenCount(p);
+  const resolvePostGenRange = (minS: string, maxS: string) => {
+    let min = parseInt(minS, 10);
+    let max = parseInt(maxS, 10);
+
+    if (isNaN(min)) min = 1;
+    if (isNaN(max)) max = 3;
+
+    min = Math.max(1, Math.min(8, min));
+    max = Math.max(1, Math.min(8, max));
+
+    if (min > max) {
+      const temp = min;
+      min = max;
+      max = temp;
+    }
+
+    const count = Math.floor(Math.random() * (max - min + 1)) + min;
+    return { count, min, max, minStr: min.toString(), maxStr: max.toString() };
+  };
+
+  const saveConfig = (minS: string, maxS: string, c: number, boardId?: string, loreIds?: string[]) => {
+    setGenMinStr(minS);
+    setGenMaxStr(maxS);
     setCommentGenCount(c);
-    localStorage.setItem("mobile_ai_forum_p_count", p.toString());
+    localStorage.setItem("mobile_ai_forum_p_min", minS);
+    localStorage.setItem("mobile_ai_forum_p_max", maxS);
     localStorage.setItem("mobile_ai_forum_c_count", c.toString());
     if (boardId) {
       localStorage.setItem("mobile_ai_forum_gen_board", boardId);
@@ -563,7 +610,12 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
   const [selectedLoreIds, setSelectedLoreIds] = useState<string[]>([]);
   const [isGeneratingPostsModalOpen, setIsGeneratingPostsModalOpen] = useState(false);
   const [genBoardId, setGenBoardId] = useState<string>('');
-  const [genCount, setGenCount] = useState<number>(3);
+  const [genMinStr, setGenMinStr] = useState<string>(() => {
+    return localStorage.getItem("mobile_ai_forum_p_min") || "1";
+  });
+  const [genMaxStr, setGenMaxStr] = useState<string>(() => {
+    return localStorage.getItem("mobile_ai_forum_p_max") || "3";
+  });
 
   const handleOpenGenModal = (bId?: string) => {
     const savedBoardId = localStorage.getItem("mobile_ai_forum_gen_board");
@@ -577,7 +629,8 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
 
     const targetId = bId || savedBoardId || activeBoardId || boards[0]?.id || '';
     setGenBoardId(targetId);
-    setGenCount(postGenCount || 3);
+    setGenMinStr(localStorage.getItem("mobile_ai_forum_p_min") || "1");
+    setGenMaxStr(localStorage.getItem("mobile_ai_forum_p_max") || "3");
     setSelectedLoreIds(savedLores);
     setPostGenProgressText("");
     setIsGeneratingPostsModalOpen(true);
@@ -673,19 +726,46 @@ ${boardEditKeywords.trim() ? `关键词：${boardEditKeywords.trim()}` : ""}
           attempts++;
 
           let boardRequirementNotice = "";
+          const isFoundPhone = isFoundPhoneBoard(board);
+          const isSese = isSeseBoard(board);
+
           if (isHorror) {
             boardRequirementNotice = `
---- 【恐怖/灵异板块特别硬性规则（最高优先级）】 ---
-1. 本板块必须是【真实恐怖或灵异相关题材】，包括但不限于：
-   · 亲身经历的灵异事件
-   · 都市传说改编
-   · 恐怖故事创作
-   · 诡异梦境记录
-   · 民间恐怖传闻
-2. 【绝对禁止】：严禁生成任何情感类、恋爱类、心理感伤类内容（例如“爱的人要离开我了”、“失恋悲伤”等绝不算恐怖，绝对禁止！）。
-3. 必须包含具体的场景描写和细节（如时间、地点、阴暗环境、诡异声音、触觉与视觉细节），营造真实让人毛骨悚然但极具社交媒体分享感的恐怖氛围。
-4. 请在生成前判断审查，确保内容 100% 属于恐怖/灵异主题，并在 JSON 中输出 "isHorrorTheme": true。
+--- 【深夜食堂（恐怖/灵异）板块特别硬性规则（最高优先级）】 ---
+1. 本板块必须是【恐怖灵异题材】，包含以下四种类型之一：
+   · 亲身经历的灵异事件（标题或内容必须标注【真实】）
+   · 听别人说过的恐怖故事/传闻（标题或内容标注【真实】或【脑洞】）
+   · 自己察觉周围有诡异不对劲现象来论坛发帖求助（如异响、怪异影迹、异样感觉等）
+   · 原创编造的毛骨悚然的故事/都市怪谈（标题或内容必须标注【脑洞】）
+2. 【风格与代入感】：
+   · 极其注重身临其境的代入感！描述具体的场景细节（发生时间、环境氛围、光线触感、声音细节、当下的紧张与恐惧心理），让读者感同身受。
+3. 【标签与标题规则】：
+   · 真实经历/传闻类：帖子 title 或正文开头必须包含“【真实】”，tag 设为 "真实"。
+   · 编造故事类：帖子 title 或正文开头必须包含“【脑洞】”，tag 设为 "脑洞"。
+   · 示例标题：“【真实】昨晚在老家后山看到的怪事…”、“【脑洞】千万不要在深夜打开这扇门…”
+4. 【悬念与留白】：
+   · 故事可以不讲完，留下让人细思极恐的悬念或未完待续（例如“等等，走廊里好像有脚步声，我去看看…”或“大家帮我看看照片后台里的黑影是什么”），引发评论区推测热议！
+5. 【绝对禁止】：严禁生成任何日常情感纠纷、恋爱伤感讨论或普通日常生活杂谈。
+6. 请在 JSON 中输出 "isHorrorTheme": true，以及 "title"（包含【真实】或【脑洞】）、"tag"（"真实"或"脑洞"）和 "content"。
 `;
+          } else if (isFoundPhone) {
+            boardRequirementNotice = `--- 【捡手机文学板块特别硬性规则（最高优先级）】 ---
+1. 本板块帖子必须是虚构的聊天记录，以“捡到了 [某人] 的手机”为标题。
+2. 题材不限（搞笑、日常、悬疑、恋爱均可），核心是通过角色A与角色B（或多人）的聊天对话推动剧情。
+3. 内容风格：日常口语化对话，可包含语气词、表情符号（用文字描述）、时间戳等细节，符合角色的设定。
+4. 【必须在 JSON 中输出 "isFoundPhone": true 以及 "title"（如“捡到了 [某人] 的手机”），还有 "chatLogs" 数组（不可省略，不少于6条）。】
+5. "chatLogs" 的格式要求：每个元素是 { "sender": "发送者昵称", "time": "14:30", "content": "消息内容", "isRight": true 或 false (true代表手机主人，false代表对方) }。`;
+          } else if (isSese) {
+            boardRequirementNotice = `--- 【不可以涩涩板块特别硬性规则（最高优先级）】 ---
+1. 本板块聚焦轻松有趣的“涩涩”相关生活吐槽、搞笑记录与互动脑洞。
+2. 【绝对禁止】：严禁包含日常情感求助、严肃心理倾诉或严肃性教育科普内容。
+3. 帖子选题必须围绕以下三个核心方向之一进行创作：
+   · “挑战失败”日常记录：角色或NPC分享自己或身边人尝试戒“涩涩”/控制心动/忍住亲密冲动却宣告失败的搞笑经历，语气轻松自嘲、幽默解压。
+   · 有趣冷知识：关于两性关系、亲密互动、恋爱心理的搞笑有趣冷知识或生活细节观察。
+   · 约会/互动脑洞：有趣的情侣互动方式、暧昧期的小套路、令人怦然心动或爆笑的脑洞设想。
+4. 语言与氛围：
+   · 内容必须100%符合角色自身人设，语言自然口语化，展现真实生动的日常情绪，氛围轻松搞笑解压。
+   · 绝不进行严肃说教、道德批判或沉重的情感求助。`;
           }
 
           const generalRequirementNotice = `
@@ -728,7 +808,8 @@ ${boardRequirementNotice}
 {
   ${isHorror ? `"isHorrorTheme": true,` : ""}
   "forumNickname": "论坛匿名网名",
-  "tag": "${isHorror ? "灵异" : "日常"}",
+  "title": "${isHorror ? "【真实】或【脑洞】开头的吸引人标题" : "标题"}",
+  "tag": "${isHorror ? "真实" : isSese ? "脑洞" : "日常"}",
   "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，以该角色本身的口吻和人设开头，符合其专属性格与人设，像该角色本人在发帖倾诉，包含时间、地点、起因经过细节、当下情绪反应与该性格特有的自然叙事或互动，拒绝千篇一律的网梗或套话）"
 }` : `你是一个网络论坛NPC成员“${authorName}”。
 论坛板块：${board?.name}。板块方向：${board?.description}。
@@ -743,7 +824,8 @@ ${boardRequirementNotice}
 要求输出严格的 JSON 格式：
 {
   ${isHorror ? `"isHorrorTheme": true,` : ""}
-  "tag": "${isHorror ? "灵异" : "日常"}",
+  "title": "${isHorror ? "【真实】或【脑洞】开头的吸引人标题" : "标题"}",
+  "tag": "${isHorror ? "真实" : isSese ? "脑洞" : "日常"}",
   "content": "第一人称自然口语化叙述的详细帖子正文（不少于150字，以符合该NPC设定的方式开头与叙述，包含时间、地点、起因经过细节、当下情绪反应，杜绝千篇一律）"
 }`;
 
@@ -765,15 +847,27 @@ ${boardRequirementNotice}
             console.error("Failed to parse forum post JSON", e);
           }
 
-          if (parsed && parsed.content) {
-            const text = parsed.content.trim();
-            const hasFirstPerson = text.includes("我");
-            const isHorrorValid = !isHorror || (parsed.isHorrorTheme !== false && isContentHorrorThemed(text));
-            const isLengthOk = text.length >= 120;
-            const isTooSimilar = checkIsPostTooSimilar(text, [...posts, ...generatedPosts]);
+          if (parsed) {
+            if (isFoundPhone && parsed.isFoundPhone) {
+               validParsed = {
+                 ...parsed,
+                 content: parsed.content || "[聊天记录]",
+                 isFoundPhone: true,
+                 title: parsed.title || "捡到了手机",
+                 chatLogs: parsed.chatLogs || []
+               };
+               break;
+            }
+            if (parsed.content) {
+              const text = parsed.content.trim();
+              const hasFirstPerson = text.includes("我");
+              const isHorrorValid = !isHorror || (parsed.isHorrorTheme !== false && isContentHorrorThemed(text));
+              const isLengthOk = text.length >= 120;
+              const isTooSimilar = checkIsPostTooSimilar(text, [...posts, ...generatedPosts]);
 
-            if ((hasFirstPerson && isHorrorValid && isLengthOk && !isTooSimilar) || attempts >= 3) {
-              validParsed = parsed;
+              if ((hasFirstPerson && isHorrorValid && isLengthOk && !isTooSimilar) || attempts >= 3) {
+                validParsed = parsed;
+              }
             }
           }
         }
@@ -798,9 +892,9 @@ ${boardRequirementNotice}
             authorId: authorId,
             authorName: authorName,
             authorAvatar: authorAvatar,
-            title: "匿名帖子",
+            title: validParsed.title || (isHorror ? (validParsed.tag?.includes('脑洞') ? '【脑洞】恐怖故事' : '【真实】深夜怪事') : '匿名帖子'),
             content: validParsed.content,
-            tag: validParsed.tag || (isHorror ? "灵异" : "日常"),
+            tag: validParsed.tag || (isHorror ? "真实" : "日常"),
             timestamp: Date.now(),
             likes: Math.floor(Math.random() * 20),
             dislikes: 0,
@@ -821,7 +915,9 @@ ${boardRequirementNotice}
       
       if (generatedPosts.length > 0) {
         setPosts(prev => [...generatedPosts, ...prev]);
-        showToast(`✨ AI 帖子后台生成完毕（新增了 ${generatedPosts.length} 篇新帖子）！`);
+        const msg = `✨ 帖子已生成完成（新增了 ${generatedPosts.length} 篇新帖子）！`;
+        showToast(msg);
+        showGlobalToast(msg);
       }
       setIsGeneratingPostsModalOpen(false);
     } catch (e) {
@@ -1053,11 +1149,16 @@ ${boardRequirementNotice}
       ? post.comments.filter(c => !c.isRecalled).map(c => `[已有评论 floor: #${c.floor}, 作者: ${c.authorName}]内容: "${c.content}"`).join("\n")
       : "（暂无现有评论）";
 
+    const currentBoard = boards.find(b => b.id === post.boardId);
+    const isSese = isSeseBoard(currentBoard);
+    const isHorror = isHorrorBoard(currentBoard);
+
     const prompt = `你是匿名社交论坛模拟引擎。你的任务是根据给定的帖子内容、已有评论和可选角色池，批量生成一组数量在 ${countRange} 条之间的互动评论，并以 JSON 数组格式输出。
 
 --- 【帖子信息】 ---
-版块名称: "${boards.find(b => b.id === post.boardId)?.name || ""}"
-版块设定与方向: "${boards.find(b => b.id === post.boardId)?.description || ""}"
+版块名称: "${currentBoard?.name || ""}"
+版块设定与方向: "${currentBoard?.description || ""}"
+${isHorror ? "【深夜食堂（恐怖/灵异）板块评论特别氛围】：当前帖子属于恐怖/灵异题材。评论区互动请结合帖文悬念与恐怖氛围进行：1) 猜测故事后续发展或悬念真相；2) 分享自身或身边人遇到的类似真实诡异经历；3) 质疑故事真实性（如“楼主细思极恐，是不是编的？”、“求后续！写得也太真了吧”）；4) 补充细节或推理分析（如“仔细看帖子里提到的细节…”）。" : isSese ? "【不可以涩涩板块特别氛围】：当前帖子属于轻松搞笑解压的“不可以涩涩”板块。评论互动请保持轻松自嘲、爆笑吐槽、接梗或分享同感脑洞，绝不进行严肃说教、道德批判或沉重心理劝导。" : ""}
 楼主名字: "${post.authorName}"
 帖子正文: "${post.content}"
 帖子点赞数: ${post.likes || 0}
@@ -1868,9 +1969,30 @@ ${historyContext}
                   </span>
                 </div>
               </div>
-              <p className="text-[13px] text-neutral-800 leading-relaxed font-medium whitespace-pre-wrap">
-                {selectedPost.content}
-              </p>
+              {selectedPost.isFoundPhone && selectedPost.title && (
+                <div className="font-bold text-base text-neutral-900 mb-2">{selectedPost.title}</div>
+              )}
+              {selectedPost.isFoundPhone && selectedPost.chatLogs && Array.isArray(selectedPost.chatLogs) ? (
+                <div className="bg-neutral-100 rounded-xl h-[400px] overflow-y-auto p-4 space-y-3 relative shadow-inner border border-neutral-200">
+                  <div className="text-[10px] text-neutral-400 text-center mb-4">聊天记录开始</div>
+                  {selectedPost.chatLogs.map((log: any, idx: number) => (
+                    <div key={idx} className={`flex flex-col max-w-[80%] ${log.isRight ? 'ml-auto items-end' : 'mr-auto items-start'}`}>
+                      <div className="text-[10px] text-neutral-400 mb-1 flex items-center gap-1.5">
+                        <span className="font-bold text-neutral-500">{log.sender}</span>
+                        <span>{log.time}</span>
+                      </div>
+                      <div className={`p-3 rounded-2xl text-xs leading-relaxed font-medium shadow-sm ${log.isRight ? 'bg-black text-white rounded-tr-xs' : 'bg-neutral-200 text-neutral-800 rounded-tl-xs'}`}>
+                        {log.content}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="text-[10px] text-neutral-400 text-center mt-4 pt-4">没有更多消息了</div>
+                </div>
+              ) : (
+                <p className="text-[13px] text-neutral-800 leading-relaxed font-medium whitespace-pre-wrap">
+                  {selectedPost.content}
+                </p>
+              )}
 
               {/* Post Interactive Action Bar */}
               <div className="flex items-center justify-between pt-3 border-t border-neutral-100 text-xs text-neutral-500">
@@ -2299,8 +2421,11 @@ ${historyContext}
                             </button>
                           </div>
                         </div>
+                        {post.isFoundPhone && post.title && (
+                          <div className="font-bold text-[13px] text-neutral-900 mb-2">{post.title}</div>
+                        )}
                         <p className="text-[13px] text-neutral-800 leading-relaxed font-medium mb-3 line-clamp-3 whitespace-pre-wrap">
-                          {post.content}
+                          {post.isFoundPhone ? (post.chatLogs ? "[聊天记录] " + (post.chatLogs.length > 0 ? post.chatLogs[0].content : "") : post.content) : post.content}
                         </p>
                         <div className="flex items-center justify-between text-[11px] text-neutral-400 pt-2 border-t border-neutral-50">
                           <span>{formatTime(post.timestamp)}</span>
@@ -2789,11 +2914,23 @@ ${historyContext}
             {isHorrorBoard(boards.find(b => b.id === (userPostBoardId || activeBoardId || boards[0]?.id))) && (
               <div className="text-[11px] text-red-700 bg-red-50 p-2.5 rounded-xl border border-red-200/60 leading-relaxed space-y-1">
                 <div className="font-bold flex items-center gap-1">
-                  <span>💀 恐怖/灵异板块规则：</span>
+                  <span>💀 深夜食堂（恐怖/灵异）板块规则：</span>
                 </div>
-                <p>1. 必须是真实恐怖或灵异事件/都市传说/恐怖故事/诡异梦境/民间传闻。</p>
-                <p>2. 统一使用第一人称（“我”）叙述，详细描述时间、地点、起因经过细节与感受，不少于150字。</p>
-                <p className="font-bold text-red-800">3. 严禁情感/恋爱/伤感类内容！</p>
+                <p>1. 题材涵盖：亲身经历的灵异事件、听说的恐怖故事、察觉周围异常发帖求助、原创脑洞怪谈。</p>
+                <p>2. 标签规则：真实经历/传闻标注“【真实】”，原创编造故事标注“【脑洞】”。</p>
+                <p>3. 风格具极强代入感，可留下悬念或未完结，引发评论区猜测与推理。</p>
+                <p className="font-bold text-red-800">4. 严禁恋爱/情感纠纷类内容！</p>
+              </div>
+            )}
+
+            {isSeseBoard(boards.find(b => b.id === (userPostBoardId || activeBoardId || boards[0]?.id))) && (
+              <div className="text-[11px] text-pink-700 bg-pink-50 p-2.5 rounded-xl border border-pink-200/60 leading-relaxed space-y-1">
+                <div className="font-bold flex items-center gap-1">
+                  <span>💕 “不可以涩涩”板块指南：</span>
+                </div>
+                <p>1. 主题涵盖“戒涩挑战失败”搞笑记录、两性/亲密关系有趣冷知识、约会与暧昧期互动脑洞。</p>
+                <p>2. 语言自然口语化，语气轻松自嘲、幽默解压。</p>
+                <p className="font-bold text-pink-800">3. 严禁严肃说教、道德批判或沉重情感求助！</p>
               </div>
             )}
 
@@ -2885,21 +3022,48 @@ ${historyContext}
 
                 {isHorrorBoard(boards.find(b => b.id === genBoardId)) && (
                   <div className="text-[11px] text-red-700 bg-red-50 p-2.5 rounded-xl border border-red-200/60 leading-relaxed">
-                    💀 恐怖板块规则触发：生成内容将严格限定为真实恐怖/灵异题材（统一第一人称“我”，描述时间地点起因经过与场景细节，不少于150字），且严禁生成情感/恋爱/伤感类内容。
+                    💀 深夜食堂规则：生成内容包含亲身经历【真实】、所闻故事【脑洞】、诡异求助等，注重极其强烈的代入感与身临其境细节，可留下悬念，严禁情感纠纷。
+                  </div>
+                )}
+
+                {isSeseBoard(boards.find(b => b.id === genBoardId)) && (
+                  <div className="text-[11px] text-pink-700 bg-pink-50 p-2.5 rounded-xl border border-pink-200/60 leading-relaxed">
+                    💕 “不可以涩涩”板块方向：生成内容将围绕“戒涩挑战失败”日常、亲密关系搞笑冷知识、约会/暧昧期脑洞套路，轻松搞笑解压，绝不涉及严肃说教或情感求助。
                   </div>
                 )}
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-neutral-500 uppercase block">生成帖数量 (1-12)</label>
-                  <input 
-                    type="number" 
-                    min="1" 
-                    max="12" 
-                    value={genCount} 
-                    onChange={(e) => setGenCount(Math.min(12, Math.max(1, parseInt(e.target.value)||1)))} 
-                    className="w-full bg-neutral-100 p-3 rounded-xl text-xs font-medium outline-none border border-neutral-200/50" 
-                    placeholder="生成条数 (1-12)"
-                  />
+                  <label className="text-[11px] font-bold text-neutral-500 uppercase block">生成帖数量范围 (1-8 条)</label>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 flex items-center bg-neutral-100 rounded-xl border border-neutral-200/50 px-3 py-2.5">
+                      <span className="text-xs text-neutral-400 mr-2 shrink-0 font-medium">最小值</span>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="8" 
+                        value={genMinStr} 
+                        onChange={(e) => setGenMinStr(e.target.value)} 
+                        className="w-full bg-transparent text-xs font-bold text-neutral-900 outline-none" 
+                        placeholder="1"
+                      />
+                    </div>
+                    <span className="text-neutral-400 text-xs font-bold">-</span>
+                    <div className="flex-1 flex items-center bg-neutral-100 rounded-xl border border-neutral-200/50 px-3 py-2.5">
+                      <span className="text-xs text-neutral-400 mr-2 shrink-0 font-medium">最大值</span>
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max="8" 
+                        value={genMaxStr} 
+                        onChange={(e) => setGenMaxStr(e.target.value)} 
+                        className="w-full bg-transparent text-xs font-bold text-neutral-900 outline-none" 
+                        placeholder="3"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-neutral-400">
+                    将在 [{genMinStr || "1"} ~ {genMaxStr || "3"}] 条范围内随机生成（留空默认 1-3 条，上限 8 条）
+                  </p>
                 </div>
 
                 <div className="space-y-1">
@@ -2928,8 +3092,9 @@ ${historyContext}
                 <div className="flex gap-2 pt-2">
                   <button 
                     onClick={() => {
-                      saveConfig(genCount, commentGenCount, genBoardId, selectedLoreIds);
-                      showToast("已保存");
+                      const resolved = resolvePostGenRange(genMinStr, genMaxStr);
+                      saveConfig(resolved.minStr, resolved.maxStr, commentGenCount, genBoardId, selectedLoreIds);
+                      showToast("设定已保存");
                       setTimeout(() => {
                         setIsGeneratingPostsModalOpen(false);
                       }, 1500);
@@ -2939,7 +3104,11 @@ ${historyContext}
                     保存设定
                   </button>
                   <button 
-                    onClick={() => handleGeneratePosts(genBoardId, genCount, selectedLoreIds)} 
+                    onClick={() => {
+                      const resolved = resolvePostGenRange(genMinStr, genMaxStr);
+                      saveConfig(resolved.minStr, resolved.maxStr, commentGenCount, genBoardId, selectedLoreIds);
+                      handleGeneratePosts(genBoardId, resolved.count, selectedLoreIds);
+                    }} 
                     disabled={isGeneratingPosts}
                     className="flex-1 bg-black text-white py-3 rounded-xl text-xs font-bold disabled:opacity-50 transition-all flex items-center justify-center gap-1.5 active:scale-95"
                   >

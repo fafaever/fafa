@@ -18,10 +18,11 @@ import { GameListApp } from "./components/GameListApp";
 import { ForumApp } from "./components/ForumApp";
 import { TheaterApp } from "./components/TheaterApp";
 import FafaChatApp from "./components/FafaChatApp";
+import RelationshipNetworkApp from "./components/RelationshipNetworkApp";
 import { CharacterAvatar } from "./components/CharacterAvatar";
 import { Character, UserPersona, LoreEntry, AppSettings, ChatSession, Message, FontOption, ThemeOption } from "./types";
 import { Sparkles, HelpCircle } from "lucide-react";
-import { apiChat, apiGenerateNote } from "./lib/api";
+import { apiChat, apiGenerateNote, performVectorRetrieval } from "./lib/api";
 
 const getThemeClass = (theme?: ThemeOption) => {
   switch (theme) {
@@ -85,7 +86,9 @@ const PRESET_LORE: LoreEntry[] = [];
 export default function App() {
     // Screen routing state
     const [currentScreen, setCurrentScreen] = useState<string>("home");
-  
+    const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement || document.documentElement.classList.contains("is-fullscreen"));
+    const [appKeyboardHeight, setAppKeyboardHeight] = useState(0);
+
     useEffect(() => {
       // Screen orientation lock
       const orientation = screen.orientation as any;
@@ -102,13 +105,22 @@ export default function App() {
 
     useEffect(() => {
       // Handle visual viewport for mobile keyboard
+      const checkFs = () => {
+        const isFs = !!document.fullscreenElement || document.documentElement.classList.contains("is-fullscreen");
+        setIsFullscreen(isFs);
+      };
+
       const handleVisualViewportResize = () => {
         const viewport = window.visualViewport;
         if (!viewport) return;
         
+        const isFs = !!document.fullscreenElement || document.documentElement.classList.contains("is-fullscreen");
+        setIsFullscreen(isFs);
+
         // Calculate keyboard height accurately
         const keyboardHeight = Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop);
-        const activeKeyboard = keyboardHeight > 100 ? keyboardHeight : 0;
+        const activeKeyboard = keyboardHeight > 80 ? Math.round(keyboardHeight) : 0;
+        setAppKeyboardHeight(activeKeyboard);
         
         document.documentElement.style.setProperty('--keyboard-height', `${activeKeyboard}px`);
         document.documentElement.style.setProperty('--keyboard-margin', activeKeyboard > 0 ? `${activeKeyboard + 4}px` : '0px');
@@ -120,13 +132,30 @@ export default function App() {
       if (window.visualViewport) {
         window.visualViewport.addEventListener('resize', handleVisualViewportResize);
         window.visualViewport.addEventListener('scroll', handleVisualViewportResize);
+        handleVisualViewportResize();
       }
+
+      const handleFsChange = () => {
+        checkFs();
+        handleVisualViewportResize();
+      };
+
+      document.addEventListener("fullscreenchange", handleFsChange);
+      document.addEventListener("webkitfullscreenchange", handleFsChange);
+
+      const observer = new MutationObserver(() => {
+        checkFs();
+      });
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
 
       return () => {
         if (window.visualViewport) {
           window.visualViewport.removeEventListener('resize', handleVisualViewportResize);
           window.visualViewport.removeEventListener('scroll', handleVisualViewportResize);
         }
+        document.removeEventListener("fullscreenchange", handleFsChange);
+        document.removeEventListener("webkitfullscreenchange", handleFsChange);
+        observer.disconnect();
       };
     }, []);
 
@@ -218,6 +247,18 @@ export default function App() {
     text: string;
     timestamp: number;
   }>>([]);
+  const [globalToastMessage, setGlobalToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleGlobalToast = (e: any) => {
+      if (e.detail) {
+        setGlobalToastMessage(e.detail);
+        setTimeout(() => setGlobalToastMessage(null), 3500);
+      }
+    };
+    window.addEventListener("global-toast", handleGlobalToast);
+    return () => window.removeEventListener("global-toast", handleGlobalToast);
+  }, []);
 
   // Hydrate from localStorage on mount
   useEffect(() => {
@@ -309,6 +350,7 @@ export default function App() {
           apiPresets: parsed.apiPresets || [],
           activePresetId: parsed.activePresetId || "",
           homeWallpaper: parsed.homeWallpaper || "",
+          homeWallpaper2: parsed.homeWallpaper2 || "",
           chatWallpaper: parsed.chatWallpaper || "",
           globalFont: parsed.globalFont || "system",
           customFontUrl: parsed.customFontUrl || "",
@@ -337,13 +379,70 @@ export default function App() {
     }
   }, []);
 
+  // Helper: Sync bidirectional associations for characters
+  const syncBidirectionalAssociations = (charsList: Character[]): Character[] => {
+    let updated = charsList.map(c => ({
+      ...c,
+      associatedCharacterIds: c.associatedCharacterIds ? [...c.associatedCharacterIds] : [],
+      associatedRelations: c.associatedRelations ? { ...c.associatedRelations } : {},
+    }));
+
+    const validIds = new Set(updated.map(c => c.id));
+    updated = updated.map(c => {
+      const filteredIds = c.associatedCharacterIds.filter(id => validIds.has(id));
+      const cleanedRelations: Record<string, string> = {};
+      filteredIds.forEach(id => {
+        if (c.associatedRelations[id]) {
+          cleanedRelations[id] = c.associatedRelations[id];
+        }
+      });
+      return {
+        ...c,
+        associatedCharacterIds: filteredIds,
+        associatedRelations: cleanedRelations
+      };
+    });
+
+    for (const c of updated) {
+      for (const targetId of c.associatedCharacterIds) {
+        const target = updated.find(t => t.id === targetId);
+        if (target) {
+          if (!target.associatedCharacterIds.includes(c.id)) {
+            target.associatedCharacterIds.push(c.id);
+          }
+          if (!target.associatedRelations[c.id]) {
+            target.associatedRelations[c.id] = c.associatedRelations[target.id] || "偶然认识的朋友。";
+          }
+        }
+      }
+    }
+
+    updated = updated.map(c => {
+      const filteredIds = c.associatedCharacterIds.filter(id => id !== c.id);
+      const cleanedRelations: Record<string, string> = {};
+      filteredIds.forEach(id => {
+        if (c.associatedRelations[id]) {
+          cleanedRelations[id] = c.associatedRelations[id];
+        }
+      });
+      return {
+        ...c,
+        associatedCharacterIds: filteredIds,
+        associatedRelations: cleanedRelations
+      };
+    });
+
+    return updated;
+  };
+
   // Helper: Persist characters
   const persistCharacters = (newChars: Character[]) => {
-    setCharacters(newChars);
+    const synced = syncBidirectionalAssociations(newChars);
+    setCharacters(synced);
     try {
-      const serialized = JSON.stringify(newChars);
+      const serialized = JSON.stringify(synced);
       localStorage.setItem("mobile_ai_characters", serialized);
-      console.log(`[Persist Characters Success] Total characters: ${newChars.length}, Data size: ${Math.round(serialized.length / 1024)} KB`);
+      console.log(`[Persist Characters Success] Total characters: ${synced.length}, Data size: ${Math.round(serialized.length / 1024)} KB`);
     } catch (err: any) {
       console.error("[Persist Characters Error] Failed to write mobile_ai_characters to localStorage:", err);
     }
@@ -912,6 +1011,24 @@ export default function App() {
         }
       }
 
+      // Check if Vector Memory is enabled
+      const vectorEnabled = localStorage.getItem(`vector_memory_enabled_${characterId}`) === "true";
+      let activeMemories = [...memories];
+      if (vectorEnabled && lastUserMsg && lastUserMsg.content) {
+        try {
+          const vectorResults = await performVectorRetrieval(characterId, lastUserMsg.content, settings);
+          if (vectorResults && vectorResults.length > 0) {
+            // Map the top 10 most relevant memories to the memories list passed to the AI
+            activeMemories = vectorResults.slice(0, 10).map(doc => {
+              const scorePercent = Math.round((doc.rerankScore !== undefined ? doc.rerankScore : doc.score) * 100);
+              return `[高维向量记忆 / 相关性: ${scorePercent}%] ${doc.text} (${doc.source})`;
+            });
+          }
+        } catch (err) {
+          console.error("Failed to fetch vector memories for chat generation:", err);
+        }
+      }
+
       const requestParams = {
         messages: targetMessages,
         character: cleanCharacter,
@@ -925,7 +1042,7 @@ export default function App() {
         replyLength: replyLength,
         replyCount: count,
         mood: mood,
-        memories: memories,
+        memories: activeMemories,
         userDidNotReply: userDidNotReply,
         isBlocked: activeChar.isBlocked,
         blockedAt: activeChar.blockedAt,
@@ -1045,8 +1162,34 @@ export default function App() {
             parsedAmount = Number(matchAmount[1]);
           }
           const transferAmount = parsedAmount !== null ? parsedAmount.toFixed(2) : (Math.random() * 150 + 10).toFixed(2);
-          const remarks = ["拿去吃顿好的。", "别问，收着。", "辛苦啦，给你零花钱。", "拿去花吧，不够再跟我要。"];
-          const randomNote = remarks[Math.floor(Math.random() * remarks.length)];
+          
+          const getCharacterTransferNote = (char: any) => {
+            const p = (char?.persona || "") + " " + (char?.description || "") + " " + (char?.name || "") + " " + (char?.systemInstruction || "");
+            const isCold = /冷|克制|静|高冷|傲娇|漠|毒舌|淡/i.test(p);
+            const isTsundere = /傲娇|嘴硬|别扭/i.test(p);
+            const isWarm = /温柔|暖|治愈|体贴/i.test(p);
+            const isCheerful = /活泼|开朗|元气|可爱|热情/i.test(p);
+
+            if (isTsundere) {
+              const notes = ["才不是特意给你的！", "你别多想！", "顺手多出来的，拿去。", "哼，勉强分你一点。"];
+              return notes[Math.floor(Math.random() * notes.length)];
+            } else if (isCold) {
+              const notes = ["收着。", "别问。", "不用还。", "拿着花。"];
+              return notes[Math.floor(Math.random() * notes.length)];
+            } else if (isWarm) {
+              const notes = ["拿去吃点好的。", "别饿着自己。", "照顾好自己哦。", "拿着买点喜欢的东西。"];
+              return notes[Math.floor(Math.random() * notes.length)];
+            } else if (isCheerful) {
+              const notes = ["请你吃好吃的！！", "嘿嘿，给你！", "拿去挥霍吧～", "今天开心，分你一半！"];
+              return notes[Math.floor(Math.random() * notes.length)];
+            } else {
+              const notes = ["拿去花吧。", "收下吧。", "别客气。"];
+              return notes[Math.floor(Math.random() * notes.length)];
+            }
+          };
+
+          const currentActiveChar = characters.find((c: any) => c.id === characterId);
+          const randomNote = getCharacterTransferNote(currentActiveChar);
           const transferId = `ct-${Date.now()}`;
 
           await new Promise(r => setTimeout(r, 600));
@@ -1246,6 +1389,15 @@ export default function App() {
             onClose={() => setCurrentScreen("home")}
           />
         );
+      case "network":
+        return (
+          <RelationshipNetworkApp
+            characters={characters.filter(c => c.id !== 'char-preset-fafa')}
+            settings={settings}
+            onClose={() => setCurrentScreen("home")}
+            onUpdateCharacter={handleUpdateCharacter}
+          />
+        );
       case "settings":
         return (
           <SettingsApp
@@ -1360,7 +1512,7 @@ export default function App() {
               isApiConfigured={!!(settings.apiUrl && settings.apiKey)}
               characters={characters.filter(c => c.id !== 'char-preset-fafa')}
               sessions={sessions}
-              settings={settings}
+              settings={previewSettings}
             />
           </div>
         );
@@ -1419,9 +1571,10 @@ export default function App() {
       {/* CENTER: Simulated Smartphone Screen Container */}
       <div 
         id="phone_screen"
-        className={`w-full h-full md:h-auto md:max-w-[430px] md:aspect-[9/19.5] rounded-none md:rounded-[40px] shadow-none md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border-0 md:border border-neutral-200/80 flex flex-col relative overflow-hidden ${getThemeClass(previewSettings.globalTheme)} ${getFontClass(previewSettings.globalFont)}`}
+        className={`w-full h-full md:h-auto md:max-w-[430px] md:aspect-[9/19.5] rounded-none md:rounded-[40px] shadow-none md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.18)] border-0 md:border border-neutral-200/80 flex flex-col relative overflow-hidden transition-transform duration-150 ease-out ${getThemeClass(previewSettings.globalTheme)} ${getFontClass(previewSettings.globalFont)}`}
         style={{ 
           height: "100dvh",
+          transform: (!isFullscreen && appKeyboardHeight > 0) ? `translateY(-${appKeyboardHeight}px)` : 'none',
           backgroundImage: (currentScreen === 'chat' && previewSettings.chatWallpaper) 
             ? `url(${previewSettings.chatWallpaper})` 
             : 'none',
@@ -1482,6 +1635,14 @@ export default function App() {
                 <span className="text-xs font-medium text-neutral-900">{notif.text}</span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Global Toast Notification */}
+        {globalToastMessage && (
+          <div className="absolute top-11 left-1/2 -translate-x-1/2 z-[99999] w-[90%] px-4 py-2.5 bg-neutral-900/95 text-white backdrop-blur-md rounded-2xl shadow-xl border border-neutral-700/60 flex items-center gap-2.5 text-xs font-medium animate-fade-in">
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="truncate flex-1">{globalToastMessage}</span>
           </div>
         )}
 
