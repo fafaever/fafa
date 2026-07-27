@@ -83,7 +83,178 @@ interface HomeScreenProps {
   settings?: AppSettings;
 }
 
+export interface LauncherItem {
+  id: string;
+  name: string;
+  colSpan: number; // 1, 2, 3
+  type: 'app' | 'card';
+}
+
+const DEFAULT_LAUNCHER_ITEMS: LauncherItem[] = [
+  { id: 'phonecheck', name: '查手机', colSpan: 1, type: 'app' },
+  { id: 'universe', name: '宇宙', colSpan: 1, type: 'app' },
+  { id: 'theater', name: '小剧场', colSpan: 1, type: 'app' },
+  { id: 'forum', name: '论坛卡片', colSpan: 2, type: 'card' },
+  { id: 'gamelist', name: '游戏', colSpan: 1, type: 'app' },
+  { id: 'memory', name: '记忆', colSpan: 1, type: 'app' },
+  { id: 'network', name: '关系网', colSpan: 1, type: 'app' },
+  { id: 'cloud', name: '云端', colSpan: 1, type: 'app' },
+  { id: 'help', name: '帮助', colSpan: 1, type: 'app' },
+];
+
 export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApiConfigured, characters, sessions, settings }: HomeScreenProps) {
+  const [launcherItems, setLauncherItems] = useState<LauncherItem[]>(() => {
+    const saved = localStorage.getItem("mobile_ai_launcher_items_v2");
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return DEFAULT_LAUNCHER_ITEMS;
+  });
+
+  const [isEditingLayout, setIsEditingLayout] = useState(false);
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const dragStartPos = useRef({ x: 0, y: 0 });
+  const draggedElementRef = useRef<HTMLDivElement | null>(null);
+
+  const [resizingIndex, setResizingIndex] = useState<number | null>(null);
+  const resizeStartPos = useRef({ x: 0, y: 0 });
+  const resizeStartSpan = useRef(2);
+
+  const itemLongPressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isItemLongPressTriggered = useRef(false);
+
+  const handleItemPointerDown = (index: number, e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    isItemLongPressTriggered.current = false;
+    if (itemLongPressTimeoutRef.current) clearTimeout(itemLongPressTimeoutRef.current);
+    
+    itemLongPressTimeoutRef.current = setTimeout(() => {
+      isItemLongPressTriggered.current = true;
+      setIsEditingLayout(true);
+      if (navigator.vibrate) {
+        navigator.vibrate(50);
+      }
+    }, 600);
+  };
+
+  const handleItemPointerUp = (index: number, item: LauncherItem, e: React.PointerEvent) => {
+    if (itemLongPressTimeoutRef.current) {
+      clearTimeout(itemLongPressTimeoutRef.current);
+      itemLongPressTimeoutRef.current = null;
+    }
+    
+    if (!isItemLongPressTriggered.current) {
+      if (!isEditingLayout) {
+        if (item.id === 'cloud') {
+          alert("云端服务即将开放...");
+        } else {
+          onOpenApp(item.id);
+        }
+      }
+    }
+  };
+
+  const handleItemPointerCancel = () => {
+    if (itemLongPressTimeoutRef.current) {
+      clearTimeout(itemLongPressTimeoutRef.current);
+      itemLongPressTimeoutRef.current = null;
+    }
+  };
+
+  const handleDragStart = (index: number, e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isEditingLayout) return;
+    if ((e.target as HTMLElement).closest(".resize-handle")) return;
+
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDraggedIndex(index);
+    dragStartPos.current = { x: e.clientX, y: e.clientY };
+    setDragOffset({ x: 0, y: 0 });
+    draggedElementRef.current = e.currentTarget;
+  };
+
+  const handleDragMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (draggedIndex === null) return;
+    
+    const dx = e.clientX - dragStartPos.current.x;
+    const dy = e.clientY - dragStartPos.current.y;
+    setDragOffset({ x: dx, y: dy });
+
+    const element = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement;
+    const hoverItem = element?.closest("[data-launcher-index]") as HTMLElement;
+    if (hoverItem) {
+      const hoverIndex = parseInt(hoverItem.getAttribute("data-launcher-index") || "", 10);
+      if (!isNaN(hoverIndex) && hoverIndex !== draggedIndex) {
+        setLauncherItems(prev => {
+          const next = [...prev];
+          const [draggedItem] = next.splice(draggedIndex, 1);
+          next.splice(hoverIndex, 0, draggedItem);
+          setDraggedIndex(hoverIndex);
+          return next;
+        });
+      }
+    }
+  };
+
+  const handleDragEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (draggedIndex === null) return;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setDraggedIndex(null);
+    setDragOffset({ x: 0, y: 0 });
+    draggedElementRef.current = null;
+    localStorage.setItem("mobile_ai_launcher_items_v2", JSON.stringify(launcherItems));
+  };
+
+  const handleResizeStart = (index: number, e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setResizingIndex(index);
+    resizeStartPos.current = { x: e.clientX, y: e.clientY };
+    resizeStartSpan.current = launcherItems[index].colSpan;
+  };
+
+  const handleResizeMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (resizingIndex === null) return;
+    const dx = e.clientX - resizeStartPos.current.x;
+    const threshold = 60;
+    const spanChange = Math.round(dx / threshold);
+    let nextSpan = resizeStartSpan.current + spanChange;
+    nextSpan = Math.max(1, Math.min(3, nextSpan));
+    
+    if (nextSpan !== launcherItems[resizingIndex].colSpan) {
+      setLauncherItems(prev => {
+        const next = [...prev];
+        next[resizingIndex] = { ...next[resizingIndex], colSpan: nextSpan };
+        return next;
+      });
+    }
+  };
+
+  const handleResizeEnd = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (resizingIndex === null) return;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    setResizingIndex(null);
+    localStorage.setItem("mobile_ai_launcher_items_v2", JSON.stringify(launcherItems));
+  };
+
+  // Partition helper
+  const page1Items: LauncherItem[] = [];
+  const page2Items: LauncherItem[] = [];
+  let currentSlots = 0;
+  launcherItems.forEach(item => {
+    if (currentSlots + item.colSpan <= 6) {
+      page1Items.push(item);
+      currentSlots += item.colSpan;
+    } else {
+      page2Items.push(item);
+    }
+  });
+
   const [time, setTime] = useState("");
   const [date, setDate] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
@@ -332,8 +503,159 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
     return fallback;
   };
 
+  const renderLauncherItem = (item: LauncherItem, indexInList: number) => {
+    const isDragged = draggedIndex === indexInList;
+    const style: React.CSSProperties = isDragged ? {
+      transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+      zIndex: 50,
+      opacity: 0.8,
+      pointerEvents: 'none'
+    } : {};
+
+    let iconContent: React.ReactNode = null;
+    if (item.id === 'phonecheck') {
+      iconContent = getAppIcon('phonecheck', <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-black" fill="none"><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="12" y1="18" x2="12" y2="18" /></svg>);
+    } else if (item.id === 'universe') {
+      iconContent = getAppIcon('universe', <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-black" fill="none"><circle cx="12" cy="12" r="10" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>);
+    } else if (item.id === 'theater') {
+      iconContent = getAppIcon('theater', <span className="text-2xl grayscale">🎭</span>);
+    } else if (item.id === 'gamelist') {
+      iconContent = getAppIcon('gamelist', <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-black" fill="none"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 12h4m-2-2v4m10-2h-4" /></svg>);
+    } else if (item.id === 'memory') {
+      iconContent = getAppIcon('memory', <span className="text-2xl grayscale">🧠</span>);
+    } else if (item.id === 'network') {
+      iconContent = getAppIcon('network', <Network className="w-7 h-7 text-black/80 stroke-[1.5]" />);
+    } else if (item.id === 'cloud') {
+      iconContent = getAppIcon('cloud', <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7 text-black/80"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /></svg>);
+    } else if (item.id === 'help') {
+      iconContent = getAppIcon('help', <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7 text-black/80"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>);
+    }
+
+    if (item.type === 'card' && item.id === 'forum') {
+      const colSpanClass = item.colSpan === 3 ? 'col-span-3' : item.colSpan === 2 ? 'col-span-2' : 'col-span-1';
+      return (
+        <div
+          key={item.id}
+          data-launcher-index={indexInList}
+          style={style}
+          onPointerDown={(e) => handleDragStart(indexInList, e)}
+          onPointerMove={handleDragMove}
+          onPointerUp={handleDragEnd}
+          onPointerCancel={handleDragEnd}
+          className={`${colSpanClass} relative h-[88px] rounded-[24px] select-none transition-all shadow-sm p-[2px] bg-white group text-left touch-none`}
+        >
+          <button
+            onPointerDown={(e) => handleItemPointerDown(indexInList, e)}
+            onPointerUp={(e) => handleItemPointerUp(indexInList, item, e)}
+            onPointerCancel={handleItemPointerCancel}
+            className="w-full h-full text-left focus:outline-none"
+          >
+            <div className="w-full h-full rounded-[22px] bg-white/60 backdrop-blur-md flex flex-col justify-between px-4 pt-3 pb-2 border border-neutral-100/50 shadow-[inset_0_1px_4px_rgba(255,255,255,0.8)] relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent pointer-events-none" />
+              <div className="relative z-10 w-full">
+                <div className="w-full border-b border-neutral-200/80 pb-1 mb-1.5 flex items-center justify-between shrink-0">
+                  <div className="w-5 h-5 rounded-md bg-neutral-100 flex items-center justify-center overflow-hidden">
+                    {getAppIcon('forum', <MessageSquare className="w-3 h-3 text-neutral-400" />)}
+                  </div>
+                  {isEditingLayout && (
+                    <span className="text-[9px] px-1 bg-black/10 text-black/60 rounded">宽 {item.colSpan}</span>
+                  )}
+                  <div className="flex gap-0.5">
+                    <div className="w-1 h-1 rounded-full bg-neutral-200" />
+                    <div className="w-1 h-1 rounded-full bg-neutral-200" />
+                    <div className="w-1 h-1 rounded-full bg-neutral-200" />
+                  </div>
+                </div>
+                {item.colSpan > 1 ? (
+                  <p className="text-[11px] text-neutral-700 font-medium line-clamp-2 leading-[1.4] w-11/12">
+                    {latestForumPost ? (latestForumPost.comments?.length > 0 ? latestForumPost.comments[latestForumPost.comments.length - 1].content : latestForumPost.content) : "暂时没有新的帖子更新..."}
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-neutral-500 font-bold text-center mt-2">论坛</p>
+                )}
+              </div>
+              {item.colSpan > 1 && (
+                <div className="w-full flex justify-between items-end shrink-0 pt-0.5 relative z-10">
+                  <div className="flex gap-1 items-center opacity-40">
+                    <div className="w-1 h-1 rounded-full bg-neutral-500"></div>
+                    <div className="w-1 h-1 rounded-full bg-neutral-500"></div>
+                    <div className="w-3 h-0.5 rounded-full bg-neutral-500"></div>
+                  </div>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-300 opacity-80"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                </div>
+              )}
+            </div>
+          </button>
+
+          {isEditingLayout && (
+            <div className="absolute inset-0 rounded-[24px] border-2 border-dashed border-black/30 pointer-events-none flex items-center justify-center bg-black/5 animate-pulse z-10" />
+          )}
+
+          {isEditingLayout && (
+            <div
+              onPointerDown={(e) => handleResizeStart(indexInList, e)}
+              onPointerMove={handleResizeMove}
+              onPointerUp={handleResizeEnd}
+              onPointerCancel={handleResizeEnd}
+              className="resize-handle absolute bottom-1 right-1 w-6 h-6 bg-black text-white rounded-full flex items-center justify-center cursor-se-resize shadow-md hover:scale-110 active:scale-95 transition-all z-20"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
+                <path d="M15 19l-4-4 4-4" />
+                <path d="M9 19l-4-4 4-4" />
+              </svg>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div
+        key={item.id}
+        data-launcher-index={indexInList}
+        style={style}
+        onPointerDown={(e) => handleDragStart(indexInList, e)}
+        onPointerMove={handleDragMove}
+        onPointerUp={handleDragEnd}
+        onPointerCancel={handleDragEnd}
+        className="flex flex-col items-center gap-2 group focus:outline-none relative touch-none select-none"
+      >
+        <button
+          onPointerDown={(e) => handleItemPointerDown(indexInList, e)}
+          onPointerUp={(e) => handleItemPointerUp(indexInList, item, e)}
+          onPointerCancel={handleItemPointerCancel}
+          className="flex flex-col items-center gap-2 group focus:outline-none"
+        >
+          <div className="w-16 h-16 bg-white/60 backdrop-blur-md border border-neutral-100/50 rounded-2xl flex items-center justify-center shadow-[0_4px_12px_-4px_rgba(0,0,0,0.1)] overflow-hidden relative">
+            {iconContent}
+            {isEditingLayout && (
+              <div className="absolute inset-0 rounded-2xl border-2 border-dashed border-black/30 bg-black/5 animate-pulse" />
+            )}
+          </div>
+          <span className="text-[11px] font-bold text-black/60 tracking-tight">{item.name}</span>
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div className="flex-1 flex flex-col h-full bg-neutral-50 relative overflow-hidden">
+      {/* Edit Mode Banner overlay */}
+      {isEditingLayout && (
+        <div className="absolute top-12 left-4 right-4 z-50 bg-black/95 text-white backdrop-blur-lg rounded-2xl py-3 px-4 flex items-center justify-between shadow-lg border border-white/10 animate-fade-in">
+          <div className="flex flex-col">
+            <span className="text-[12px] font-bold tracking-tight">排版编辑模式</span>
+            <span className="text-[10px] text-white/60">拖动图标调整位置，拖拽卡片右下角调整大小</span>
+          </div>
+          <button
+            onClick={() => setIsEditingLayout(false)}
+            className="bg-white text-black font-bold text-xs px-3 py-1.5 rounded-lg active:scale-95 transition-all shadow-sm"
+          >
+            完成
+          </button>
+        </div>
+      )}
+
       {/* Dynamic Wallpapers for each page */}
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
         <div 
@@ -477,79 +799,12 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
             </div>
           )}
 
-          {/* New 3x2 App Grid */}
+          {/* New 3x2 Customizable App Grid */}
           <div className="grid grid-cols-3 gap-y-6 gap-x-4 shrink-0">
-            <button
-              onClick={() => onOpenApp("phonecheck")}
-              className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
-            >
-              <div className="w-16 h-16 bg-white/60 backdrop-blur-md border border-neutral-100/50 rounded-2xl flex items-center justify-center shadow-[0_4px_12px_-4px_rgba(0,0,0,0.1)] overflow-hidden">
-                {getAppIcon('phonecheck', <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-black" fill="none"><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="12" y1="18" x2="12" y2="18" /></svg>)}
-              </div>
-              <span className="text-[11px] font-bold text-black/60 tracking-tight">查手机</span>
-            </button>
-            <button
-              onClick={() => onOpenApp("universe")}
-              className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
-            >
-              <div className="w-16 h-16 bg-white/60 backdrop-blur-md border border-neutral-100/50 rounded-2xl flex items-center justify-center shadow-[0_4px_12px_-4px_rgba(0,0,0,0.1)] overflow-hidden">
-                {getAppIcon('universe', <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-black" fill="none"><circle cx="12" cy="12" r="10" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>)}
-              </div>
-              <span className="text-[11px] font-bold text-black/60 tracking-tight">宇宙</span>
-            </button>
-            <button
-              onClick={() => onOpenApp("theater")}
-              className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all"
-            >
-              <div className="w-16 h-16 bg-white/60 backdrop-blur-md border border-neutral-100/50 rounded-2xl flex items-center justify-center shadow-[0_4px_12px_-4px_rgba(0,0,0,0.1)] overflow-hidden">
-                {getAppIcon('theater', <span className="text-2xl grayscale">🎭</span>)}
-              </div>
-              <span className="text-[11px] font-bold text-black/60 tracking-tight">小剧场</span>
-            </button>
-            <button
-              onClick={() => onOpenApp("forum")}
-              className="col-span-2 relative h-[88px] rounded-[24px] focus:outline-none active:scale-98 transition-all shadow-sm p-[2px] bg-white group text-left"
-              style={{
-                background: "linear-gradient(135deg, rgba(240,240,240,1) 0%, rgba(255,255,255,1) 50%, rgba(245,245,245,1) 100%)",
-                boxShadow: "0 2px 10px -4px rgba(0,0,0,0.05)"
-              }}
-            >
-              <div className="w-full h-full rounded-[22px] bg-white/60 backdrop-blur-md flex flex-col justify-between px-4 pt-3 pb-2 border border-neutral-100/50 shadow-[inset_0_1px_4px_rgba(255,255,255,0.8)] relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent pointer-events-none" />
-                <div className="relative z-10">
-                  <div className="w-full border-b border-neutral-200/80 pb-1 mb-2 flex items-center justify-between shrink-0">
-                    <div className="w-5 h-5 rounded-md bg-neutral-100 flex items-center justify-center overflow-hidden">
-                      {getAppIcon('forum', <MessageSquare className="w-3 h-3 text-neutral-400" />)}
-                    </div>
-                    <div className="flex gap-0.5">
-                      <div className="w-1 h-1 rounded-full bg-neutral-200" />
-                      <div className="w-1 h-1 rounded-full bg-neutral-200" />
-                      <div className="w-1 h-1 rounded-full bg-neutral-200" />
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-neutral-700 font-medium line-clamp-2 leading-[1.4] w-11/12">
-                    {latestForumPost ? (latestForumPost.comments?.length > 0 ? latestForumPost.comments[latestForumPost.comments.length - 1].content : latestForumPost.content) : "暂时没有新的帖子更新..."}
-                  </p>
-                </div>
-                <div className="w-full flex justify-between items-end shrink-0 pt-0.5 relative z-10">
-                  <div className="flex gap-1 items-center opacity-40">
-                    <div className="w-1 h-1 rounded-full bg-neutral-500"></div>
-                    <div className="w-1 h-1 rounded-full bg-neutral-500"></div>
-                    <div className="w-3 h-0.5 rounded-full bg-neutral-500"></div>
-                  </div>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-neutral-300 opacity-80"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                </div>
-              </div>
-            </button>
-            <button
-              onClick={() => onOpenApp("gamelist")}
-              className="flex flex-col items-center gap-2 group focus:outline-none active:scale-95 transition-all h-[88px] justify-end"
-            >
-              <div className="w-16 h-16 bg-white/60 backdrop-blur-md border border-neutral-100/50 rounded-2xl flex items-center justify-center shadow-[0_4px_12px_-4px_rgba(0,0,0,0.1)] overflow-hidden">
-                {getAppIcon('gamelist', <svg viewBox="0 0 24 24" className="w-7 h-7 stroke-[1.5] stroke-black" fill="none"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 12h4m-2-2v4m10-2h-4" /></svg>)}
-              </div>
-              <span className="text-[11px] font-bold text-black/60 tracking-tight">游戏</span>
-            </button>
+            {page1Items.map((item) => {
+              const globalIndex = launcherItems.findIndex(x => x.id === item.id);
+              return renderLauncherItem(item, globalIndex);
+            })}
           </div>
           
           <div className="mt-auto text-center" />
@@ -565,74 +820,31 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
             <p className="text-xs text-neutral-500 mt-1">更多系统功能</p>
           </div>
 
-          <div className="grid grid-cols-3 gap-x-4 gap-y-8 px-2 justify-items-center">
-            {/* Memory */}
-            <button
-              onClick={() => onOpenApp("memory")}
-              className="flex flex-col items-center gap-2.5 group focus:outline-none active:scale-95 transition-all"
-            >
-              <div className="w-16 h-16 bg-white/60 backdrop-blur-md border border-neutral-100/50 rounded-[20px] flex items-center justify-center shadow-sm overflow-hidden">
-                {getAppIcon('memory', <span className="text-2xl grayscale">🧠</span>)}
-              </div>
-              <span className="text-[11px] font-bold tracking-tight text-black/60">记忆</span>
-            </button>
-
-            {/* Relationship Network */}
-            <button
-              onClick={() => onOpenApp("network")}
-              className="flex flex-col items-center gap-2.5 group focus:outline-none active:scale-95 transition-all animate-fade-in"
-            >
-              <div className="w-16 h-16 bg-white/60 backdrop-blur-md border border-neutral-100/50 rounded-[20px] flex items-center justify-center shadow-sm overflow-hidden">
-                {getAppIcon('network', <Network className="w-7 h-7 text-black/80 stroke-[1.5]" />)}
-              </div>
-              <span className="text-[11px] font-bold tracking-tight text-black/60">关系网</span>
-            </button>
-
-            {/* Cloud */}
-            <button
-              onClick={() => alert("云端服务即将开放...")}
-              className="flex flex-col items-center gap-2.5 group focus:outline-none active:scale-95 transition-all"
-            >
-              <div className="w-16 h-16 bg-white/60 backdrop-blur-md border border-neutral-100/50 rounded-[20px] flex items-center justify-center shadow-sm overflow-hidden">
-                {getAppIcon('cloud', <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7 text-black/80">
-                  <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
-                </svg>)}
-              </div>
-              <span className="text-[11px] font-bold tracking-tight text-black/60">云端</span>
-            </button>
-
-            {/* Help */}
-            <button
-              onClick={() => onOpenApp("help")}
-              className="flex flex-col items-center gap-2.5 group focus:outline-none active:scale-95 transition-all"
-            >
-              <div className="w-16 h-16 bg-white/60 backdrop-blur-md border border-neutral-100/50 rounded-[20px] flex items-center justify-center shadow-sm overflow-hidden">
-                {getAppIcon('help', <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7 text-black/80">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>)}
-              </div>
-              <span className="text-[11px] font-bold tracking-tight text-black/60">帮助</span>
-            </button>
+          <div className="grid grid-cols-3 gap-y-6 gap-x-4 shrink-0 justify-items-center">
+            {page2Items.map((item) => {
+              const globalIndex = launcherItems.findIndex(x => x.id === item.id);
+              return renderLauncherItem(item, globalIndex);
+            })}
           </div>
         </div>
       </div>
       {/* Pagination Indicators - Sticky Footer */}
-      <div className="shrink-0 w-full flex justify-center py-2 bg-transparent z-20">
-        <div className="flex gap-1.5 items-center">
-          <button 
-            onClick={() => scrollToPage(0)} 
-            className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 0 ? "bg-black w-3 shadow-sm" : "bg-black/20 w-1.5"}`} 
-            aria-label="第1页"
-          />
-          <button 
-            onClick={() => scrollToPage(1)} 
-            className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 1 ? "bg-black w-3 shadow-sm" : "bg-black/20 w-1.5"}`} 
-            aria-label="第2页"
-          />
+      {!isEditingLayout && (
+        <div className="shrink-0 w-full flex justify-center py-2 bg-transparent z-20">
+          <div className="flex gap-1.5 items-center">
+            <button 
+              onClick={() => scrollToPage(0)} 
+              className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 0 ? "bg-black w-3 shadow-sm" : "bg-black/20 w-1.5"}`} 
+              aria-label="第1页"
+            />
+            <button 
+              onClick={() => scrollToPage(1)} 
+              className={`h-1.5 rounded-full transition-all duration-300 ${currentPage === 1 ? "bg-black w-3 shadow-sm" : "bg-black/20 w-1.5"}`} 
+              aria-label="第2页"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Bottom Fixed App Bar */}
       <div className="shrink-0 w-full px-5 py-4 bg-white/40 backdrop-blur-xl border-t border-white/20 pb-[env(safe-area-inset-bottom)] relative z-20">

@@ -20,20 +20,20 @@ export function normalizeUrl(url: string): string {
 }
 
 export function getStoredApiConfig(passedApiUrl?: string, passedApiKey?: string, passedModel?: string, passedApiFormat?: 'openai' | 'gemini') {
-  let apiUrl = (passedApiUrl || "").trim();
-  let apiKey = (passedApiKey || "").trim();
-  let model = (passedModel || "").trim();
+  let apiUrl = String(passedApiUrl || "").trim();
+  let apiKey = String(passedApiKey || "").trim();
+  let model = String(passedModel || "").trim();
   let apiFormat = passedApiFormat;
 
   // Read direct keys from localStorage
   if (!apiUrl) {
-    apiUrl = (localStorage.getItem("apiUrl") || "").trim();
+    apiUrl = String(localStorage.getItem("apiUrl") || "").trim();
   }
   if (!apiKey) {
-    apiKey = (localStorage.getItem("apiKey") || "").trim();
+    apiKey = String(localStorage.getItem("apiKey") || "").trim();
   }
   if (!model) {
-    model = (localStorage.getItem("model") || "").trim();
+    model = String(localStorage.getItem("model") || "").trim();
   }
   if (!apiFormat) {
     apiFormat = (localStorage.getItem("apiFormat") as any) || undefined;
@@ -45,9 +45,9 @@ export function getStoredApiConfig(passedApiUrl?: string, passedApiKey?: string,
       const savedSettings = localStorage.getItem("mobile_ai_settings");
       if (savedSettings) {
         const parsed = JSON.parse(savedSettings);
-        if (!apiUrl && parsed.apiUrl) apiUrl = (parsed.apiUrl || "").trim();
-        if (!apiKey && parsed.apiKey) apiKey = (parsed.apiKey || "").trim();
-        if (!model && parsed.model) model = (parsed.model || "").trim();
+        if (!apiUrl && parsed.apiUrl) apiUrl = String(parsed.apiUrl || "").trim();
+        if (!apiKey && parsed.apiKey) apiKey = String(parsed.apiKey || "").trim();
+        if (!model && parsed.model) model = String(parsed.model || "").trim();
         if (!apiFormat && parsed.apiFormat) apiFormat = parsed.apiFormat;
       }
     } catch (e) {
@@ -60,16 +60,16 @@ export function getStoredApiConfig(passedApiUrl?: string, passedApiKey?: string,
 
 export function getBackgroundApiConfig(settings?: any) {
   // Read from settings or localStorage
-  let subApiUrl = (settings?.subApiUrl || "").trim();
-  let subApiKey = (settings?.subApiKey || "").trim();
-  let subModel = (settings?.subModel || "").trim();
+  let subApiUrl = String(settings?.subApiUrl || "").trim();
+  let subApiKey = String(settings?.subApiKey || "").trim();
+  let subModel = String(settings?.subModel || "").trim();
   let subApiFormat = settings?.subApiFormat || undefined;
   let subTemperature = settings?.subTemperature;
 
   // If empty in passed settings, try localStorage keys directly
-  if (!subApiUrl) subApiUrl = (localStorage.getItem("subApiUrl") || "").trim();
-  if (!subApiKey) subApiKey = (localStorage.getItem("subApiKey") || "").trim();
-  if (!subModel) subModel = (localStorage.getItem("subModel") || "").trim();
+  if (!subApiUrl) subApiUrl = String(localStorage.getItem("subApiUrl") || "").trim();
+  if (!subApiKey) subApiKey = String(localStorage.getItem("subApiKey") || "").trim();
+  if (!subModel) subModel = String(localStorage.getItem("subModel") || "").trim();
   if (!subApiFormat) subApiFormat = (localStorage.getItem("subApiFormat") as any) || undefined;
   if (subTemperature === undefined) {
     const storedSubTemp = localStorage.getItem("subTemperature");
@@ -82,9 +82,9 @@ export function getBackgroundApiConfig(settings?: any) {
       const savedSettings = localStorage.getItem("mobile_ai_settings");
       if (savedSettings) {
         const parsed = JSON.parse(savedSettings);
-        if (!subApiUrl && parsed.subApiUrl) subApiUrl = (parsed.subApiUrl || "").trim();
-        if (!subApiKey && parsed.subApiKey) subApiKey = (parsed.subApiKey || "").trim();
-        if (!subModel && parsed.subModel) subModel = (parsed.subModel || "").trim();
+        if (!subApiUrl && parsed.subApiUrl) subApiUrl = String(parsed.subApiUrl || "").trim();
+        if (!subApiKey && parsed.subApiKey) subApiKey = String(parsed.subApiKey || "").trim();
+        if (!subModel && parsed.subModel) subModel = String(parsed.subModel || "").trim();
         if (!subApiFormat && parsed.subApiFormat) subApiFormat = parsed.subApiFormat;
         if (subTemperature === undefined && parsed.subTemperature !== undefined) {
           subTemperature = parseFloat(parsed.subTemperature);
@@ -96,9 +96,9 @@ export function getBackgroundApiConfig(settings?: any) {
   }
 
   // Fallback to main API if any key is missing
-  let mainUrl = (settings?.apiUrl || localStorage.getItem("apiUrl") || "").trim();
-  let mainKey = (settings?.apiKey || localStorage.getItem("apiKey") || "").trim();
-  let mainModel = (settings?.model || localStorage.getItem("model") || "").trim();
+  let mainUrl = String(settings?.apiUrl || localStorage.getItem("apiUrl") || "").trim();
+  let mainKey = String(settings?.apiKey || localStorage.getItem("apiKey") || "").trim();
+  let mainModel = String(settings?.model || localStorage.getItem("model") || "").trim();
   let mainFormat = settings?.apiFormat || localStorage.getItem("apiFormat") || undefined;
   let mainTemp = settings?.temperature ?? (localStorage.getItem("temperature") ? parseFloat(localStorage.getItem("temperature")!) : 0.8);
 
@@ -107,9 +107,9 @@ export function getBackgroundApiConfig(settings?: any) {
       const savedSettings = localStorage.getItem("mobile_ai_settings");
       if (savedSettings) {
         const parsed = JSON.parse(savedSettings);
-        if (!mainUrl && parsed.apiUrl) mainUrl = (parsed.apiUrl || "").trim();
-        if (!mainKey && parsed.apiKey) mainKey = (parsed.apiKey || "").trim();
-        if (!mainModel && parsed.model) mainModel = (parsed.model || "").trim();
+        if (!mainUrl && parsed.apiUrl) mainUrl = String(parsed.apiUrl || "").trim();
+        if (!mainKey && parsed.apiKey) mainKey = String(parsed.apiKey || "").trim();
+        if (!mainModel && parsed.model) mainModel = String(parsed.model || "").trim();
         if (!mainFormat && parsed.apiFormat) mainFormat = parsed.apiFormat;
         if (mainTemp === undefined && parsed.temperature !== undefined) {
           mainTemp = parseFloat(parsed.temperature);
@@ -135,7 +135,7 @@ function buildGeminiPayload(messages: any[], temperature: number) {
     let role = m.role;
     let content = "";
     if (typeof m.content === "string") {
-      content = m.content;
+      content = m.content || "";
     } else if (Array.isArray(m.parts)) {
       content = m.parts.map((p: any) => p.text || "").join("\n");
     } else {
@@ -152,7 +152,7 @@ function buildGeminiPayload(messages: any[], temperature: number) {
       }
     }
 
-    if (!content || !content.trim()) continue;
+    if (!content || !(typeof content === 'string' ? content.trim() : String(content).trim())) continue;
 
     if (role === "system") {
       systemInstructionText += (systemInstructionText ? "\n\n" : "") + content;
@@ -405,181 +405,51 @@ export function cleanForbiddenPhrases(text: string): string {
   return cleaned;
 }
 
-export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, messages: any[] = [], temperature: number = 0.8, apiFormat?: 'openai' | 'gemini') {
-  const config = getStoredApiConfig(apiUrl, apiKey, model, apiFormat);
+export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, messages: any[] = [], temperature: number = 0.8, apiFormat?: string) {
+  const config = getStoredApiConfig(apiUrl, apiKey, model, apiFormat as any);
   
   if (!config.apiUrl || !config.apiKey) {
     throw new Error("API 地址或 Key 未配置，请在设置中配置。");
   }
 
   const cleanApiUrl = config.apiUrl.replace(/\/+$/, '');
-  let isGemini = config.apiFormat === 'gemini' || 
-                 cleanApiUrl.includes('generativelanguage.googleapis.com') || 
-                 cleanApiUrl.includes(':generateContent') || 
-                 (cleanApiUrl.includes('gemini') && !cleanApiUrl.endsWith('/chat/completions'));
+  const endpoint = cleanApiUrl + '/chat/completions';
+  
+  console.log("[callLLM] Requesting URL:", endpoint);
 
-  const prohibitionInstructions = `
-【安全与风格强制规范 - 霸总语录与行为完全禁止清单】：
-任何时候在任何生成内容中（包括聊天、心声、小剧场、朋友圈、论坛、规则怪谈、悬疑剧场等），都完全禁止包含以下任何中二、霸总、油腻的词汇、行为或动作：
-1. 命令/威胁/控制型：别逼我、要你好看、你等着、你完了、我不允许、你逃不掉的、你给我乖乖的、听话、不准这样、我说了算、你敢、试试看、别后悔、你最好、给我记住、你跑不掉的、你是我的、我不准、你只能是我的
-2. 身体/动作描写：低吼一声、眸光一沉、薄唇微抿、修长的手指、低沉磁性的嗓音、勾唇一笑、眸色暗了暗、喉结上下滚动、指腹摩挲、骨节分明、倾身靠近、嗓音沙哑、眼底暗流涌动、唇角勾起一抹冷笑、眸色渐深、呼吸一窒、心跳漏了一拍、指尖微微发烫、手掌覆上
-3. 称呼型：女人（作为称呼）、小东西、乖乖、我的女人、小家伙、小野猫、妖精、小祖宗、宝贝儿（油腻版）
-4. 霸总心理/行为：你的身体比嘴诚实多了、像一只蛰伏的野兽、他周身散发着生人勿近的气场、眼底闪过一丝不易察觉的笑意、他从来不会解释、他从来不回头看爆炸、你成功引起了我的注意、你是第一个敢这样对我说话的人、他在等猎物自投罗网、他有一种掌控全局的从容
-5. 油腻情话：我要让你的眼里只有我、我会让你哭着求我、你是我的软肋也是我的铠甲、我要把你宠到天上、你的余生我包了、我让你三更死谁敢留你到五更、你是我的劫、你逃不开我的掌心，给你我的命，我的命都是你的，要了命了
-6. 场景描写：他靠在真皮椅背上，修长的手指轻轻叩击桌面、他站在落地窗前，俯瞰着这座城市的灯火、他挑起她的下巴、他一把将她拉进怀里、他将她按在墙上、他眯起眼睛、他用指尖抬起她的脸
-7. 反问/挑衅：你在质疑我、你觉得自己能逃掉吗、你确定要挑战我的耐心、你以为你还有得选吗、你是在关心我吗、你就这么想走
+  const formattedMessages = messages.map((m: any) => ({
+    role: m.role === 'assistant' || m.role === 'model' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
+    content: m.content || ''
+  }));
 
-角色即使设定为“霸总”，也绝对不允许使用上述任何表达和油腻肢体描写。一经检测到包含上述任何表达，系统都会判定生成失败。请使用极其健康自然、温暖、清爽、契合人性的表达。请严格遵守！`;
+  const body = {
+    model: config.model || 'gpt-3.5-turbo',
+    messages: formattedMessages,
+    temperature: temperature,
+  };
 
-  // Pre-prompt: Add the prohibition list to system instructions or first system message
-  let processedMessages = [...messages];
-  let hasSystem = false;
-  processedMessages = processedMessages.map(m => {
-    if (m.role === 'system') {
-      hasSystem = true;
-      let contentText = m.content || "";
-      if (Array.isArray(m.parts)) {
-        contentText = m.parts.map((p: any) => p.text || "").join("\n");
-      }
-      return {
-        ...m,
-        content: contentText + "\n\n" + prohibitionInstructions
-      };
-    }
-    return m;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify(body),
   });
 
-  if (!hasSystem) {
-    processedMessages.unshift({
-      role: 'system',
-      content: prohibitionInstructions
-    });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API 请求失败 (${response.status}): ${errorText}`);
   }
 
-  let finalResponseText = "";
-  let matchedWord: string | null = null;
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    // If it's a retry attempt, append error feedback to processedMessages
-    if (attempt > 0 && finalResponseText && matchedWord) {
-      processedMessages.push({
-        role: "model",
-        content: finalResponseText
-      });
-      processedMessages.push({
-        role: "user",
-        content: `【安全纠错警告】你刚才生成的回复中包含了被完全禁止的霸总（CEO）油腻词汇或描述（检测到含：“${matchedWord}”）。这是平台完全不能容忍的表达风格。请立即抛弃一切油腻与控制欲，用极其清新、自然、温暖、清爽的正常口吻重新生成一遍回复。请立即重新作答：`
-      });
-    }
-
-    let endpoint = cleanApiUrl;
-    let body: any;
-    let headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-
-    if (isGemini) {
-      if (!endpoint.includes(':generateContent')) {
-        const modelName = config.model || "gemini-1.5-flash";
-        if (endpoint.endsWith('/v1beta') || endpoint.endsWith('/v1')) {
-          endpoint = `${endpoint}/models/${modelName}:generateContent`;
-        } else if (endpoint.endsWith('/models')) {
-          endpoint = `${endpoint}/${modelName}:generateContent`;
-        } else if (!endpoint.includes('/models/')) {
-          endpoint = `${endpoint}/v1beta/models/${modelName}:generateContent`;
-        } else {
-          endpoint = `${endpoint}:generateContent`;
-        }
-      }
-      if (!endpoint.includes('key=')) {
-        endpoint += (endpoint.includes('?') ? '&' : '?') + `key=${encodeURIComponent(config.apiKey)}`;
-      }
-      headers['x-goog-api-key'] = config.apiKey;
-      body = buildGeminiPayload(processedMessages, temperature);
-    } else {
-      // OpenAI 格式
-      let baseUrl = cleanApiUrl.replace(/\/chat\/completions\/?$/, "").replace(/\/v1\/?$/, "");
-      endpoint = `${baseUrl}/v1/chat/completions`;
-      headers['Authorization'] = `Bearer ${config.apiKey}`;
-      
-      const formattedMessages = processedMessages.map((m: any) => {
-        let role = m.role;
-        if (role === 'assistant' || role === 'model') role = 'assistant';
-        else if (role === 'system') role = 'system';
-        else role = 'user';
-        
-        let content = m.content || '';
-        if (!content && Array.isArray(m.parts)) {
-          content = m.parts.map((p: any) => p.text || '').join('\n');
-        }
-        
-        return { role, content };
-      });
-
-      body = {
-        model: config.model || 'gpt-3.5-turbo',
-        messages: formattedMessages,
-        temperature: temperature,
-      };
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      controller.abort();
-    }, 120000); // 120 秒 (2 分钟) 超时
-
-    let response: Response;
-    try {
-      response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        throw new Error("API 请求超时（超过 120 秒未响应），请检查网络或稍后重试。");
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (!response.ok) {
-      let errorText = "";
-      try {
-        errorText = await response.text();
-      } catch (e) {
-        errorText = response.statusText;
-      }
-      throw new Error(`API 请求失败 (${response.status}): ${errorText}`);
-    }
-
-    const data = await response.json();
-    
-    // OpenAI 格式解析
-    if (data.choices && data.choices.length > 0) {
-      finalResponseText = data.choices[0].message.content;
-    } else if (data.candidates && data.candidates.length > 0) {
-      // Gemini 格式解析
-      finalResponseText = data.candidates[0].content.parts[0].text;
-    } else {
-      throw new Error('无法解析 API 响应');
-    }
-
-    // Check if output contains forbidden CEO content
-    matchedWord = checkForbiddenContent(finalResponseText);
-    if (!matchedWord) {
-      // Clean and safe! Return it immediately
-      return finalResponseText;
-    }
-
-    console.warn(`[callLLM] Attempt ${attempt + 1} produced forbidden content: "${matchedWord}". Retrying rewriting...`);
+  const data = await response.json();
+  if (data.choices && data.choices.length > 0) {
+    return data.choices[0].message.content;
   }
-
-  // If we exhausted 3 attempts, run the foolproof fallback string replacement
-  console.error(`[callLLM] Exhausted retries but response still contains forbidden content: "${matchedWord}". Forcing surgical clean replacement.`);
-  return cleanForbiddenPhrases(finalResponseText);
+  if (data.candidates && data.candidates.length > 0) {
+    return data.candidates[0].content.parts[0].text;
+  }
+  throw new Error('无法解析 API 响应');
 }
 
 function parseCharacterInstruction(name: string, systemInstruction: string, description: string) {
@@ -1373,7 +1243,7 @@ Please utilize this lore context naturally to inform your character's memory and
 Answer in the character's voice. Stay strictly in character. Do not break character.`;
 
   const isBg = params.isBackground || effectiveCharacter.id === "memory-assistant" || effectiveCharacter.id === "system-assistant";
-  const apiConfig = isBg ? getBackgroundApiConfig(settings) : getStoredApiConfig(settings);
+  const apiConfig = isBg ? getBackgroundApiConfig(settings) : getStoredApiConfig(settings?.apiUrl, settings?.apiKey, settings?.model, settings?.apiFormat);
   const customApiUrl = apiConfig.apiUrl;
   const customApiKey = apiConfig.apiKey;
   const customModel = apiConfig.model || "gpt-3.5-turbo";
@@ -1493,7 +1363,7 @@ ${threeDataSources}
     const config = getBackgroundApiConfig(settings);
     const text = await callLLM(config.apiUrl, config.apiKey, config.model, [{ role: "user", content: prompt }], 0.8, config.apiFormat);
     if (!text) throw new Error("AI 返回内容为空");
-    return { text: text.trim() };
+    return { text: (text || '').trim() };
   } catch (err: any) {
     console.error("apiGenerateNote error:", err);
     throw err;
@@ -1540,7 +1410,7 @@ ${anchorMessage}
 `;
   try {
     const text = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [{ role: "user", content: prompt }], 0.8, settings?.apiFormat);
-    return { text: text.trim() };
+    return { text: (text || '').trim() };
   } catch (err: any) {
     throw new Error(err.message || "生成失败");
   }
@@ -1568,7 +1438,7 @@ export async function apiUnoMove(params: any) {
 `;
   try {
     const text = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [{ role: "user", content: prompt }], 0.7, settings?.apiFormat);
-    const parsed = JSON.parse(text.trim().replace(/```json/g, "").replace(/```/g, ""));
+    const parsed = JSON.parse((text || '').trim().replace(/```json/g, "").replace(/```/g, ""));
     return parsed;
   } catch (err: any) {
     throw new Error(err.message || "生成批量出牌策略失败");
@@ -1604,7 +1474,7 @@ export async function apiGenerateTurtlesoupBatch(params: any) {
   try {
     const config = getBackgroundApiConfig(settings);
     const text = await callLLM(config.apiUrl, config.apiKey, config.model, [{ role: "user", content: prompt }], 0.7, config.apiFormat);
-    const parsed = JSON.parse(text.trim().replace(/```json/g, "").replace(/```/g, ""));
+    const parsed = JSON.parse((text || '').trim().replace(/```json/g, "").replace(/```/g, ""));
     return { puzzles: parsed };
   } catch (err: any) {
     throw new Error(err.message || "批量生成海龟汤失败");
@@ -1665,7 +1535,7 @@ export async function apiFetchModels(params: any = {}) {
     throw new Error(`拉取失败：接口不支持或配置错误 (${response.status} ${response.statusText})\n${parsedMsg || "请检查 API 地址是否支持 /models 端点"}`);
   }
   const responseText = await response.text();
-  if (responseText.trim().startsWith("<") || responseText.trim().startsWith("<!DOCTYPE")) {
+  if ((responseText || '').trim().startsWith("<") || (responseText || '').trim().startsWith("<!DOCTYPE")) {
     throw new Error("API 地址返回了 HTML 页面（可能是 404 或代理错误），请检查 API 地址是否正确。");
   }
 
@@ -1706,10 +1576,10 @@ export async function performVectorRetrieval(characterId: string, query: string,
   }
   if (!settings) settings = {};
 
-  const vectorApiUrl = (settings.vectorApiUrl || "https://api.siliconflow.cn/v1").trim();
-  const vectorApiKey = (settings.vectorApiKey || "").trim();
-  const vectorModel = (settings.vectorModel || "BAAI/bge-m3").trim();
-  const rerankModel = (settings.rerankModel || "").trim();
+  const vectorApiUrl = String(settings.vectorApiUrl || "https://api.siliconflow.cn/v1").trim();
+  const vectorApiKey = String(settings.vectorApiKey || "").trim();
+  const vectorModel = String(settings.vectorModel || "BAAI/bge-m3").trim();
+  const rerankModel = String(settings.rerankModel || "").trim();
 
   // 2. Gather Allowed Documents
   const docs: { text: string; source: string; timestamp: number }[] = [];
@@ -1819,7 +1689,7 @@ export async function performVectorRetrieval(characterId: string, query: string,
   // Deduplicate docs by text to avoid redundant computation
   const uniqueDocsMap = new Map<string, typeof docs[0]>();
   docs.forEach(d => {
-    const trimmed = d.text.trim();
+    const trimmed = (d.text || '').trim();
     if (trimmed && !uniqueDocsMap.has(trimmed)) {
       uniqueDocsMap.set(trimmed, d);
     }
@@ -1983,7 +1853,7 @@ export async function performVectorRetrieval(characterId: string, query: string,
   }
 
   // Fallback match
-  const queryWords = query.toLowerCase().split(/[\s,，。！!？?、；;]/).filter(w => w.trim().length > 0);
+  const queryWords = (query || "").toLowerCase().split(/[\s,，。！!？?、；;]/).filter(w => w.trim().length > 0);
   const localResults: VectorRetrievedDoc[] = finalDocs.map(d => {
     if (queryWords.length === 0) {
       return { text: d.text, source: d.source, timestamp: d.timestamp, score: 0.5 };

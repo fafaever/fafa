@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2, CheckSquare, Mic, Volume2 } from "lucide-react";
 import { apiChat, getPhoneContent, getThreeDataSourcesPrompt } from "../lib/api";
 import { getDefaultAvatar } from "../lib/avatarUtils";
@@ -18,6 +18,7 @@ interface ChatAppProps {
   onUpdateCharacter: (char: Character) => void;
   onDeleteCharacter: (id: string) => void;
   onUpdateSessionMessages: (targetId: string, messages: Message[], currentOS?: string, extraFields?: Partial<ChatSession>) => void;
+  onDeleteSession?: (sessionId: string) => void;
   onClose: () => void;
   onOpenApp?: (appId: string) => void;
   onActiveCharChange?: (charId: string | null) => void;
@@ -111,6 +112,7 @@ export default function ChatApp({
   onUpdateCharacter,
   onDeleteCharacter,
   onUpdateSessionMessages,
+  onDeleteSession,
   onClose,
   onOpenApp,
   onActiveCharChange,
@@ -125,6 +127,39 @@ export default function ChatApp({
   // Multi-select message states
   const [isMultiSelectMode, setIsMultiSelectMode] = useState<boolean>(false);
   const [selectedMsgIds, setSelectedMsgIds] = useState<string[]>([]);
+
+  // Helper to render group chat avatar
+  const renderGroupAvatar = (groupSession: ChatSession | { groupAvatar?: string; memberIds?: string[] }) => {
+    if (groupSession.groupAvatar && groupSession.groupAvatar !== '💬' && !['🌟', '☕', '🚀', '🎮', '🌸', '🐱', '🔥'].includes(groupSession.groupAvatar)) {
+      if (groupSession.groupAvatar.startsWith('http') || groupSession.groupAvatar.startsWith('data:')) {
+        return <img src={groupSession.groupAvatar} className="w-full h-full object-cover" referrerPolicy="no-referrer" />;
+      }
+      return <>{groupSession.groupAvatar}</>;
+    }
+    
+    // Auto-generate grid from members if default or empty
+    const members = (groupSession.memberIds || []).map(id => characters.find(c => c.id === id)).filter(Boolean) as Character[];
+    if (members.length === 0) {
+      return <>{groupSession.groupAvatar || '💬'}</>;
+    }
+    
+    const displayMembers = members.slice(0, 4);
+    const gridClass = displayMembers.length === 1 ? "grid-cols-1" : "grid-cols-2";
+                      
+    return (
+      <div className={`w-full h-full grid ${gridClass} gap-0.5 bg-neutral-200 p-0.5`}>
+        {displayMembers.map((m, i) => (
+          <div key={i} className="bg-neutral-100 flex items-center justify-center overflow-hidden w-full h-full">
+             {(m.chatAvatar || m.avatar)?.startsWith('http') || (m.chatAvatar || m.avatar)?.startsWith('data:') ? (
+               <img src={m.chatAvatar || m.avatar} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+             ) : (
+               <span className="text-[10px]">{m.chatAvatar || m.avatar}</span>
+             )}
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   // Fullscreen & visualViewport keyboard adaptation
   const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement || document.documentElement.classList.contains("is-fullscreen"));
@@ -407,7 +442,7 @@ export default function ChatApp({
   // Group chat states
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [groupNameInput, setGroupNameInput] = useState("");
-  const [groupAvatarInput, setGroupAvatarInput] = useState("💬");
+  const [groupAvatarInput, setGroupAvatarInput] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [groupError, setGroupError] = useState("");
   const [showGroupPlusMenu, setShowGroupPlusMenu] = useState(false);
@@ -516,8 +551,8 @@ export default function ChatApp({
   };
 
   const handleSendGroupMessageOnly = () => {
-    if (!inputText.trim() || isGenerating || !activeSession || !activeSession.isGroup) return;
-    const userMsgText = inputText.trim();
+    if (!(inputText || '').trim() || isGenerating || !activeSession || !activeSession.isGroup) return;
+    const userMsgText = (inputText || '').trim();
     setInputText("");
 
     let updatedMessages = [...(activeSession.messages || [])];
@@ -556,8 +591,8 @@ export default function ChatApp({
   };
 
   const handleSendGroupMessage = () => {
-    if (!inputText.trim() || isGenerating || !activeSession || !activeSession.isGroup) return;
-    const userMsgText = inputText.trim();
+    if (!(inputText || '').trim() || isGenerating || !activeSession || !activeSession.isGroup) return;
+    const userMsgText = (inputText || '').trim();
     setInputText("");
 
     let updatedMessages = [...(activeSession.messages || [])];
@@ -1551,27 +1586,38 @@ export default function ChatApp({
       if (settings && (settings.apiKey || settings.apiUrl)) {
         try {
           const prompt = `你是一个朋友圈动态批量生成器。
-现在应用中有以下角色列表（请根据各自性格与发动态频率喜好生成动态）：
-${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}", 人设: "${c.description || '无'}"`).join("\n")}
+现在应用中有以下角色列表（请严格根据各自的性格人设、说话风格、背景生成极具个性化的朋友圈动态，严禁使用统一模板！）：
+${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}", 性格描述: "${c.description || '无'}", 说话风格/设定: "${c.systemInstruction || '无'}"`).join("\n")}
 
-生成要求：
-1. 总共恰好生成 ${postCount} 条朋友圈动态。
-2. 语言极其贴合各自角色的性格人设，表达生动自然（分享生活小确幸、吐槽、感悟、照片随感、打卡美食等）。
-3. 每条动态请附带 1-2 条初始角色或 NPC 评论。
-4. 请严格返回纯 JSON 数组格式（不要包含 Markdown 代码块或额外说明文字）：
+生成类型要求（每条动态必须属于以下类型之一，类型之间要有多样性）：
+1. 分享日常（例如：吃了什么、去了哪里、看到什么，要求真实生动）
+2. 情绪表达（例如：开心、低落、吐槽，真实饱满）
+3. 互动邀请（例如：寻找饭搭子、“有没有人一起…”等）
+4. 生活观察（例如：对某件趣事或现象的看法、吐槽，带个人视角）
+5. 分享作品或发现（例如：喜欢的音乐、电影、书、黑胶、随感）
+
+语气和用词设计规则（必须由角色人设严格决定，千人千面）：
+- 活泼型角色（如甜妹、话痨、热情性格）：语气轻快欢脱，多用感叹号（！！！）、语气词（呜呜、哈哈、天呐）、Emoji 表情
+- 高冷型角色（如霸总、冰山、傲娇、少言）：措辞简洁克制，不加过多修饰，偏向客观陈述，极少甚至不用表情
+- 温柔型角色（如治愈系、知性、暖男）：语气柔和细腻，带有体贴温度，常用句号或温暖的Emoji
+- 严禁出现“别逼我”、“要你好看”、“你逃不掉的”等任何霸道总裁式强迫/威胁言论。
+
+返回格式要求：
+总共恰好生成 ${postCount} 条朋友圈动态，并为每条动态生成 1-2 条其他角色或绑定NPC在朋友圈下的精彩评论互动。
+请严格返回纯 JSON 数组格式（不要包含 Markdown 代码块或额外说明文字）：
 [
   {
     "characterId": "角色ID",
     "characterName": "角色名字",
-    "content": "动态文字正文",
+    "content": "贴合该角色语气、符合要求的动态文字正文",
     "mediaEmojis": "☕️",
     "comments": [
       {
-        "authorName": "角色或NPC名字",
-        "authorAvatar": "Emoji或头像",
-        "isNpc": false,
+        "authorName": "评论作者名字（可为其他角色名，或自定义NPC名字如：咖啡店长、社恐路人、吃货小王等）",
+        "authorAvatar": "💬",
+        "isNpc": true,
         "replyToName": "",
-        "content": "评论内容"
+        "content": "符合该评论者语气和人设的留言内容"
       }
     ]
   }
@@ -1621,19 +1667,73 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
 
       // Offline generator fallback if API not configured or failed
       if (newGeneratedPosts.length === 0) {
-        const topicTemplates = [
-          { text: "今天在路边遇到了一只超级可爱的三花猫，蹭了我好久！感觉一整天的心情都被治愈了。🐱✨", emoji: "🐱🐾" },
-          { text: "终于打卡了那家想去很久的手冲咖啡馆，浓郁的特调拿铁真的名不虚传！☕️📖", emoji: "☕️🍰" },
-          { text: "夜跑完顺便抬头看了一下天空，今晚的月色和星光好温柔啊。夜生活才刚刚开始呢！🌌🏃", emoji: "🌙✨" },
-          { text: "今天尝试做了一顿新菜，虽然样子长得奇奇怪怪的，但是味道居然意外地还不错？🍳😋", emoji: "🍳🍕" },
-          { text: "在书店泡了一整下午，翻到了很多意想不到的好书。生活需要偶尔这样放空慢下来。📚🌿", emoji: "📖☕️" },
-          { text: "有时候感觉时间过得好快，但只要记下这些平凡的小时刻，每一天就都有了独特的意义。🌟", emoji: "🌱☁️" },
-          { text: "突然好想吃火锅啊……有没有人现在要一起组队去夜宵的？速速报上名来！🍲🔥", emoji: "🍲🍻" },
-          { text: "今天的代码/工作进度非常顺利，提前搞定！准备好好奖励自己一个大号冰淇淋！🍨🍦", emoji: "🍨🎉" }
+        const getCharacterCategory = (c: Character) => {
+          const text = `${c.name} ${c.description || ''} ${c.systemInstruction || ''}`.toLowerCase();
+          if (/活泼|热心|外向|社交|唠叨|甜妹|开心|碎碎念|可爱|乐天|话痨|表达|分享|中二|热情|元气/.test(text)) {
+            return "lively";
+          }
+          if (/高冷|冰冷|傲娇|沉默|寡言|无情|离群|冷漠|孤僻|厌世|冷酷|深沉|淡然|总裁|执事|优雅/.test(text)) {
+            return "cold";
+          }
+          if (/温柔|贴心|柔和|和蔼|温暖|体贴|包容|治愈|知性|儒雅|病娇|敏感|忧郁|深情/.test(text)) {
+            return "gentle";
+          }
+          return "standard";
+        };
+
+        const foods = ["麻辣烫", "草莓千层", "手冲深烘咖啡", "热腾腾的拉面", "黑森林蛋糕", "芝士火锅", "冰淇淋双拼", "爆米花与可乐", "冰镇气泡水", "舒芙蕾", "关东煮"];
+        const places = ["转角的小书店", "市中心的美术馆", "那家藏在巷子里的手冲咖啡馆", "灯火通明的海边步道", "安静的林荫道", "热闹的夜市街口", "夕阳下的天台", "微风徐徐的公园草坪", "喧嚣的Livehouse"];
+        const songs = ["《Summer》", "《Night Cruising》", "《温柔的歌》", "《月亮代表我的心》", "《Lofi Chilled Beats》", "一部老胶片电影", "一本温暖人心的诗集", "一张黑胶唱片"];
+        const observations = ["雨后的泥土气息", "树影随风摇晃的样子", "落在窗台上的麻雀", "天边渐变色的晚霞", "路灯下被拉长的影子", "猫咪打呼噜的频率", "秋天第一片落下的银杏叶"];
+        const complaints = ["永远回不完的信息", "大清早刺眼的闹钟", "走在路上突然下起的大雨", "不小心洒在白衬衫上的咖啡", "排了长队却售罄的甜点", "突然断网的崩溃瞬间"];
+
+        const getRandomItem = (arr: string[]) => arr[Math.floor(Math.random() * arr.length)];
+
+        const livelyTemplates = [
+          { text: "今天终于打卡了{place}！！！{food}真的太好吃了，简直好吃到哭泣呜呜呜，强推给大家！！！✨😋", emoji: "✨😋" },
+          { text: "有没有人现在在附近的呀？急需一个饭搭子一起去吃{food}！！！🍲🍻 举手报上名来，我请客哈哈哈哈！🎉", emoji: "🍲🍻" },
+          { text: "天呐！遇到{complaint}，我真的要抓狂了！！！不过刚刚看到{observation}，瞬间又觉得被治愈了呢！❤️ 又是充满元气的一天！", emoji: "❤️✨" },
+          { text: "最近循环播放{song}，真的超级无敌好听！！！强推给大家，听完心情会变超好哦，快去听快去听！🎵💫", emoji: "🎵💫" }
+        ];
+
+        const coldTemplates = [
+          { text: "{place}。{food}。味道尚可。", emoji: "☕️" },
+          { text: "听{song}。适合今晚的雨天。", emoji: "🎧" },
+          { text: "在路旁看到{observation}。稍微停留了片刻。", emoji: "☁️" },
+          { text: "{complaint}。有点吵。", emoji: "☕️" }
+        ];
+
+        const gentleTemplates = [
+          { text: "散步到{place}，点了一份{food}。温热的感觉驱散了秋凉，希望你们今天也都被世界温柔以待。☕️", emoji: "☕️🌱" },
+          { text: "最近读了一本好书，里面提到{observation}，让我想起了一些往事。如果你现在感到疲惫，不妨听一首{song}，给自己放个假吧。🌸", emoji: "📖🌸" },
+          { text: "虽然遇到了{complaint}，但看到{observation}时，还是觉得生活里有许多微小的美好值得期待。今天也要好好生活。🌙", emoji: "🌙✨" }
+        ];
+
+        const standardTemplates = [
+          { text: "在{place}虚度了半天时光，顺便尝试了{food}，感觉生活就应该有这样停下脚步的时候。🍃", emoji: "🍃☕" },
+          { text: "分享最近的发现：{song}。旋律里有种让人平静下来的力量。🎵", emoji: "🎵" },
+          { text: "{complaint}，但幸好有{food}抚慰人心。大家今天过得怎么样？", emoji: "🍲" }
         ];
 
         newGeneratedPosts = selectedChars.slice(0, postCount).map((charObj, idx) => {
-          const template = topicTemplates[(idx + Math.floor(Math.random() * topicTemplates.length)) % topicTemplates.length];
+          const category = getCharacterCategory(charObj);
+          let rawTemplate = standardTemplates[idx % standardTemplates.length];
+          if (category === "lively") {
+            rawTemplate = livelyTemplates[Math.floor(Math.random() * livelyTemplates.length)];
+          } else if (category === "cold") {
+            rawTemplate = coldTemplates[Math.floor(Math.random() * coldTemplates.length)];
+          } else if (category === "gentle") {
+            rawTemplate = gentleTemplates[Math.floor(Math.random() * gentleTemplates.length)];
+          }
+
+          // Replace slots
+          const filledText = rawTemplate.text
+            .replace(/{food}/g, getRandomItem(foods))
+            .replace(/{place}/g, getRandomItem(places))
+            .replace(/{song}/g, getRandomItem(songs))
+            .replace(/{observation}/g, getRandomItem(observations))
+            .replace(/{complaint}/g, getRandomItem(complaints));
+
           const npcNames = ["路人甲", "隔壁小明", "吃瓜群众", "咖啡店长", "吃货小张", "社恐网友"];
           const randomNpc = npcNames[Math.floor(Math.random() * npcNames.length)];
           const otherChar = characters.find(c => c.id !== charObj.id) || charObj;
@@ -1644,7 +1744,7 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
               authorName: randomNpc,
               authorAvatar: "💬",
               isNpc: true,
-              content: "拍得真不错！前排围观～",
+              content: category === "lively" ? "天呐！我也想去！带我一个！" : "拍得真不错！前排围观～",
               timestamp: Date.now() - idx * 60000 + 15000,
             },
             {
@@ -1654,7 +1754,7 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
               characterId: otherChar.id,
               isNpc: false,
               replyToName: randomNpc,
-              content: `@${randomNpc} 哈哈同意！我也觉得很赞`,
+              content: `@${randomNpc} 确实很符合他的风格呢，哈哈。`,
               timestamp: Date.now() - idx * 60000 + 30000,
             }
           ];
@@ -1665,8 +1765,8 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
             authorName: charObj.name,
             authorAvatar: charObj.chatAvatar || charObj.avatar || "🤖",
             isCharacter: true,
-            content: template.text,
-            mediaEmojis: template.emoji,
+            content: filledText,
+            mediaEmojis: rawTemplate.emoji,
             timestamp: Date.now() - idx * 1000 * 60 * 3,
             likes: Math.floor(Math.random() * 10) + 1,
             likedByUser: false,
@@ -2136,7 +2236,7 @@ ${existingCommentsText || "暂无评论"}
 
   const extractMemoryFromMessage = (text: string) => {
     let fact: string | null = null;
-    const cleanText = text.trim();
+    const cleanText = (text || '').trim();
     if (cleanText.includes("我叫") || cleanText.includes("名字是")) {
       const match = cleanText.match(/(?:我叫|名字是)\s*([^\s，。！？、]+)/);
       if (match) fact = `用户名字是 ${match[1]}`;
@@ -2160,15 +2260,19 @@ ${existingCommentsText || "暂无评论"}
   };
 
   // Scroll to bottom when messages or generating state changes
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const prevSessionIdRef = useRef<string | null>(null);
+
+  const scrollToBottom = (smooth = true) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (activeTab === "chat") {
-      scrollToBottom();
+      const isNewSession = prevSessionIdRef.current !== activeSession?.id;
+      scrollToBottom(!isNewSession);
+      prevSessionIdRef.current = activeSession?.id || null;
     }
-  }, [activeSession?.messages, isGenerating, activeTab]);
+  }, [activeSession?.messages, isGenerating, activeTab, activeSession?.id]);
 
   // Handle Character Selection
   const handleSelectChar = (id: string) => {
@@ -2396,9 +2500,9 @@ ${existingCommentsText || "暂无评论"}
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || isGenerating || !activeCharId || !activeSession || isBlocked) return;
+    if (!(inputText || '').trim() || isGenerating || !activeCharId || !activeSession || isBlocked) return;
 
-    const userText = inputText.trim();
+    const userText = (inputText || '').trim();
     setInputText("");
     setApiError(null);
 
@@ -3703,11 +3807,7 @@ ${existingCommentsText || "暂无评论"}
                             >
                               <div className="flex items-center gap-3.5 min-w-0 flex-1">
                                 <div className="w-12 h-12 rounded-xl bg-neutral-100 flex items-center justify-center overflow-hidden text-2xl select-none shadow-inner shrink-0 relative">
-                                  {group.groupAvatar?.startsWith('http') || group.groupAvatar?.startsWith('data:') ? (
-                                    <img src={group.groupAvatar} alt={group.groupName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                                  ) : (
-                                    group.groupAvatar || '💬'
-                                  )}
+                                  {renderGroupAvatar(group)}
                                   <span className="absolute bottom-0 right-0 text-[8px] font-bold px-1 py-0.5 rounded border border-white bg-neutral-900 text-white leading-none shadow-sm">
                                     群
                                   </span>
@@ -4462,11 +4562,7 @@ ${existingCommentsText || "暂无评论"}
             
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-neutral-100 flex items-center justify-center overflow-hidden text-lg shrink-0">
-                {activeSession.groupAvatar?.startsWith('http') || activeSession.groupAvatar?.startsWith('data:') ? (
-                  <img src={activeSession.groupAvatar} alt={activeSession.groupName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                ) : (
-                  activeSession.groupAvatar || '💬'
-                )}
+                {renderGroupAvatar(activeSession)}
               </div>
               <div className="text-left">
                 <h3 className=" font-bold text-sm text-neutral-950 truncate max-w-[160px]">{activeSession.groupName}</h3>
@@ -4538,7 +4634,8 @@ ${existingCommentsText || "暂无评论"}
                       onTouchEnd={handleTouchEnd}
                       onContextMenu={(e) => handleContextMenu(e, msg)}
                       onDoubleClick={() => handleDoubleClick(msg)}
-                      className={`p-3.5 rounded-2xl text-xs leading-relaxed  shadow-sm select-text cursor-pointer active:scale-[0.99] transition-all relative ${
+                      style={{ touchAction: 'none' }}
+                      className={`p-3.5 rounded-2xl text-xs leading-relaxed  shadow-sm select-none cursor-pointer active:scale-[0.99] transition-all relative ${
                         isUser
                           ? "bg-black text-white rounded-tr-xs"
                           : "bg-white text-neutral-900 border border-neutral-200/60 rounded-tl-xs"
@@ -4657,7 +4754,7 @@ ${existingCommentsText || "暂无评论"}
               />
               <button
                 type="submit"
-                disabled={!inputText.trim() || isGenerating}
+                disabled={!(inputText || '').trim() || isGenerating}
                 className="w-10 h-10 bg-neutral-100 hover:bg-neutral-200 disabled:bg-neutral-50 disabled:text-neutral-300 text-neutral-800 rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
                 title="发送用户消息 (仅发送，不生成AI回复)"
               >
@@ -5035,7 +5132,7 @@ ${existingCommentsText || "暂无评论"}
                                 onDoubleClick={() => {
                                   if (!isMultiSelectMode) handleDoubleClick(msg);
                                 }}
-                                className={`px-4 py-3 rounded-2xl text-xs leading-relaxed  shadow-sm select-text cursor-pointer active:scale-[0.99] transition-all relative ${
+                                className={`px-4 py-3 rounded-2xl text-xs leading-relaxed  shadow-sm select-none cursor-pointer active:scale-[0.99] transition-all relative ${
                                   isBot
                                     ? "bg-white text-neutral-900 border border-neutral-200 rounded-tl-none hover:border-neutral-300"
                                     : "bg-black text-white rounded-tr-none hover:bg-neutral-900"
@@ -5449,7 +5546,7 @@ ${existingCommentsText || "暂无评论"}
                       />
                       <button
                         type="submit"
-                        disabled={!inputText.trim() || isGenerating}
+                        disabled={!(inputText || '').trim() || isGenerating}
                         className="w-10 h-10 bg-neutral-100 hover:bg-neutral-200 disabled:bg-neutral-50 disabled:text-neutral-300 text-neutral-800 rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 animate-fade-in"
                         title="发送用户消息 (仅发送，不生成AI回复)"
                       >
@@ -7111,15 +7208,35 @@ ${existingCommentsText || "暂无评论"}
               </div>
 
               <div className="space-y-1">
-                <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">群聊头像 (Avatar Emoji)</label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="text"
-                    placeholder="💬"
-                    value={groupAvatarInput}
-                    onChange={(e) => setGroupAvatarInput(e.target.value)}
-                    className="w-16 text-center text-xl border border-neutral-200 py-2 rounded-xl bg-white focus:border-neutral-950 outline-none"
-                  />
+                <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">群聊头像 (Avatar)</label>
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="输入 emoji 或上传图片"
+                      value={groupAvatarInput}
+                      onChange={(e) => setGroupAvatarInput(e.target.value)}
+                      className="flex-1 text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none"
+                    />
+                    <label className="flex items-center justify-center bg-white border border-neutral-200 hover:border-neutral-300 w-10 h-10 rounded-xl cursor-pointer text-neutral-500 shrink-0">
+                      <Camera className="w-4 h-4" />
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                              setGroupAvatarInput(event.target?.result as string);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
                   <div className="flex gap-2 flex-wrap">
                     {['💬', '🌟', '☕', '🚀', '🎮', '🌸', '🐱', '🔥'].map((emoji) => (
                       <button
@@ -7211,7 +7328,7 @@ ${existingCommentsText || "暂无评论"}
                     id: newGroupId,
                     isGroup: true,
                     groupName: groupNameInput.trim(),
-                    groupAvatar: groupAvatarInput || "💬",
+                    groupAvatar: groupAvatarInput,
                     memberIds: selectedMemberIds,
                     syncMemory: true,
                     messages: [
@@ -7279,19 +7396,45 @@ ${existingCommentsText || "暂无评论"}
 
               <div className="space-y-1">
                 <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">群聊头像</label>
-                <input
-                  type="text"
-                  value={activeSession.groupAvatar || "💬"}
-                  onChange={(e) => {
-                    const newAvatar = e.target.value;
-                    onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
-                      ...activeSession,
-                      groupAvatar: newAvatar,
-                      isGroup: true,
-                    });
-                  }}
-                  className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={activeSession.groupAvatar || ""}
+                    onChange={(e) => {
+                      const newAvatar = e.target.value;
+                      onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
+                        ...activeSession,
+                        groupAvatar: newAvatar,
+                        isGroup: true,
+                      });
+                    }}
+                    className="flex-1 text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none"
+                    placeholder="输入 emoji 或图片 URL"
+                  />
+                  <label className="flex items-center justify-center bg-white border border-neutral-200 hover:border-neutral-300 w-10 h-10 rounded-xl cursor-pointer text-neutral-500">
+                    <Camera className="w-4 h-4" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            const newAvatar = event.target?.result as string;
+                            onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
+                              ...activeSession,
+                              groupAvatar: newAvatar,
+                              isGroup: true,
+                            });
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
               </div>
 
 
@@ -7350,10 +7493,17 @@ ${existingCommentsText || "暂无评论"}
                 <button
                   type="button"
                   onClick={() => {
-                    const updatedSessions = sessions.filter(s => s.id !== activeSession.id);
-                    localStorage.setItem("mobile_ai_chat_sessions", JSON.stringify(updatedSessions));
-                    setActiveCharId(null);
-                    setShowGroupSettingsModal(false);
+                    const confirmDelete = window.confirm("确定要解散/退出该群聊吗？此操作不可撤销。");
+                    if (confirmDelete) {
+                      if (onDeleteSession) {
+                        onDeleteSession(activeSession.id);
+                      } else {
+                        const updatedSessions = sessions.filter(s => s.id !== activeSession.id);
+                        localStorage.setItem("mobile_ai_chat_sessions", JSON.stringify(updatedSessions));
+                      }
+                      setActiveCharId(null);
+                      setShowGroupSettingsModal(false);
+                    }
                   }}
                   className="w-full py-2.5 text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-xl transition-colors border border-red-200/50"
                 >

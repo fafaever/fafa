@@ -490,6 +490,11 @@ export default function App() {
     }
   };
 
+  const handleDeleteSession = (sessionId: string) => {
+    const updatedSessions = sessions.filter(s => s.id !== sessionId);
+    persistSessions(updatedSessions);
+  };
+
   // --- ACTIONS: Character Management ---
   const handleAddCharacter = (char: Omit<Character, "id" | "createdAt">) => {
     const newCharId = `char-custom-${Date.now()}`;
@@ -1342,6 +1347,7 @@ export default function App() {
             onDeleteCharacter={handleDeleteCharacter}
             onUpdateCharacter={(char) => handleUpdateCharacter(char.id, char)}
             onUpdateSessionMessages={handleUpdateSessionMessages}
+            onDeleteSession={handleDeleteSession}
             onClose={() => setCurrentScreen("home")}
             onOpenApp={(appId) => setCurrentScreen(appId)}
             onActiveCharChange={setActiveChatCharId}
