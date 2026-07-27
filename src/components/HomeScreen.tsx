@@ -371,11 +371,6 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
               <p className="text-[10px] font-medium tracking-wide text-neutral-500 uppercase">
                 {date}
               </p>
-              <div className="w-px h-2.5 bg-neutral-300" />
-              <div className="flex items-center gap-1 text-[10px] font-medium text-neutral-500">
-                <span>88%</span>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3"><rect x="2" y="7" width="16" height="10" rx="2" ry="2"/><line x1="22" y1="11" x2="22" y2="13"/></svg>
-              </div>
             </div>
           </div>
 

@@ -100,6 +100,7 @@ export interface AppSettings {
   apiKey: string;
   model: string;
   apiFormat?: 'openai' | 'gemini';
+  temperature?: number;
   apiPresets?: ApiPreset[];
   activePresetId?: string;
   worldBookGroups?: string[];

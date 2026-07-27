@@ -559,8 +559,15 @@ ${perspective === 'first' ? '第一人称（必须通篇使用“我”进行主
    - 绝对禁止出现“网络信号”、“我是AI”、“加载中”、“大模型”、“API”、“服务器”等任何与剧情和文学演绎无关的现代科技或AI身份用语！
    - 绝对禁止角色直接对用户说话（用户是故事的观看者，不是对话对象。角色在剧场剧情中独白或互动，不能把用户当成聊天对象说“你好我是...”或“你想聊什么”）。
 3. 内容必须以细腻的环境描写、心理描写、动作描写为主，对话为辅，文学代入感极强。
-4. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
-5. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
+4. 【排版与格式要求（绝对强制）】：
+   - 对话内容必须使用全角双引号（“ ”）包裹，绝对不能使用星号（* *）。
+   - 对话内容必须单独成行，与其他动作、环境描写段落分开。
+   - 示例格式：
+     他站在窗边，外面的雨刚停。
+     “你来了。”
+     她推开门，水珠从伞尖滴落。
+5. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
+6. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
 ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入，自然地开启剧情，不要附带任何多余解释。' : ''}
 `;
 
@@ -710,8 +717,15 @@ ${perspective === 'first' ? '第一人称（必须通篇使用“我”进行主
    - 绝对禁止角色直接对用户说话（用户是故事的观看者，不是对话对象）。
 3. 结合上下文重新生成一段【不同角度/不同细节】的全新剧情描写。
 4. 内容必须以环境描写、心理描写、动作描写为主，对话为辅，代入感极强。
-5. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
-6. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
+5. 【排版与格式要求（绝对强制）】：
+   - 对话内容必须使用全角双引号（“ ”）包裹，绝对不能使用星号（* *）。
+   - 对话内容必须单独成行，与其他动作、环境描写段落分开。
+   - 示例格式：
+     他站在窗边，外面的雨刚停。
+     “你来了。”
+     她推开门，水珠从伞尖滴落。
+6. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
+7. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
 ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入。' : ''}
 `;
 
@@ -1358,7 +1372,21 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
                 ? 'bg-neutral-900 text-white rounded-tr-none' 
                 : 'bg-white border border-neutral-200/80 text-neutral-800 rounded-tl-none font-sans'
             }`}>
-              <div>{msg.content}</div>
+              <div className="whitespace-pre-wrap">
+                {msg.content.split('\n').map((line, i) => {
+                  if (!line) return <div key={i} className="h-2"></div>;
+                  const parts = line.split(/(“[^”]*”)/g);
+                  return (
+                    <div key={i} className="min-h-[1.25em]">
+                      {parts.map((part, j) => 
+                        part.startsWith('“') && part.endsWith('”') 
+                          ? <span key={j} className="italic opacity-90">{part}</span> 
+                          : <span key={j}>{part}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
               {/* 剧情卡片 / 消息操作按钮 */}
               <div className={`flex items-center justify-end gap-2.5 mt-3 pt-2 border-t text-[10px] font-medium ${

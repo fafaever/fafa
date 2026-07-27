@@ -21,6 +21,8 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   const [apiPresetName, setApiPresetName] = useState("");
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelFetchResult, setModelFetchResult] = useState<{type: 'success' | 'error', message: string} | null>(null);
+
   const [isApiPresetsExpanded, setIsApiPresetsExpanded] = useState(false);
   const [showFullApiKey, setShowFullApiKey] = useState(false);
   const [isApiKeyFocused, setIsApiKeyFocused] = useState(false);
@@ -286,6 +288,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
       return;
     }
     setIsLoadingModels(true);
+    setModelFetchResult(null);
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 35000); // 35s frontend timeout
@@ -302,9 +305,9 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
         if (!settings.model && res.models[0]) {
           handleUpdate({ model: res.models[0] });
         }
-        alert(`成功拉取到 ${res.models.length} 个可用模型！`);
+        setModelFetchResult({type: 'success', message: '模型拉取成功，请选择模型'});
       } else {
-        alert("未获取到可用模型。");
+        setModelFetchResult({type: 'error', message: '未获取到可用模型。'});
       }
     } catch (err: any) {
       console.error("[Fetch Models Error]:", err);
@@ -312,7 +315,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
       if (errMsg.includes("abort")) {
         errMsg = "拉取超时，请检查网络或中转站状态。";
       }
-      alert(errMsg || "拉取模型列表失败，请手动输入模型名称。");
+      setModelFetchResult({type: 'error', message: errMsg || "拉取模型列表失败，请手动输入模型名称。"});
     } finally {
       setIsLoadingModels(false);
     }
@@ -1095,19 +1098,49 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                         {isLoadingModels ? "拉取中..." : "拉取模型"}
                       </button>
                     </div>
-                    <input
-                      type="text"
-                      list="api-models-list"
-                      value={settings.model}
-                      onChange={e => handleUpdate({ model: e.target.value })}
-                      className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all"
-                      placeholder="请选择或输入模型"
+                    
+                    {modelFetchResult && (
+                      <div className={`text-xs px-2 py-1.5 rounded-md ${modelFetchResult.type === 'success' ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-600'}`}>
+                        {modelFetchResult.message}
+                      </div>
+                    )}
+
+                    {fetchedModels.length > 0 ? (
+                      <select
+                        value={settings.model}
+                        onChange={e => handleUpdate({ model: e.target.value })}
+                        className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all appearance-none"
+                      >
+                        {fetchedModels.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={settings.model}
+                        onChange={e => handleUpdate({ model: e.target.value })}
+                        className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all"
+                        placeholder="请选择或输入模型"
+                      />
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">温度 (Temperature)</label>
+                      <span className="text-xs text-neutral-500">{settings.temperature ?? 0.8}</span>
+                    </div>
+                    <input 
+                      type="range"
+                      min="0"
+                      max="2"
+                      step="0.1"
+                      value={settings.temperature ?? 0.8}
+                      onChange={e => handleUpdate({ temperature: parseFloat(e.target.value) })}
+                      className="w-full accent-black"
                     />
-                    <datalist id="api-models-list">
-                      {fetchedModels.map(m => (
-                        <option key={m} value={m} />
-                      ))}
-                    </datalist>
+                    <p className="text-[10px] text-neutral-400 px-1">控制回复随机性，值越高越发散，越低越确定。</p>
                   </div>
                 </div>
 
