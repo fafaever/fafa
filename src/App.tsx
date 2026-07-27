@@ -221,6 +221,20 @@ export default function App() {
 
   // Hydrate from localStorage on mount
   useEffect(() => {
+    // Clean up emoji / mood cache from localStorage
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith("char_mood_") || key.startsWith("emoji_") || key.includes("emoji"))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch (e) {
+      console.error("Failed to clean emoji/mood localStorage", e);
+    }
+
     // 1.5 User Personas
     const savedPersonas = localStorage.getItem("user_personas_v1");
     if (savedPersonas) {
@@ -566,6 +580,11 @@ export default function App() {
     // Check if already generating
     if (isGeneratingMap[character.id]) return;
 
+    if (!character.systemInstruction || !character.description) {
+      alert("人设信息缺失，请检查角色设定");
+      return;
+    }
+
     setIsGeneratingMap(prev => ({ ...prev, [character.id]: true }));
     try {
       const data = await apiGenerateNote({ character, settings, memories: character.memories, lores: loreList });
@@ -690,6 +709,11 @@ export default function App() {
 
     const activeChar = characters.find(c => c.id === characterId);
     if (!activeChar) return;
+
+    if (!activeChar.systemInstruction || !activeChar.description) {
+      alert("人设信息缺失，请检查角色设定");
+      return;
+    }
 
     // Check if generating already
     if (isGeneratingMap[characterId]) return;
@@ -855,7 +879,7 @@ export default function App() {
 
       const lastMessage = targetMessages[targetMessages.length - 1];
       const userDidNotReply = lastMessage?.role === 'assistant';
-      const mood = localStorage.getItem(`char_mood_${characterId}`) || "平静";
+      const mood = "平静";
 
       const now = new Date();
       const currentTimeStr = now.toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'long', hour: '2-digit', minute: '2-digit' });
@@ -897,7 +921,7 @@ export default function App() {
         },
         matchedLore: matched,
         chatMode: "online",
-        systemInstruction: "你现在处于【线上聊天模式】。禁止角色发送任何包含动作描写的内容。只允许以第一人称口语化语气表达感受或状态，用词克制，不渲染，不描述具体动作。整体语气保持克制、自然，像正常人在线上聊天，不刻意暴露或渲染。",
+        systemInstruction: `【角色人设】：${activeChar.description}\n【行为准则】：${activeChar.systemInstruction}\n\n你现在处于【线上聊天模式】。禁止角色发送任何包含动作描写的内容。只允许以第一人称口语化语气表达感受或状态，用词克制，不渲染，不描述具体动作。整体语气保持克制、自然，像正常人在线上聊天，不刻意暴露或渲染。`,
         replyLength: replyLength,
         replyCount: count,
         mood: mood,

@@ -4,6 +4,18 @@ import { Signal, Battery, Heart } from "lucide-react";
 export default function StatusBar({ onOpenFafa }: { onOpenFafa?: () => void }) {
   const [time, setTime] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
+
+  useEffect(() => {
+    if ('getBattery' in navigator) {
+      (navigator as any).getBattery().then((battery: any) => {
+        const updateLevel = () => setBatteryLevel(Math.round(battery.level * 100));
+        updateLevel();
+        battery.addEventListener('levelchange', updateLevel);
+        return () => battery.removeEventListener('levelchange', updateLevel);
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const updateTime = () => {
@@ -72,7 +84,7 @@ export default function StatusBar({ onOpenFafa }: { onOpenFafa?: () => void }) {
         <div className="flex items-center gap-2">
           <Signal className="w-3.5 h-3.5 stroke-[2] opacity-80" />
           <div className="flex items-center gap-0.5">
-            <span className="text-[10px] opacity-80 font-medium">88%</span>
+            <span className="text-[10px] opacity-80 font-medium">{batteryLevel !== null ? `${batteryLevel}%` : "--%"}</span>
             <Battery className="w-3.5 h-3.5 stroke-[2] opacity-80" />
           </div>
         </div>

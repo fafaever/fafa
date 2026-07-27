@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import { ChevronLeft, Save, Trash2, Upload, RotateCcw, Download, Plus, Check, Monitor, Layout, Type, Palette, Package, Smartphone, Image as ImageIcon, Database, Cpu, HardDrive, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
+import { ChevronLeft, Save, Trash2, Upload, RotateCcw, Download, Plus, Check, Monitor, Layout, Type, Palette, Package, Smartphone, Image as ImageIcon, Database, Cpu, HardDrive, ChevronDown, ChevronRight, ArrowUp, ArrowDown, Eye, EyeOff } from "lucide-react";
 import { AppSettings, FontOption, ThemePreset } from "../types";
 import { apiFetchModels } from "../lib/api";
 
@@ -22,6 +22,8 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   const [fetchedModels, setFetchedModels] = useState<string[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isApiPresetsExpanded, setIsApiPresetsExpanded] = useState(false);
+  const [showFullApiKey, setShowFullApiKey] = useState(false);
+  const [isApiKeyFocused, setIsApiKeyFocused] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
   const wallpaper1Ref = useRef<HTMLInputElement>(null);
@@ -285,23 +287,32 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
     }
     setIsLoadingModels(true);
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 35000); // 35s frontend timeout
+
       const res = await apiFetchModels({
         apiUrl: settings.apiUrl,
         apiKey: settings.apiKey
       });
+      
+      clearTimeout(timeoutId);
+
       if (res.success && res.models && res.models.length > 0) {
         setFetchedModels(res.models);
-        // Automatically select the first model if current model is empty
         if (!settings.model && res.models[0]) {
           handleUpdate({ model: res.models[0] });
         }
-        alert(`成功拉取到 ${res.models.length} 个可用模型！已填充到下方下拉框中。`);
+        alert(`成功拉取到 ${res.models.length} 个可用模型！`);
       } else {
-        alert("未获取到可用模型，请检查接口是否支持 /v1/models 路径。您可以手动输入模型名称进行连接。");
+        alert("未获取到可用模型。");
       }
     } catch (err: any) {
       console.error("[Fetch Models Error]:", err);
-      alert(err.message || "拉取模型列表失败，请确认 API 路径和 Key 的正确性，或尝试直接在下方手动输入模型名称。");
+      let errMsg = err.message;
+      if (errMsg.includes("abort")) {
+        errMsg = "拉取超时，请检查网络或中转站状态。";
+      }
+      alert(errMsg || "拉取模型列表失败，请手动输入模型名称。");
     } finally {
       setIsLoadingModels(false);
     }
@@ -1046,13 +1057,30 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                   </div>
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1">API Key</label>
-                    <input 
-                      type="password" 
-                      value={settings.apiKey} 
-                      onChange={e => handleUpdate({ apiKey: e.target.value })}
-                      className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all"
-                      placeholder="sk-..."
-                    />
+                    <div className="relative flex items-center">
+                      <input 
+                        type="text"
+                        value={(() => {
+                          if (showFullApiKey || isApiKeyFocused) return settings.apiKey;
+                          if (!settings.apiKey) return "";
+                          if (settings.apiKey.length <= 8) return "****";
+                          return `${settings.apiKey.slice(0, 4)}...${settings.apiKey.slice(-4)}`;
+                        })()}
+                        onFocus={() => setIsApiKeyFocused(true)}
+                        onBlur={() => setIsApiKeyFocused(false)}
+                        onChange={e => handleUpdate({ apiKey: e.target.value })}
+                        className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 pr-10 text-xs outline-none focus:border-black transition-all font-mono"
+                        placeholder="sk-..."
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowFullApiKey(!showFullApiKey)}
+                        className="absolute right-3 text-neutral-400 hover:text-neutral-700 transition-colors p-1"
+                        title={showFullApiKey ? "隐藏 Key" : "显示完整 Key"}
+                      >
+                        {showFullApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                   
                   <div className="space-y-2">
@@ -1067,13 +1095,13 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                         {isLoadingModels ? "拉取中..." : "拉取模型"}
                       </button>
                     </div>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       list="api-models-list"
-                      value={settings.model} 
+                      value={settings.model}
                       onChange={e => handleUpdate({ model: e.target.value })}
                       className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-3 text-xs outline-none focus:border-black transition-all"
-                      placeholder="gpt-4o / gemini-3.6-flash"
+                      placeholder="请选择或输入模型"
                     />
                     <datalist id="api-models-list">
                       {fetchedModels.map(m => (

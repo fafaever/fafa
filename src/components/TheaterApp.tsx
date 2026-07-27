@@ -481,6 +481,36 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
   const handleGenerateTheater = async (customPrompt?: string, overrideList?: TheaterMessage[], forceStart = false) => {
     if (!selectedChar) return;
     if (isGenerating && !forceStart) return;
+
+    // Rule 1 & 4: Mandatory check before generation
+    if (!worldSetting || !worldSetting.trim()) {
+      const errReason = "世界设定缺失";
+      showToast(errReason);
+      const errorMsgObj: TheaterMessage = {
+        id: `err-${Date.now()}`,
+        role: "system",
+        content: `【生成失败】${errReason}：请先在剧场设定中填写世界观背景设定。`,
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, errorMsgObj]);
+      setIsGenerating(false);
+      return;
+    }
+
+    if (!selectedChar.description || !selectedChar.description.trim()) {
+      const errReason = "角色人设未读取";
+      showToast(errReason);
+      const errorMsgObj: TheaterMessage = {
+        id: `err-${Date.now()}`,
+        role: "system",
+        content: `【生成失败】${errReason}：当前参演角色的性格与人设数据为空。`,
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, errorMsgObj]);
+      setIsGenerating(false);
+      return;
+    }
+
     setIsGenerating(true);
 
     const baseMessages = overrideList || [...messages];
@@ -506,27 +536,32 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
       const isOpeningScene = newMessages.length === 0 || (newMessages.length === 1 && newMessages[0].role === 'user' && newMessages[0].content.includes('开场'));
 
       const systemInstruction = `
-你现在正在进行【小剧场独立架空演绎模式】。请严格根据以下背景设定与角色人设进行深度剧场演绎。
+你现在正在进行【小剧场独立架空演绎模式】。这是一个纯文学小说/剧本演绎环境。用户是故事的【观看者/旁观者】，而不是对话对象，角色绝对不能对用户说话。
 
-【核心背景与生成依据】：
-系统已强制读取并整合以下设定作为小剧场生成的背景依据：
-1. 【世界设定】：
-${worldSetting || '无特定世界设定'}
+【第一部分：必须强制读取的底层核心数据】：
+1. 【剧场世界设定】：
+${worldSetting}
 
 2. 【已挂载的世界书内容】：
 ${mountedLoreText}
 
 3. 【参演角色人设】：
-${selectedChar.name} - ${selectedChar.description}
+- 角色姓名：${selectedChar.name}
+- 角色性格与背景：${selectedChar.description}
+${selectedChar.systemInstruction || ''}
 
-【演绎规则与要求】：
-- 【强制要求】：必须将上述【世界设定】${mountedLores.length > 0 ? '、【挂载的世界书内容】' : ''}与【角色人设】三者综合作为剧场生成的最高背景依据，确保生成内容完全符合世界观、背景设定与角色性格。
-- 内容必须以环境描写、心理描写、动作描写为主，对话为辅，代入感极强。
-- 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
-- 【叙述视角】：${perspective === 'first' ? '第一人称（用“我”叙述）' : perspective === 'second' ? '第二人称（称呼“你”）' : '第三人称（“他/她”视角）'}
-- 【文风偏好】：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}
-- 【绝对独立】：完全独立于线上普通聊天历史。
-${isOpeningScene ? '- 【特别提醒】：现在是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入，自然地开启剧情，不要附带无关解释。' : ''}
+4. 【用户选择的叙述视角】：
+${perspective === 'first' ? '第一人称（必须通篇使用“我”进行主视角描写与叙述）' : perspective === 'second' ? '第二人称（必须通篇使用“你”来称呼和叙述主角的经历与感受）' : '第三人称（必须使用“他/她”或角色名字进行客观的叙述）'}
+
+【第二部分：严格执行的演绎规则与绝对红线】：
+1. 【视角统一】：必须严格根据用户选择的视角（${perspective === 'first' ? '第一人称' : perspective === 'second' ? '第二人称' : '第三人称'}）进行文学描写与叙述。
+2. 【绝对禁止出现以下内容（最高级别红线）】：
+   - 绝对禁止出现“网络信号”、“我是AI”、“加载中”、“大模型”、“API”、“服务器”等任何与剧情和文学演绎无关的现代科技或AI身份用语！
+   - 绝对禁止角色直接对用户说话（用户是故事的观看者，不是对话对象。角色在剧场剧情中独白或互动，不能把用户当成聊天对象说“你好我是...”或“你想聊什么”）。
+3. 内容必须以细腻的环境描写、心理描写、动作描写为主，对话为辅，文学代入感极强。
+4. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
+5. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
+${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入，自然地开启剧情，不要附带任何多余解释。' : ''}
 `;
 
       let payloadMessages = newMessages
@@ -582,8 +617,13 @@ ${isOpeningScene ? '- 【特别提醒】：现在是故事的第一段开场描�
       saveCurrentSession(finalMsgs);
     } catch (err: any) {
       console.error("[Theater Generation Error]:", err);
-      const errMsg = err?.message || (typeof err === "string" ? err : "请求失败");
-      const displayMsg = errMsg.includes("API 返回错误") ? errMsg : `API 返回错误：${errMsg}`;
+      let errMsg = err?.message || (typeof err === "string" ? err : "请求失败");
+      if (errMsg.toLowerCase().includes("timeout") || errMsg.toLowerCase().includes("aborted")) {
+        errMsg = "API 请求超时";
+      } else if (!errMsg.includes("API 返回错误") && !errMsg.includes("世界设定缺失") && !errMsg.includes("角色人设未读取")) {
+        errMsg = `API 请求超时或网络异常 (${errMsg})`;
+      }
+      const displayMsg = errMsg.includes("API 返回错误") || errMsg.includes("API 请求超时") ? errMsg : `API 返回错误：${errMsg}`;
       showToast(displayMsg);
       const errorMsgObj: TheaterMessage = {
         id: `err-${Date.now()}`,
@@ -600,6 +640,34 @@ ${isOpeningScene ? '- 【特别提醒】：现在是故事的第一段开场描�
   // Re-roll (Regenerate) specific card content
   const handleRerollCard = async (targetMsgId: string) => {
     if (!selectedChar || isGenerating) return;
+
+    // Rule 1 & 4: Mandatory check before generation
+    if (!worldSetting || !worldSetting.trim()) {
+      const errReason = "世界设定缺失";
+      showToast(errReason);
+      const errorMsgObj: TheaterMessage = {
+        id: `err-${Date.now()}`,
+        role: "system",
+        content: `【生成失败】${errReason}：请先在剧场设定中填写世界观背景设定。`,
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, errorMsgObj]);
+      return;
+    }
+
+    if (!selectedChar.description || !selectedChar.description.trim()) {
+      const errReason = "角色人设未读取";
+      showToast(errReason);
+      const errorMsgObj: TheaterMessage = {
+        id: `err-${Date.now()}`,
+        role: "system",
+        content: `【生成失败】${errReason}：当前参演角色的性格与人设数据为空。`,
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, errorMsgObj]);
+      return;
+    }
+
     const index = messages.findIndex(m => m.id === targetMsgId);
     if (index === -1) return;
 
@@ -618,20 +686,33 @@ ${isOpeningScene ? '- 【特别提醒】：现在是故事的第一段开场描�
       const isOpeningScene = contextBefore.length === 0;
 
       const systemInstruction = `
-你现在正在进行【小剧场独立架空演绎模式】。请严格根据以下背景设定与角色人设进行深度剧场演绎。
+你现在正在进行【小剧场独立架空演绎模式】。这是一个纯文学小说/剧本演绎环境。用户是故事的【观看者/旁观者】，而不是对话对象，角色绝对不能对用户说话。
 
-【核心背景与生成依据】：
-1. 【世界设定】：${worldSetting || '无特定世界设定'}
-2. 【已挂载的世界书内容】：${mountedLoreText}
-3. 【参演角色人设】：${selectedChar.name} - ${selectedChar.description}
+【第一部分：必须强制读取的底层核心数据】：
+1. 【剧场世界设定】：
+${worldSetting}
 
-【演绎规则与要求】：
-- 结合上下文重新生成一段【不同角度/不同细节】的全新剧情描写。
-- 内容必须以环境描写、心理描写、动作描写为主，对话为辅，代入感极强。
-- 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
-- 【叙述视角】：${perspective === 'first' ? '第一人称' : perspective === 'second' ? '第二人称' : '第三人称'}
-- 【文风偏好】：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}
-${isOpeningScene ? '- 【特别提醒】：现在是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入。' : ''}
+2. 【已挂载的世界书内容】：
+${mountedLoreText}
+
+3. 【参演角色人设】：
+- 角色姓名：${selectedChar.name}
+- 角色性格与背景：${selectedChar.description}
+${selectedChar.systemInstruction || ''}
+
+4. 【用户选择的叙述视角】：
+${perspective === 'first' ? '第一人称（必须通篇使用“我”进行主视角描写与叙述）' : perspective === 'second' ? '第二人称（必须通篇使用“你”来称呼和叙述主角的经历与感受）' : '第三人称（必须使用“他/她”或角色名字进行客观的叙述）'}
+
+【第二部分：严格执行的演绎规则与绝对红线】：
+1. 【视角统一】：必须严格根据用户选择的视角（${perspective === 'first' ? '第一人称' : perspective === 'second' ? '第二人称' : '第三人称'}）进行文学描写与叙述。
+2. 【绝对禁止出现以下内容（最高级别红线）】：
+   - 绝对禁止出现“网络信号”、“我是AI”、“加载中”、“大模型”、“API”、“服务器”等任何与剧情和文学演绎无关的现代科技或AI身份用语！
+   - 绝对禁止角色直接对用户说话（用户是故事的观看者，不是对话对象）。
+3. 结合上下文重新生成一段【不同角度/不同细节】的全新剧情描写。
+4. 内容必须以环境描写、心理描写、动作描写为主，对话为辅，代入感极强。
+5. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
+6. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
+${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入。' : ''}
 `;
 
       let payloadMessages = contextBefore
@@ -702,8 +783,21 @@ ${isOpeningScene ? '- 【特别提醒】：现在是故事的第一段开场描�
       showToast("已重roll生成新剧情");
     } catch (err: any) {
       console.error("[Theater Reroll Error]:", err);
-      const errMsg = err?.message || "重roll失败";
-      showToast(errMsg.includes("API 返回错误") ? errMsg : `API 返回错误：${errMsg}`);
+      let errMsg = err?.message || "重roll失败";
+      if (errMsg.toLowerCase().includes("timeout") || errMsg.toLowerCase().includes("aborted")) {
+        errMsg = "API 请求超时";
+      } else if (!errMsg.includes("API 返回错误")) {
+        errMsg = `API 请求超时或网络异常 (${errMsg})`;
+      }
+      const displayMsg = errMsg.includes("API 返回错误") || errMsg.includes("API 请求超时") ? errMsg : `API 返回错误：${errMsg}`;
+      showToast(displayMsg);
+      const errorMsgObj: TheaterMessage = {
+        id: `err-${Date.now()}`,
+        role: "system",
+        content: `【生成失败】${displayMsg}`,
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, errorMsgObj]);
     } finally {
       setIsGenerating(false);
     }

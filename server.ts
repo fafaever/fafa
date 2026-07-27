@@ -10,6 +10,17 @@ const PORT = 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// Global CORS middleware for /api routes
+app.use("/api", (req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, x-goog-api-key");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Request logger for debugging 405/404 errors
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
@@ -283,15 +294,20 @@ app.post("/api/models", async (req, res) => {
     let cleanApiUrl = apiUrl.trim();
     cleanApiUrl = cleanApiUrl.replace(/\/chat\/completions\/?$/, '')
                              .replace(/\/v1\/chat\/completions\/?$/, '')
+                             .replace(/\/v1\/models\/?$/, '')
+                             .replace(/\/models\/?$/, '')
                              .replace(/\/v1\/?$/, '');
     
-    const targetUrl = cleanApiUrl.endsWith('/models') ? cleanApiUrl : `${cleanApiUrl}/models`;
+    const targetUrl = `${cleanApiUrl}/v1/models`;
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    const timeout = setTimeout(() => controller.abort(), 30000);
 
     let fetchRes;
     try {
+      // Try with /v1/models first, then fallback or just try base URL if it's already a /models endpoint
+      const targetUrl = cleanApiUrl.endsWith('/models') ? cleanApiUrl : `${cleanApiUrl}/v1/models`;
+
       fetchRes = await fetch(targetUrl, {
         method: "GET",
         headers: {
@@ -303,14 +319,24 @@ app.post("/api/models", async (req, res) => {
       });
     } catch (fetchErr: any) {
       clearTimeout(timeout);
-      return res.status(502).json({ error: `后端转发 Fetch 异常: ${fetchErr?.message || String(fetchErr)}`, targetUrl });
+      return res.status(502).json({ error: `后端转发 Fetch 异常: ${fetchErr?.message || String(fetchErr)}` });
     }
     clearTimeout(timeout);
 
     const responseText = await fetchRes.text();
     if (!fetchRes.ok) {
+      console.error(`[Backend Proxy] /models failed: ${fetchRes.status} ${fetchRes.statusText}`, responseText);
       return res.status(fetchRes.status).json({
         error: `中转站返回 HTTP ${fetchRes.status}`,
+        details: responseText,
+        targetUrl
+      });
+    }
+
+    if (responseText.trim().startsWith("<") || responseText.trim().startsWith("<!DOCTYPE")) {
+      console.error(`[Backend Proxy] /models returned HTML, likely not a /models endpoint`, responseText);
+      return res.status(502).json({
+        error: "API 地址返回了 HTML 页面（可能是 404 或代理错误），请检查 API 地址是否正确。",
         details: responseText,
         targetUrl
       });
@@ -319,6 +345,7 @@ app.post("/api/models", async (req, res) => {
     res.set("Content-Type", fetchRes.headers.get("Content-Type") || "application/json");
     res.send(responseText);
   } catch (err: any) {
+    console.error("[Backend Proxy] /models internal error:", err);
     res.status(500).json({ error: `Server API 内部错误: ${err?.message || String(err)}` });
   }
 });

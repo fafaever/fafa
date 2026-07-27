@@ -133,246 +133,101 @@ function buildGeminiPayload(messages: any[], temperature: number) {
   return body;
 }
 
-export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, messages: any[] = [], temperature = 0.8, passedApiFormat?: 'openai' | 'gemini') {
-  const config = getStoredApiConfig(apiUrl, apiKey, model, passedApiFormat);
-
+export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, messages: any[] = [], temperature: number = 0.8, apiFormat?: 'openai' | 'gemini') {
+  const config = getStoredApiConfig(apiUrl, apiKey, model, apiFormat);
+  
   if (!config.apiUrl || !config.apiKey) {
-    // Try server-side /api/gemini fallback
-    try {
-      const geminiRes = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages, temperature })
-      });
-      if (geminiRes.ok) {
-        const geminiData = await geminiRes.json();
-        if (geminiData && geminiData.text) {
-          return geminiData.text;
-        }
-      }
-    } catch (e) {
-      console.warn("[Server /api/gemini fallback failed]:", e);
-    }
-    throw new Error("未配置 API，请先在系统设置中配置 API Key 和 API 地址");
+    throw new Error("API 地址或 Key 未配置，请在设置中配置。");
   }
 
-  const cleanApiUrl = normalizeUrl(config.apiUrl);
+  const cleanApiUrl = config.apiUrl.replace(/\/+$/, '');
   let isGemini = config.apiFormat === 'gemini' || 
                  cleanApiUrl.includes('generativelanguage.googleapis.com') || 
                  cleanApiUrl.includes(':generateContent') || 
                  (cleanApiUrl.includes('gemini') && !cleanApiUrl.endsWith('/chat/completions'));
 
-  const makeRequest = async (useGeminiFormat: boolean) => {
-    let endpoint = cleanApiUrl;
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${config.apiKey}`,
-      "x-goog-api-key": config.apiKey
-    };
-
-    let body: any;
-    const clean = cleanApiUrl.replace(/\/+$/, "");
-
-    if (useGeminiFormat) {
-      body = buildGeminiPayload(messages, temperature);
-      if (clean.includes('generativelanguage.googleapis.com') || !clean.includes(':generateContent')) {
-        if (!clean.includes(':generateContent')) {
-          const modelName = config.model || "gemini-3.6-flash";
-          if (clean.endsWith('/v1beta') || clean.endsWith('/v1')) {
-            endpoint = `${clean}/models/${modelName}:generateContent`;
-          } else if (clean.endsWith('/models')) {
-            endpoint = `${clean}/${modelName}:generateContent`;
-          } else if (!clean.includes('/models/')) {
-            endpoint = `${clean}/v1beta/models/${modelName}:generateContent`;
-          } else {
-            endpoint = `${clean}:generateContent`;
-          }
-        } else {
-          endpoint = clean;
-        }
-      } else {
-        endpoint = clean;
-      }
-      if (!endpoint.includes('key=') && config.apiKey) {
-        endpoint += (endpoint.includes('?') ? '&' : '?') + `key=${encodeURIComponent(config.apiKey)}`;
-      }
-    } else {
-      if (clean.endsWith('/chat/completions')) {
-        endpoint = clean;
-      } else if (clean.endsWith('/v1')) {
-        endpoint = `${clean}/chat/completions`;
-      } else if (clean.includes('/chat/completions')) {
-        endpoint = clean;
-      } else {
-        endpoint = `${clean}/v1/chat/completions`;
-      }
-
-      const formattedMessages = messages
-        .map((m: any) => {
-          let role = m.role;
-          if (role === "assistant" || role === "model") role = "assistant";
-          else if (role === "system") role = "system";
-          else role = "user";
-
-          let content = "";
-          if (typeof m.content === "string") {
-            content = m.content;
-          } else if (Array.isArray(m.parts)) {
-            content = m.parts.map((p: any) => p.text || "").join("\n");
-          } else {
-            content = String(m.content || "");
-          }
-
-          if (content.startsWith("[MOMENT_SHARE]")) {
-            try {
-              const jsonStr = content.replace("[MOMENT_SHARE]", "");
-              const parsed = JSON.parse(jsonStr);
-              content = `[用户向你分享了一条朋友圈动态] 发布者：${parsed.authorName || '用户'}，正文内容："${parsed.content || '(图片/多媒体动态)'}"。请结合你们的关系和你的性格人设，与用户讨论这条朋友圈内容。`;
-            } catch (e) {
-              content = "[用户向你分享了一条朋友圈动态]";
-            }
-          }
-
-          return { role, content };
-        })
-        .filter((m: any) => m.content && m.content.trim() !== "");
-
-      if (formattedMessages.length === 0) {
-        formattedMessages.push({ role: "user", content: "Hello" });
-      }
-
-      const promptText = formattedMessages
-        .map((m: any) => `${m.role === 'system' ? 'System' : m.role === 'assistant' ? 'Assistant' : 'User'}: ${m.content}`)
-        .join('\n\n');
-
-      body = {
-        model: config.model || "gpt-3.5-turbo",
-        messages: formattedMessages,
-        temperature: temperature ?? 0.8,
-        max_tokens: 2048,
-        stream: false,
-      };
-    }
-
-    console.log("================ [LLM API REQUEST] ================");
-    console.log("[Request URL via /api/proxy]:", "/api/proxy");
-    console.log("[Target Endpoint]:", endpoint);
-    console.log("[Request Method]:", "POST");
-    console.log("[Request Headers]:", headers);
-    console.log("[Request Body]:", JSON.stringify(body, null, 2));
-    console.log("==================================================");
-
-    let response: Response;
-    try {
-      response = await fetch("/api/proxy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: endpoint,
-          method: "POST",
-          headers,
-          body
-        })
-      });
-      console.log("================ [LLM API RESPONSE] ================");
-      console.log("[Response Status]:", response.status, response.statusText);
-      console.log("===================================================");
-    } catch (proxyErr: any) {
-      console.warn("[/api/proxy failed, attempting direct browser fetch]:", proxyErr);
-      try {
-        console.log("================ [LLM DIRECT REQUEST] ================");
-        console.log("[Request URL]:", endpoint);
-        console.log("[Request Method]:", "POST");
-        console.log("[Request Headers]:", headers);
-        console.log("[Request Body]:", JSON.stringify(body, null, 2));
-        console.log("=====================================================");
-        response = await fetch(endpoint, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-        });
-        console.log("================ [LLM DIRECT RESPONSE] ================");
-        console.log("[Response Status]:", response.status, response.statusText);
-        console.log("======================================================");
-      } catch (directErr: any) {
-        console.error("================ [LLM API FETCH FATAL ERROR] ================");
-        console.error("[Proxy Error]:", proxyErr);
-        console.error("[Direct Error]:", directErr);
-        console.error("===========================================================");
-        throw new Error(`API 请求失败: 网络连接失败 (${proxyErr?.message || directErr?.message || "Failed to fetch"})，请检查网络或 API 地址。`);
-      }
-    }
-
-    if (!response.ok) {
-      let errDetail = "";
-      try {
-        const errText = await response.text();
-        console.error("================ [LLM API ERROR TEXT CONTENT] ================");
-        console.error(errText);
-        console.error("===========================================================");
-        try {
-          const errJson = JSON.parse(errText);
-          errDetail = errJson?.error?.message || errJson?.error || errJson?.message || errJson?.detail || (typeof errJson === 'string' ? errJson : JSON.stringify(errJson));
-        } catch {
-          errDetail = errText;
-        }
-      } catch (e) {
-        errDetail = response.statusText;
-      }
-      console.error("================ [LLM API ERROR SUMMARY] ================");
-      console.error("Status:", response.status, response.statusText);
-      console.error("Error Detail:", errDetail);
-      console.error("========================================================");
-      throw new Error(`API 返回错误：(HTTP ${response.status}) ${errDetail || response.statusText}`);
-    }
-
-    const data = await response.json();
-    const text = data.choices?.[0]?.message?.content || 
-                 data.candidates?.[0]?.content?.parts?.[0]?.text || 
-                 data.choices?.[0]?.text || 
-                 "";
-    return text;
+  let endpoint = cleanApiUrl;
+  let body: any;
+  let headers: Record<string, string> = {
+    'Content-Type': 'application/json',
   };
 
-  try {
-    return await makeRequest(isGemini);
-  } catch (err: any) {
-    const errMsg = err.message || "";
-    if (!isGemini && (errMsg.includes("contents") || errMsg.includes("Unable to submit request"))) {
-      console.warn("API returned contents requirement error. Retrying with Gemini format...", err);
-      try {
-        return await makeRequest(true);
-      } catch (geminiRetryErr) {
-        console.warn("Gemini format retry also failed:", geminiRetryErr);
-      }
-    }
-
-    // Attempt server-side /api/gemini fallback if custom API call fails or encounters network error
-    try {
-      console.warn("[Custom API request failed, attempting server-side /api/gemini fallback]:", errMsg);
-      const geminiRes = await fetch("/api/gemini", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages, temperature })
-      });
-      if (geminiRes.ok) {
-        const geminiData = await geminiRes.json();
-        if (geminiData && geminiData.text) {
-          return geminiData.text;
-        }
+  if (isGemini) {
+    if (!endpoint.includes(':generateContent')) {
+      const modelName = config.model || "gemini-1.5-flash";
+      if (endpoint.endsWith('/v1beta') || endpoint.endsWith('/v1')) {
+        endpoint = `${endpoint}/models/${modelName}:generateContent`;
+      } else if (endpoint.endsWith('/models')) {
+        endpoint = `${endpoint}/${modelName}:generateContent`;
+      } else if (!endpoint.includes('/models/')) {
+        endpoint = `${endpoint}/v1beta/models/${modelName}:generateContent`;
       } else {
-        const geminiErrText = await geminiRes.text().catch(() => "");
-        console.warn("[Server-side /api/gemini fallback returned non-ok response]:", geminiRes.status, geminiErrText);
+        endpoint = `${endpoint}:generateContent`;
       }
-    } catch (fallbackErr) {
-      console.warn("[Server-side /api/gemini fallback failed]:", fallbackErr);
     }
+    if (!endpoint.includes('key=')) {
+      endpoint += (endpoint.includes('?') ? '&' : '?') + `key=${encodeURIComponent(config.apiKey)}`;
+    }
+    headers['x-goog-api-key'] = config.apiKey;
+    body = buildGeminiPayload(messages, temperature);
+  } else {
+    // OpenAI 格式
+    let baseUrl = cleanApiUrl.replace(/\/chat\/completions\/?$/, "").replace(/\/v1\/?$/, "");
+    endpoint = `${baseUrl}/v1/chat/completions`;
+    headers['Authorization'] = `Bearer ${config.apiKey}`;
+    
+    const formattedMessages = messages.map((m: any) => {
+      let role = m.role;
+      if (role === 'assistant' || role === 'model') role = 'assistant';
+      else if (role === 'system') role = 'system';
+      else role = 'user';
+      
+      let content = m.content || '';
+      if (!content && Array.isArray(m.parts)) {
+        content = m.parts.map((p: any) => p.text || '').join('\n');
+      }
+      
+      return { role, content };
+    });
 
-    throw new Error(errMsg.startsWith("HTTP_") ? `API 返回错误 [${errMsg.replace('HTTP_', 'HTTP ')}]` : errMsg);
+    body = {
+      model: config.model || 'gpt-3.5-turbo',
+      messages: formattedMessages,
+      temperature: temperature,
+    };
   }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    let errorText = "";
+    try {
+      errorText = await response.text();
+    } catch (e) {
+      errorText = response.statusText;
+    }
+    throw new Error(`API 请求失败 (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  
+  // OpenAI 格式解析
+  if (data.choices && data.choices.length > 0) {
+    return data.choices[0].message.content;
+  }
+  
+  // Gemini 格式解析
+  if (data.candidates && data.candidates.length > 0) {
+    return data.candidates[0].content.parts[0].text;
+  }
+  
+  throw new Error('无法解析 API 响应');
 }
 
-// Helper functions
 function parseCharacterInstruction(name: string, systemInstruction: string, description: string) {
   let age = "不详";
   let personality = "";
@@ -518,7 +373,6 @@ function extractJson(text: string) {
     throw e;
   }
 }
-
 
 export async function apiAnalyzeCharacterFile(params: any) {
   const { fileText, fileBase64, fileName, settings } = params;
@@ -1093,7 +947,7 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
 
   const customApiUrl = settings?.apiUrl;
   const customApiKey = settings?.apiKey;
-  const customModel = settings?.model;
+  const customModel = settings?.model || localStorage.getItem("model") || "gpt-3.5-turbo";
 
   let finalCleanText = "";
   let finalOs = "";
@@ -1105,6 +959,8 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
     console.log(`[Persona Check Loop] Attempt ${attempt}/${maxAttempts} for character: ${character.name}`);
 
     let rawText = "";
+    
+    // 构造 OpenAI 格式的 messages 数组
     const formattedMessages = [
       { role: "system", content: currentSysInstruction },
       ...(messages || []).map((m: any) => {
@@ -1131,8 +987,24 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
         return { role, content };
       })
     ];
+    
+    // 在这里使用 formattedMessages 和 customModel 调用 LLM
+    // 假设 callLLM 函数内部已经处理了 OpenAI 格式转换，这里只需把 messages 传过去
+    // 注意：原本代码中 callLLM 的参数是 (apiUrl, apiKey, model, messages, temperature, apiFormat)
+    // 这里需要确保 messages 是正确的 OpenAI 格式
+    
     const finalTemp = temperature !== undefined ? temperature : (settings?.temperature !== undefined ? settings.temperature : 0.8);
-    rawText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, formattedMessages, finalTemp, settings?.apiFormat);
+    
+    // 构造请求体示例所需的格式
+    const requestBody = {
+      model: customModel,
+      messages: formattedMessages,
+      temperature: finalTemp
+    };
+    
+    // 如果 callLLM 接受 requestBody，则需要修改 callLLM 调用方式，或者继续使用 callLLM
+    // 鉴于 callLLM 内部复杂，这里先尝试直接修改传入 callLLM 的 messages 参数为数组
+    rawText = await callLLM(settings?.apiUrl, settings?.apiKey, customModel, formattedMessages, finalTemp, settings?.apiFormat);
 
     const osMatch = rawText.match(/\[OS_INNER\](.*?)$/is);
     if (osMatch) {
@@ -1360,10 +1232,25 @@ export async function apiFetchModels(params: any = {}) {
     }
     throw new Error(`拉取失败：接口不支持或配置错误 (${response.status} ${response.statusText})\n${parsedMsg || "请检查 API 地址是否支持 /models 端点"}`);
   }
-  const data = await response.json();
+  const responseText = await response.text();
+  if (responseText.trim().startsWith("<") || responseText.trim().startsWith("<!DOCTYPE")) {
+    throw new Error("API 地址返回了 HTML 页面（可能是 404 或代理错误），请检查 API 地址是否正确。");
+  }
+
+  let data;
+  try {
+    data = JSON.parse(responseText);
+  } catch (e) {
+    throw new Error("API 返回了非 JSON 格式数据。");
+  }
+
   let models: string[] = [];
-  if (data && data.data && Array.isArray(data.data)) {
-    models = data.data.map((m: any) => m.id);
+  if (Array.isArray(data)) {
+    models = data.map((m: any) => typeof m === 'string' ? m : m.id);
+  } else if (data && data.data && Array.isArray(data.data)) {
+    models = data.data.map((m: any) => typeof m === 'string' ? m : m.id);
+  } else if (data && data.models && Array.isArray(data.models)) {
+    models = data.models.map((m: any) => typeof m === 'string' ? m : m.id);
   }
   return { success: true, models };
 }

@@ -41,43 +41,6 @@ const getPersonalityFromInstruction = (inst: string) => {
 };
 
 const getEmotionIconPath = (emotion: string): string | null => {
-  const em = (emotion || "").toLowerCase().trim();
-  if (!em || em === "无") return null;
-
-  // 1. Exact matches / keywords for uploaded files
-  if (em.includes("伤心") || em.includes("难过") || em.includes("悲") || em.includes("哀") || em.includes("哭") || em.includes("痛") || em.includes("郁")) {
-    return "/images/emoji/伤心、难过.png";
-  }
-  if (em.includes("困") || em.includes("疲") || em.includes("累") || em.includes("倦") || em.includes("懒") || em.includes("慵")) {
-    return "/images/emoji/困了、疲惫.png";
-  }
-  if (em.includes("害怕") || em.includes("恐") || em.includes("惧") || em.includes("抖") || em.includes("吓")) {
-    return "/images/emoji/害怕.png";
-  }
-  if (em.includes("开") || em.includes("乐") || em.includes("喜") || em.includes("欢") || em.includes("笑") || em.includes("甜") || em.includes("悦") || em.includes("满") || em.includes("兴") || em.includes("红") || em.includes("宠") || em.includes("娇") || em.includes("傲")) {
-    return "/images/emoji/开心.png";
-  }
-  if (em.includes("担") || em.includes("焦") || em.includes("虑") || em.includes("愁") || em.includes("挂") || em.includes("忧") || em.includes("慌")) {
-    return "/images/emoji/担心、焦虑.png";
-  }
-  if (em.includes("生") || em.includes("气") || em.includes("怒") || em.includes("火") || em.includes("烦") || em.includes("躁") || em.includes("恼") || em.includes("呛") || em.includes("恨") || em.includes("厌")) {
-    return "/images/emoji/生气.png";
-  }
-  if (em.includes("平") || em.includes("静") || em.includes("淡") || em.includes("冷") || em.includes("克制") || em.includes("常")) {
-    return "/images/emoji/平静.png";
-  }
-
-  // 2. Best effort closest mapping (自动匹配最接近的情绪)
-  if (em.includes("羞") || em.includes("涩") || em.includes("爱") || em.includes("情") || em.includes("恋") || em.includes("感") || em.includes("戏") || em.includes("狡") || em.includes("坏") || em.includes("邪") || em.includes("得")) {
-    return "/images/emoji/开心.png";
-  }
-  if (em.includes("思") || em.includes("疑") || em.includes("奇") || em.includes("纳") || em.includes("探") || em.includes("呆") || em.includes("傻") || em.includes("懵") || em.includes("怔") || em.includes("愣") || em.includes("惊") || em.includes("震") || em.includes("汗") || em.includes("尬") || em.includes("哑")) {
-    return "/images/emoji/平静.png";
-  }
-  if (em.includes("叹") || em.includes("憋") || em.includes("屈") || em.includes("酸") || em.includes("孤") || em.includes("独") || em.includes("怜")) {
-    return "/images/emoji/伤心、难过.png";
-  }
-
   return null;
 };
 
@@ -627,6 +590,11 @@ export default function ChatApp({
         const respondingCharId = finalSpeakers[i];
         const respondingChar = characters.find(c => c.id === respondingCharId);
         if (!respondingChar) continue;
+
+        if (!respondingChar.systemInstruction || !respondingChar.description) {
+           alert("角色 " + respondingChar.name + " 人设信息缺失，请检查角色设定");
+           continue;
+        }
 
         if (i > 0) {
           await new Promise(resolve => setTimeout(resolve, 1500));
@@ -2194,9 +2162,6 @@ ${characters.map(c => `- 名字: "${c.name}", 人设: "${c.description || '无'}
     setIsGenerating(true);
 
     try {
-      // Save current mood to localStorage so the parent background engine can read it
-      localStorage.setItem(`char_mood_${activeCharId}`, mood);
-      
       if (onTriggerAiReply) {
         await onTriggerAiReply(activeCharId, customMessages);
       }
