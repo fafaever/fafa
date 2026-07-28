@@ -639,7 +639,9 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-neutral-50 relative overflow-hidden">
+    <div 
+      className={`flex-1 flex flex-col h-full relative overflow-hidden ${settings?.homeWallpaper || settings?.homeWallpaper2 ? 'bg-transparent' : 'bg-neutral-50'}`}
+    >
       {/* Edit Mode Banner overlay */}
       {isEditingLayout && (
         <div className="absolute top-12 left-4 right-4 z-50 bg-black/95 text-white backdrop-blur-lg rounded-2xl py-3 px-4 flex items-center justify-between shadow-lg border border-white/10 animate-fade-in">
@@ -659,21 +661,27 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
       {/* Dynamic Wallpapers for each page */}
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
         <div 
-          className={`absolute inset-0 bg-cover bg-center transition-all duration-700 ease-in-out ${currentPage === 0 ? "opacity-100 scale-100" : "opacity-0 scale-110"}`}
+          className={`absolute inset-0 transition-all duration-700 ease-in-out ${currentPage === 0 ? "opacity-100 scale-100" : "opacity-0 scale-110"}`}
           style={{ 
-            backgroundImage: settings?.homeWallpaper ? `url(${settings.homeWallpaper})` : 'none',
-            background: !settings?.homeWallpaper ? 'linear-gradient(135deg, #fce7f3 0%, #dbeafe 100%)' : undefined 
+            backgroundImage: settings?.homeWallpaper 
+              ? `url(${settings.homeWallpaper})` 
+              : 'linear-gradient(135deg, #fce7f3 0%, #dbeafe 100%)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center'
           }}
         />
         <div 
-          className={`absolute inset-0 bg-cover bg-center transition-all duration-700 ease-in-out ${currentPage === 1 ? "opacity-100 scale-100" : "opacity-0 scale-110"}`}
+          className={`absolute inset-0 transition-all duration-700 ease-in-out ${currentPage === 1 ? "opacity-100 scale-100" : "opacity-0 scale-110"}`}
           style={{ 
-            backgroundImage: settings?.homeWallpaper2 ? `url(${settings.homeWallpaper2})` : 'none',
-            background: !settings?.homeWallpaper2 ? 'linear-gradient(135deg, #fce7f3 0%, #dbeafe 100%)' : undefined
+            backgroundImage: settings?.homeWallpaper2 
+              ? `url(${settings.homeWallpaper2})` 
+              : 'linear-gradient(135deg, #fce7f3 0%, #dbeafe 100%)',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center'
           }}
         />
-        {/* Dark overlay for readability */}
-        <div className="absolute inset-0 bg-white/20 backdrop-blur-[2px]" />
+        {/* Dark overlay for readability - adjusted opacity */}
+        <div className={`absolute inset-0 transition-opacity duration-700 ${(settings?.homeWallpaper || settings?.homeWallpaper2) ? 'bg-white/10' : 'bg-transparent'} backdrop-blur-[1px]`} />
       </div>
 
       {/* Scrollable Pages Container with Scroll Snap */}

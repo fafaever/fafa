@@ -1,7 +1,8 @@
 import React, { useState, useRef } from "react";
-import { ChevronLeft, Save, Trash2, Upload, RotateCcw, Download, Plus, Check, X, Monitor, Layout, Type, Palette, Package, Smartphone, Image as ImageIcon, Database, Cpu, HardDrive, ChevronDown, ChevronRight, ArrowUp, ArrowDown, Eye, EyeOff, Brain } from "lucide-react";
+import { ChevronLeft, Save, Trash2, Upload, RotateCcw, Download, Plus, Check, X, Monitor, Layout, Type, Palette, Package, Smartphone, Image as ImageIcon, Database, Cpu, HardDrive, ChevronDown, ChevronRight, ArrowUp, ArrowDown, Eye, EyeOff, Brain, Wand2 } from "lucide-react";
 import { AppSettings, FontOption, ThemePreset } from "../types";
 import { apiFetchModels } from "../lib/api";
+import ImageGenSettingsApp from "./ImageGenSettingsApp";
 
 interface SettingsAppProps {
   settings: AppSettings;
@@ -11,7 +12,7 @@ interface SettingsAppProps {
 }
 
 const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, onSaveSettings, onClose }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'main' | 'api' | 'data' | 'interface' | 'vector'>('main');
+  const [activeSubTab, setActiveSubTab] = useState<'main' | 'api' | 'data' | 'interface' | 'vector' | 'imageGen'>('main');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['wallpaper', 'icons', 'font']));
   
   const [initialSettings] = useState<AppSettings>({ ...settings });
@@ -732,6 +733,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
       case 'data': return "数据管理";
       case 'interface': return "界面设置";
       case 'vector': return "向量记忆配置";
+      case 'imageGen': return "生图设置";
       default: return "系统设置";
     }
   };
@@ -750,7 +752,9 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
 
       {/* Content */}
       <div className={`flex-1 overflow-y-auto ${activeSubTab === 'interface' ? 'pb-32' : 'pb-6'}`}>
-        {activeSubTab === 'main' && (
+        {activeSubTab === 'imageGen' ? (
+          <ImageGenSettingsApp settings={settings} onUpdateSettings={onUpdateSettings} onClose={() => setActiveSubTab('main')} />
+        ) : activeSubTab === 'main' && (
           <div className="p-6 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
             {/* API Settings Card */}
             <button 
@@ -777,6 +781,20 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
               <div>
                 <h3 className="text-sm font-bold text-neutral-900 font-serif" style={{ fontFamily: 'Playfair Display, serif' }}>向量记忆</h3>
                 <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider mt-0.5">配置向量检索与 Embedding/Rerank 模型</p>
+              </div>
+            </button>
+
+            {/* Image Gen Card */}
+            <button 
+              onClick={() => setActiveSubTab('imageGen')}
+              className="w-full flex items-center gap-4 p-5 bg-neutral-50 rounded-2xl border border-neutral-100 hover:bg-neutral-100 hover:border-neutral-200 transition-all text-left group"
+            >
+              <div className="w-12 h-12 bg-neutral-900 text-white rounded-xl flex items-center justify-center shadow-md group-hover:scale-110 transition-transform">
+                <Wand2 className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-neutral-900">生图功能</h3>
+                <p className="text-[10px] text-neutral-500 font-bold uppercase tracking-wider mt-0.5">配置图片生成 API 与预设</p>
               </div>
             </button>
 

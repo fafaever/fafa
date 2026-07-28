@@ -88,6 +88,14 @@ export interface ApiPreset {
   apiFormat?: 'openai' | 'gemini';
 }
 
+export interface ImageGenPreset {
+  id: string;
+  name: string;
+  apiUrl: string;
+  apiKey: string;
+  model: string;
+}
+
 export type FontOption = 'system' | 'playfair_inter' | 'kaiti' | 'nunito' | 'sans' | 'custom';
 export type ThemeOption = 'minimal_white' | 'warm_paper' | 'dark_night';
 
@@ -143,6 +151,10 @@ export interface AppSettings {
   appIcons?: Record<string, string>; // appKey -> iconUrl (Base64)
   themePresets?: ThemePreset[];
   activeThemePresetId?: string;
+  imageGenApiUrl?: string;
+  imageGenApiKey?: string;
+  imageGenModel?: string;
+  imageGenPresets?: ImageGenPreset[];
 }
 
 export interface ChatSession {

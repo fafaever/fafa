@@ -884,13 +884,13 @@ ${onlineContextStr}
 
     if (role === "system") {
       return (
-        <div key={id} className="text-center py-2 px-4 my-2 text-[#99948E] text-[11px] font-bold">
+        <div key={id} className="text-center py-2 px-4 my-2 text-[#A8A39A] text-[11px] font-bold">
           {content}
         </div>
       );
     }
 
-    const nameLabel = role === "user" ? "你" : character.name;
+    const nameLabel = role === "user" ? "我" : character.name;
     const rawParagraphs = content.split("\n").filter((p) => p.trim());
     const timeFormatted = new Date(timestamp).toLocaleTimeString([], {
       hour: "2-digit",
@@ -900,117 +900,38 @@ ${onlineContextStr}
     return (
       <div
         key={id}
-        className="w-full bg-white/60 backdrop-blur-md rounded-[16px] px-[16px] py-[12px] shadow-[0_4px_12px_rgba(0,0,0,0.03)] border border-white/40 mb-[12px] group relative text-left select-text"
-        onTouchStart={() => handleTouchStart(msg)}
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchEnd}
-        onMouseDown={() => handleTouchStart(msg)}
-        onMouseUp={handleTouchEnd}
-        onMouseLeave={handleTouchEnd}
+        className="meet-card mb-3 group relative text-left select-text animate-fade-in"
         onContextMenu={(e) => {
           e.preventDefault();
           setSelectedMsgForMenu(msg);
         }}
       >
-        {/* Card Header: Name tag top-left in 11px, bold, #99948E */}
-        <div className="flex items-center justify-between w-full mb-[8px]">
-          <span className="text-[11px] font-bold text-[#99948E]">
+        <div className="meet-card-separator" />
+        
+        <div className="flex items-center justify-between mb-2">
+          <span className="meet-title text-sm font-bold">
             {nameLabel}
           </span>
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            {role === "assistant" && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRerollMessage(id);
-                }}
-                className="p-0.5 text-[#99948E] hover:text-[#1A1A1A] rounded cursor-pointer"
-                title="重新生成"
-              >
-                <RotateCcw className="w-3 h-3" />
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedMsgForMenu(msg);
-              }}
-              className="p-0.5 text-[#99948E] hover:text-[#1A1A1A] rounded cursor-pointer"
-              title={role === "user" ? "操作菜单" : "菜单"}
-            >
-              <MoreHorizontal className="w-3 h-3" />
-            </button>
-          </div>
+          <span className="text-[10px] text-[#A8A39A]">{timeFormatted}</span>
         </div>
 
-        {/* Card Body: Narrative (#1A1A1A) vs Dialogue (#4A4A4A), left-aligned */}
-        <div className="w-full space-y-[6px]">
-          {rawParagraphs.map((para, pIdx) => {
-            const parts = para.split(/([“"][^”"]+[”"])/g);
-
-            return (
-              <div key={pIdx} className="space-y-[4px] w-full text-left">
-                {parts.map((part, partIdx) => {
-                  if (!part) return null;
-                  let trimmed = part.trim();
-                  if (!trimmed) return null;
-
-                  const isDialogue =
-                    (trimmed.startsWith("“") && trimmed.endsWith("”")) ||
-                    (trimmed.startsWith('"') && trimmed.endsWith('"'));
-
-                  if (isDialogue) {
-                    let cleanDialogue = trimmed;
-                    if (cleanDialogue.startsWith('"') && cleanDialogue.endsWith('"')) {
-                      cleanDialogue = `“${cleanDialogue.slice(1, -1)}”`;
-                    }
-                    if (!cleanDialogue.startsWith("“")) {
-                      cleanDialogue = `“${cleanDialogue}`;
-                    }
-                    if (!cleanDialogue.endsWith("”")) {
-                      cleanDialogue = `${cleanDialogue}”`;
-                    }
-
-                    // 对话内容：稍微浅灰色 #4A4A4A，左对齐，15px，行高 1.8
-                    return (
-                      <div
-                        key={partIdx}
-                        className="w-full text-left text-[15px] text-[#4A4A4A] leading-[1.8] font-normal my-1 select-text whitespace-pre-wrap"
-                      >
-                        {cleanDialogue}
-                      </div>
-                    );
-                  }
-
-                  // 动作/旁白描写：深灰色 #1A1A1A，左对齐，15px，行高 1.8
-                  const cleanAction = trimmed
-                    .replace(/^[*（(【]/, "")
-                    .replace(/[*）)】]$/, "")
-                    .trim();
-
-                  if (!cleanAction) return null;
-
-                  return (
-                    <div
-                      key={partIdx}
-                      className="w-full text-left text-[15px] text-[#1A1A1A] leading-[1.8] font-normal my-1 select-text whitespace-pre-wrap"
-                    >
-                      {cleanAction}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+        <div className="meet-body text-sm leading-relaxed space-y-2">
+          {rawParagraphs.map((para, pIdx) => (
+            <p key={pIdx} className="whitespace-pre-wrap">{para}</p>
+          ))}
         </div>
-
-        {/* Card Footer: Word count & Timestamp (10px, #BFBAB2, right-aligned) */}
-        <div className="flex items-center justify-end gap-1.5 text-[10px] text-[#BFBAB2] mt-[8px]">
-          <span>{content.length} 字</span>
-          <span>·</span>
-          <span>{timeFormatted}</span>
+        
+        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedMsgForMenu(msg);
+            }}
+            className="p-1 text-[#A8A39A] hover:text-[#1A1A1A] rounded cursor-pointer"
+          >
+            <MoreHorizontal className="w-4 h-4" />
+          </button>
         </div>
       </div>
     );
@@ -1038,26 +959,109 @@ ${onlineContextStr}
   return (
     <div
       style={{
-        fontFamily: KAITI_FONT,
-        background: 'linear-gradient(135deg, #F3E7FF 0%, #FFE7F3 100%)',
-        color: currentTheme.text,
+        fontFamily: '"Inter", sans-serif',
+        backgroundColor: '#F8F6F3',
+        color: '#1A1A1A',
       }}
-      className="offline-meet-container fixed inset-0 z-50 flex flex-col max-w-md mx-auto sm:max-w-md sm:rounded-[32px] overflow-hidden shadow-2xl animate-fade-in transition-colors duration-200"
+      className="offline-meet-container fixed inset-0 z-50 flex flex-col max-w-md mx-auto sm:max-w-md overflow-hidden shadow-2xl animate-fade-in transition-colors duration-200"
     >
-      {/* Dynamic Custom CSS Injection */}
-      {customCss && (
-        <style dangerouslySetInnerHTML={{ __html: customCss }} />
-      )}
+      <style>
+        {`
+          @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;500;600;700&display=swap');
+          
+          .offline-meet-container {
+            font-family: 'Inter', sans-serif;
+            background-color: #F8F6F3;
+          }
+          .meet-card {
+            background-color: #FFFFFF;
+            border-radius: 16px;
+            padding: 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            border: 1px solid #EFECE8;
+          }
+          .meet-card-separator {
+            height: 1px;
+            background-color: #EFECE8;
+            margin: 0 -16px 12px -16px;
+          }
+          .meet-title {
+            font-family: 'Playfair Display', serif;
+            color: #1A1A1A;
+          }
+          .meet-body {
+            color: #A8A39A;
+          }
+          .btn-black {
+            background-color: #000000;
+            color: #FFFFFF;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-weight: 600;
+            transition: opacity 0.2s;
+          }
+          .btn-black:active {
+            opacity: 0.8;
+          }
+          .btn-outline {
+            background-color: #FFFFFF;
+            color: #000000;
+            border: 1px solid #000000;
+            border-radius: 8px;
+            padding: 8px 16px;
+            font-weight: 600;
+            transition: background-color 0.2s;
+          }
+          .btn-outline:active {
+            background-color: #F5F3F0;
+          }
+          .meet-input {
+            background-color: #FFFFFF;
+            border: 1px solid #E0E0E0;
+            border-radius: 8px;
+            padding: 8px 12px;
+            width: 100%;
+            outline: none;
+            transition: border-color 0.2s;
+          }
+          .meet-input:focus {
+            border-color: #000000;
+          }
+        `}
+      </style>
 
       {/* Exit Confirmation Modal */}
       {showExitModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl space-y-4">
-            <h3 className="font-bold text-stone-900 text-sm">确认退出见面？</h3>
-            <div className="space-y-2">
-              <button onClick={() => { setIsPaused(true); setShowExitModal(false); onClose(); }} className="w-full py-3 bg-stone-100 hover:bg-stone-200 text-stone-900 text-xs font-bold rounded-xl">保存并退出（暂停）</button>
-              <button onClick={() => { archiveCurrentSession(messages, meetMode); setShowExitModal(false); onClose(); }} className="w-full py-3 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl">结束见面</button>
+          <div className="bg-white rounded-[16px] p-6 w-full max-w-sm shadow-xl space-y-4">
+            <h3 className="meet-title font-bold text-stone-900 text-base text-center">确认退出见面？</h3>
+            <div className="space-y-3">
+              <button 
+                onClick={() => { setIsPaused(true); setShowExitModal(false); onClose(); }} 
+                className="w-full py-3 bg-white border border-stone-200 hover:bg-stone-50 text-stone-900 text-xs font-bold rounded-[8px] transition-all"
+              >
+                保存并暂停
+              </button>
+              <button onClick={() => { 
+                const summary = messages.map(m => m.content).join(" ");
+                const memoryContent = `【线下见面回忆】\n${summary.slice(0, 500)}...`;
+                if (onSyncToOnlineChat) {
+                    onSyncToOnlineChat(memoryContent);
+                }
+                archiveCurrentSession(messages, meetMode); 
+                localStorage.removeItem(storageKey);
+                setShowExitModal(false); 
+                onClose(); 
+              }} className="w-full py-3 bg-black hover:bg-stone-900 text-white text-xs font-bold rounded-[8px] transition-all">
+                结束见面
+              </button>
             </div>
+            <button 
+              onClick={() => setShowExitModal(false)}
+              className="w-full text-center text-[11px] text-stone-400 hover:text-stone-600"
+            >
+              取消
+            </button>
           </div>
         </div>
       )}
@@ -1237,74 +1241,14 @@ ${onlineContextStr}
         /* 模式设置页面 (三条线图标) */
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 ">
           {/* 板块一：模式选择 */}
-          {!forcedMode && (
-            <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
-              <div className="flex items-center justify-between border-b border-black/5 pb-2">
-                <div className="flex items-center gap-2">
-                  <Compass className="w-4 h-4 text-purple-700" />
-                  <h3 className="font-bold text-xs text-stone-800">板块一：模式选择</h3>
-                </div>
-                <span className="text-[10px] font-bold text-purple-800 bg-purple-100 px-2 py-0.5 rounded-full">
-                  当前: {meetMode === "shared" ? "互通模式" : "架空模式"}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2.5">
-                {/* 互通模式卡片 */}
-                <button
-                  type="button"
-                  onClick={() => handleSwitchModeWithConfirm("shared")}
-                  className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between gap-1.5 ${
-                    meetMode === "shared"
-                      ? "bg-purple-50/90 border-purple-500 ring-2 ring-purple-600/20 shadow-xs"
-                      : "bg-white border-stone-200 hover:border-purple-300"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
-                      <Link2 className="w-3.5 h-3.5 text-purple-700" />
-                      🔗 互通模式
-                    </span>
-                    {meetMode === "shared" && <Check className="w-3.5 h-3.5 text-purple-700" />}
-                  </div>
-                  <p className="text-[10.5px] text-stone-500 leading-tight">
-                    读取线上聊天历史作为记忆，线下剧情将同步至线上聊天。
-                  </p>
-                </button>
-
-                {/* 架空模式卡片 */}
-                <button
-                  type="button"
-                  onClick={() => handleSwitchModeWithConfirm("isolated")}
-                  className={`p-3 rounded-2xl border text-left cursor-pointer transition-all flex flex-col justify-between gap-1.5 ${
-                    meetMode === "isolated"
-                      ? "bg-amber-50/90 border-amber-500 ring-2 ring-amber-600/20 shadow-xs"
-                      : "bg-white border-stone-200 hover:border-amber-300"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
-                      <Unlink className="w-3.5 h-3.5 text-amber-700" />
-                      🌌 架空模式
-                    </span>
-                    {meetMode === "isolated" && <Check className="w-3.5 h-3.5 text-amber-700" />}
-                  </div>
-                  <p className="text-[10.5px] text-stone-500 leading-tight">
-                    平行时空小剧场。不读取也不同步线上历史，完全独立。
-                  </p>
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* 板块二：开场设定 */}
           <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
             <div className="flex items-center justify-between border-b border-black/5 pb-2">
               <div className="flex items-center gap-2">
-                <Wand2 className="w-4 h-4 text-purple-700" />
+                <Wand2 className="w-4 h-4 text-stone-800" />
                 <h3 className="font-bold text-xs text-stone-800">板块二：开场设定</h3>
               </div>
-              <span className="text-purple-700 font-mono font-bold text-xs">{wordLimit} 字/轮</span>
+              <span className="text-stone-800 font-mono font-bold text-xs">{wordLimit} 字/轮</span>
             </div>
 
             {/* 字数限制 */}
@@ -1321,7 +1265,7 @@ ${onlineContextStr}
                   setWordLimit(val);
                   saveAllConfig({ wordLimit: val });
                 }}
-                className="w-full accent-purple-700 cursor-pointer"
+                className="w-full accent-black cursor-pointer"
               />
               <div className="flex items-center gap-1">
                 {[300, 600, 1000, 1500].map((w) => (
@@ -1334,7 +1278,7 @@ ${onlineContextStr}
                     }}
                     className={`flex-1 py-1 text-[10px] rounded-lg font-medium border transition-all cursor-pointer ${
                       wordLimit === w
-                        ? "bg-purple-700 text-white border-purple-700 font-bold"
+                        ? "bg-black text-white border-black font-bold"
                         : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
                     }`}
                   >
@@ -1349,7 +1293,7 @@ ${onlineContextStr}
               {meetMode === "shared" ? (
                 /* 互通模式开场设定 */
                 <div className="space-y-2.5">
-                  <div className="bg-purple-50/70 border border-purple-100 p-2.5 rounded-xl text-[11px] text-purple-900 leading-relaxed">
+                  <div className="bg-stone-50 border border-stone-100 p-2.5 rounded-xl text-[11px] text-stone-800 leading-relaxed">
                     💡 <span className="font-bold">互通模式开场：</span>留空将由 AI 结合线上聊天自动推断。
                   </div>
 
@@ -1363,7 +1307,7 @@ ${onlineContextStr}
                         setTimeSetting(e.target.value);
                         saveAllConfig({ timeSetting: e.target.value });
                       }}
-                      className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-purple-600"
+                      className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-stone-800"
                     />
                   </div>
 
@@ -1377,7 +1321,7 @@ ${onlineContextStr}
                         setLocationSetting(e.target.value);
                         saveAllConfig({ locationSetting: e.target.value });
                       }}
-                      className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-purple-600"
+                      className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-stone-800"
                     />
                   </div>
 
@@ -1391,7 +1335,7 @@ ${onlineContextStr}
                         setReasonSetting(e.target.value);
                         saveAllConfig({ reasonSetting: e.target.value });
                       }}
-                      className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-purple-600"
+                      className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-stone-800"
                     />
                   </div>
 
@@ -1405,15 +1349,15 @@ ${onlineContextStr}
                         setAtmosphereSetting(e.target.value);
                         saveAllConfig({ atmosphereSetting: e.target.value });
                       }}
-                      className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-purple-600"
+                      className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-stone-800"
                     />
                   </div>
                 </div>
               ) : (
                 /* 架空模式开场设定 */
                 <div className="space-y-2">
-                  <div className="bg-amber-50/70 border border-amber-100 p-2.5 rounded-xl text-[11px] text-amber-900 leading-relaxed">
-                    🌌 <span className="font-bold">架空模式背景：</span>自定义剧本或留空由 AI 随机构思。
+                  <div className="bg-stone-50 border border-stone-100 p-2.5 rounded-xl text-[11px] text-stone-800 leading-relaxed">
+                    🌌 <span className="font-bold">线下剧情设定：</span>自定义剧本或留空由 AI 随机构思。
                   </div>
 
                   <div className="space-y-1">
@@ -1426,7 +1370,7 @@ ${onlineContextStr}
                         setIsolatedBackground(e.target.value);
                         saveAllConfig({ isolatedBackground: e.target.value });
                       }}
-                      className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-amber-600 resize-none"
+                      className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-stone-800 resize-none"
                     />
                   </div>
                 </div>
@@ -1436,7 +1380,7 @@ ${onlineContextStr}
               <button
                 type="button"
                 onClick={handleApplySetupWithConfirm}
-                className="w-full py-2.5 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 mt-2"
+                className="w-full py-2.5 bg-black hover:bg-stone-800 text-white font-bold text-xs rounded-[8px] shadow-sm transition-all cursor-pointer flex items-center justify-center gap-1.5 mt-2"
               >
                 <Wand2 className="w-3.5 h-3.5" />
                 <span>应用新设定并创建新见面</span>
@@ -1448,7 +1392,7 @@ ${onlineContextStr}
           <div className="bg-white/80 rounded-2xl p-4 shadow-xs border border-black/5 space-y-3">
             <div className="flex items-center justify-between border-b border-black/5 pb-2">
               <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-purple-700" />
+                <Clock className="w-4 h-4 text-stone-800" />
                 <h3 className="font-bold text-xs text-stone-800">板块三：历史见面记录</h3>
               </div>
               {messages.length > 0 && (
@@ -1458,7 +1402,7 @@ ${onlineContextStr}
                     archiveCurrentSession(messages, meetMode);
                     alert("当前见面会话已存档入历史记录！");
                   }}
-                  className="text-[11px] text-purple-700 hover:text-purple-900 font-medium cursor-pointer"
+                  className="text-[11px] text-stone-800 hover:underline font-medium cursor-pointer"
                 >
                   + 存档当前会话
                 </button>
@@ -1484,7 +1428,7 @@ ${onlineContextStr}
                   return (
                     <div
                       key={rec.id}
-                      className="p-3 bg-white rounded-xl border border-stone-200 hover:border-purple-300 transition-all flex items-start justify-between gap-2 text-left"
+                      className="p-3 bg-white rounded-xl border border-stone-200 hover:border-stone-400 transition-all flex items-start justify-between gap-2 text-left"
                     >
                       <div
                         onClick={() => {
@@ -1496,13 +1440,9 @@ ${onlineContextStr}
                         <div className="flex items-center gap-2 text-[11px] font-bold text-stone-800">
                           <span>{dateStr}</span>
                           <span
-                            className={`px-1.5 py-0.5 rounded text-[10px] ${
-                              rec.meetMode === "shared"
-                                ? "bg-purple-100 text-purple-800"
-                                : "bg-amber-100 text-amber-800"
-                            }`}
+                            className="px-1.5 py-0.5 rounded text-[10px] bg-stone-100 text-stone-800 font-bold"
                           >
-                            {rec.meetMode === "shared" ? "互通模式" : "架空模式"}
+                            互通模式
                           </span>
                           <span className="text-stone-400 font-normal">
                             {rec.totalTurns} 轮
@@ -1520,7 +1460,7 @@ ${onlineContextStr}
                             setReplayingRecord(rec);
                             setViewMode("history_replay");
                           }}
-                          className="p-1 text-purple-700 hover:bg-purple-50 rounded cursor-pointer"
+                          className="p-1 text-stone-800 hover:bg-stone-100 rounded cursor-pointer"
                           title="查看回放"
                         >
                           <Play className="w-3.5 h-3.5" />
@@ -1534,7 +1474,7 @@ ${onlineContextStr}
                               localStorage.setItem(historyKey, JSON.stringify(updated));
                             }
                           }}
-                          className="p-1 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                          className="p-1 text-stone-400 hover:text-black hover:bg-stone-100 rounded cursor-pointer"
                           title="删除记录"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -1553,7 +1493,7 @@ ${onlineContextStr}
           <div className="p-3 bg-stone-100 border border-stone-200 rounded-2xl text-xs space-y-1 text-stone-700">
             <div className="flex items-center justify-between font-bold">
               <span>见面时间：{new Date(replayingRecord.timestamp).toLocaleString()}</span>
-              <span className="px-2 py-0.5 bg-purple-200 text-purple-900 rounded text-[10px]">
+              <span className="px-2 py-0.5 bg-stone-100 text-stone-800 rounded text-[10px] font-bold">
                 {replayingRecord.meetMode === "shared" ? "互通模式" : "架空模式"}
               </span>
             </div>
@@ -1595,8 +1535,8 @@ ${onlineContextStr}
           {/* Story Content Area */}
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto px-5 py-3 space-y-[12px] transition-colors duration-200"
-            style={{ backgroundColor: currentTheme.bg }}
+            className="flex-1 overflow-y-auto px-4 py-4 space-y-0 transition-colors duration-200"
+            style={{ backgroundColor: '#F8F6F3' }}
           >
             {messages.map((msg) => (
               <React.Fragment key={msg.id}>{renderStoryContent(msg)}</React.Fragment>
@@ -1617,18 +1557,18 @@ ${onlineContextStr}
             )}
 
             {apiError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl text-center">
+              <div className="p-3 bg-stone-50 border border-stone-200 text-stone-800 text-xs rounded-[8px] text-center">
                 {apiError}
               </div>
             )}
           </div>
 
           {/* Bottom Input Box Area */}
-          <div className="p-3 border-none shadow-none shrink-0" style={{ backgroundColor: currentTheme.bg }}>
-            <form onSubmit={handleUserSend} className="flex items-center gap-2">
+          <div className="p-4 border-t border-[#EFECE8] shrink-0" style={{ backgroundColor: '#F8F6F3' }}>
+            <form onSubmit={handleUserSend} className="flex items-center gap-3">
               <input
                 type="text"
-                style={{ fontFamily: KAITI_FONT, color: currentTheme.text, backgroundColor: currentTheme.cardBg }}
+                style={{ fontFamily: '"Inter", sans-serif', color: '#1A1A1A', backgroundColor: '#FFFFFF' }}
                 placeholder={
                   messages.length === 0
                     ? "开场生成后即可输入..."
@@ -1637,18 +1577,18 @@ ${onlineContextStr}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 disabled={isGenerating || messages.length === 0}
-                className="flex-1 h-[44px] border border-black/10 rounded-[12px] px-[14px] py-[10px] text-[14px] placeholder-[#99948E] outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 h-[44px] border border-[#EFECE8] rounded-[8px] px-[14px] py-[10px] text-[14px] placeholder-[#A8A39A] outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:border-[#1A1A1A]"
               />
 
-              <div className="flex items-center gap-[6px] shrink-0">
+              <div className="flex items-center gap-[8px] shrink-0">
                 {/* 发送按钮 (纸飞机图标) */}
                 <button
                   type="submit"
                   disabled={isGenerating || messages.length === 0 || !inputText.trim()}
-                  className="w-[36px] h-[36px] rounded-full bg-[#1A1A1A] hover:bg-black text-white flex items-center justify-center transition-all active:scale-95 cursor-pointer disabled:bg-[#E5E2DC] disabled:text-[#99948E] disabled:cursor-not-allowed disabled:transform-none"
+                  className="px-4 h-[40px] rounded-[8px] bg-[#1A1A1A] hover:bg-black text-white flex items-center justify-center transition-all active:scale-95 cursor-pointer disabled:bg-[#E5E2DC] disabled:text-[#A8A39A] disabled:cursor-not-allowed disabled:transform-none font-bold text-xs"
                   title="发送消息"
                 >
-                  <Send className="w-4 h-4 text-white" />
+                  发送
                 </button>
 
                 {/* AI推进按钮 (✨图标) */}
@@ -1656,13 +1596,13 @@ ${onlineContextStr}
                   type="button"
                   onClick={handleContinueStory}
                   disabled={isGenerating || messages.length === 0}
-                  className="w-[36px] h-[36px] rounded-full bg-[#1A1A1A] hover:bg-black text-white flex items-center justify-center transition-all active:scale-95 cursor-pointer disabled:bg-[#E5E2DC] disabled:text-[#99948E] disabled:cursor-not-allowed disabled:transform-none"
+                  className="w-[40px] h-[40px] rounded-[8px] border border-[#1A1A1A] bg-white hover:bg-neutral-50 text-[#1A1A1A] flex items-center justify-center transition-all active:scale-95 cursor-pointer disabled:bg-white disabled:border-[#E5E2DC] disabled:text-[#A8A39A] disabled:cursor-not-allowed disabled:transform-none"
                   title={isGenerating ? "AI 正在生成中..." : "AI 推进剧情"}
                 >
                   {isGenerating ? (
-                    <Sparkles className="w-4 h-4 text-[#99948E] animate-spin" />
+                    <Sparkles className="w-4 h-4 text-[#A8A39A] animate-spin" />
                   ) : (
-                    <Sparkles className="w-4 h-4 text-white" />
+                    <Sparkles className="w-4 h-4 text-[#1A1A1A]" />
                   )}
                 </button>
               </div>
@@ -1708,7 +1648,7 @@ ${onlineContextStr}
                   }}
                   className="w-full flex items-center gap-3 p-3 text-xs font-bold text-stone-700 hover:bg-stone-50 rounded-2xl transition-all text-left cursor-pointer"
                 >
-                  <Pencil className="w-4 h-4 text-purple-600" />
+                  <Pencil className="w-4 h-4 text-stone-800" />
                   <span>编辑本条描写</span>
                 </button>
 
@@ -1718,7 +1658,7 @@ ${onlineContextStr}
                   onClick={() => handleCopyMsg(selectedMsgForMenu.content)}
                   className="w-full flex items-center gap-3 p-3 text-xs font-bold text-stone-700 hover:bg-stone-50 rounded-2xl transition-all text-left cursor-pointer"
                 >
-                  <Copy className="w-4 h-4 text-blue-600" />
+                  <Copy className="w-4 h-4 text-stone-800" />
                   <span>复制内容</span>
                 </button>
 
@@ -1726,9 +1666,9 @@ ${onlineContextStr}
                 <button
                   type="button"
                   onClick={() => handleDeleteMsg(selectedMsgForMenu.id)}
-                  className="w-full flex items-center gap-3 p-3 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-2xl transition-all text-left cursor-pointer"
+                  className="w-full flex items-center gap-3 p-3 text-xs font-bold text-stone-800 hover:bg-stone-50 rounded-2xl transition-all text-left cursor-pointer"
                 >
-                  <Trash2 className="w-4 h-4 text-rose-600" />
+                  <Trash2 className="w-4 h-4 text-stone-600" />
                   <span>删除本条描写</span>
                 </button>
               </div>
@@ -1742,9 +1682,9 @@ ${onlineContextStr}
                     setSelectedMsgForMenu(null);
                     handleRerollMessage(msgId);
                   }}
-                  className="w-full flex items-center gap-3 p-3 text-xs font-bold text-purple-800 hover:bg-purple-50 rounded-2xl transition-all text-left cursor-pointer"
+                  className="w-full flex items-center gap-3 p-3 text-xs font-bold text-stone-800 hover:bg-stone-50 rounded-2xl transition-all text-left cursor-pointer"
                 >
-                  <RefreshCw className="w-4 h-4 text-purple-600" />
+                  <RefreshCw className="w-4 h-4 text-stone-800" />
                   <div>
                     <div>重roll（重新生成本段描写）</div>
                     <div className="text-[10px] font-normal text-stone-400">
@@ -1764,7 +1704,7 @@ ${onlineContextStr}
           <div className="bg-white border border-stone-200 rounded-3xl p-5 w-full max-w-sm shadow-2xl space-y-3  text-stone-800">
             <div className="flex items-center justify-between pb-2 border-b border-stone-100">
               <span className="font-bold text-sm text-stone-800 flex items-center gap-1.5">
-                <Pencil className="w-4 h-4 text-purple-600" />
+                <Pencil className="w-4 h-4 text-stone-800" />
                 编辑你的描写与表达
               </span>
               <button
@@ -1780,7 +1720,7 @@ ${onlineContextStr}
               rows={4}
               value={editingMsg.content}
               onChange={(e) => setEditingMsg({ ...editingMsg, content: e.target.value })}
-              className="w-full text-xs border border-stone-200 rounded-2xl p-3 bg-stone-50 outline-none focus:border-purple-600 resize-none "
+              className="w-full text-xs border border-stone-200 rounded-2xl p-3 bg-stone-50 outline-none focus:border-stone-800 resize-none "
             />
 
             <div className="flex items-center gap-2 pt-1">
@@ -1794,7 +1734,7 @@ ${onlineContextStr}
               <button
                 type="button"
                 onClick={handleSaveEdit}
-                className="flex-1 py-2.5 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl cursor-pointer"
+                className="flex-1 py-2.5 bg-black hover:bg-stone-900 text-white font-bold text-xs rounded-xl cursor-pointer"
               >
                 保存修改
               </button>
@@ -1810,7 +1750,7 @@ ${onlineContextStr}
             {/* Header */}
             <div className="flex items-center justify-between pb-2 border-b border-[#EFECE5]">
               <div className="flex items-center gap-2">
-                <Compass className="w-5 h-5 text-purple-700" />
+                <Compass className="w-5 h-5 text-stone-800" />
                 <h3 className="font-bold text-base">线下见面 · 开场设定</h3>
               </div>
               {messages.length > 0 && (
@@ -1824,54 +1764,25 @@ ${onlineContextStr}
               )}
             </div>
 
-            {/* 1. 模式选择 */}
+            {/* 1. 模式选择 (Simplified, only Shared Mode) */}
             <div className="space-y-2">
               <label className="text-xs font-bold text-stone-800 block">
-                1. 模式选择
+                1. 剧情模式 (默认互通模式)
               </label>
 
-              <div className="grid grid-cols-2 gap-2">
-                {/* 互通模式 */}
-                <div
-                  onClick={() => setMeetMode("shared")}
-                  className={`p-3 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between gap-1.5 ${
-                    meetMode === "shared"
-                      ? "bg-purple-50/90 border-purple-500 ring-2 ring-purple-600/20"
-                      : "bg-white border-stone-200 hover:border-stone-300"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
-                      <Link2 className="w-3.5 h-3.5 text-purple-700" />
-                      🔗 互通模式
-                    </span>
-                    {meetMode === "shared" && <Check className="w-3.5 h-3.5 text-purple-700" />}
-                  </div>
-                  <p className="text-[10.5px] text-stone-500 leading-tight">
-                    读取线上聊天历史作为记忆，线下剧情将同步至线上聊天。
-                  </p>
+              <div
+                className="p-3 rounded-2xl border bg-stone-50 border-stone-200 flex flex-col justify-between gap-1.5"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
+                    <Link2 className="w-3.5 h-3.5 text-stone-800" />
+                    🔗 互通模式
+                  </span>
+                  <Check className="w-3.5 h-3.5 text-stone-800" />
                 </div>
-
-                {/* 架空模式 */}
-                <div
-                  onClick={() => setMeetMode("isolated")}
-                  className={`p-3 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between gap-1.5 ${
-                    meetMode === "isolated"
-                      ? "bg-amber-50/90 border-amber-500 ring-2 ring-amber-600/20"
-                      : "bg-white border-stone-200 hover:border-stone-300"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
-                      <Unlink className="w-3.5 h-3.5 text-amber-700" />
-                      🌌 架空模式
-                    </span>
-                    {meetMode === "isolated" && <Check className="w-3.5 h-3.5 text-amber-700" />}
-                  </div>
-                  <p className="text-[10.5px] text-stone-500 leading-tight">
-                    平行时空小剧场。不读取也不同步线上历史，完全独立。
-                  </p>
-                </div>
+                <p className="text-[10.5px] text-stone-500 leading-tight">
+                  系统将读取线上聊天历史作为记忆，线下演绎的剧情也将同步至线上聊天记录中。
+                </p>
               </div>
             </div>
 
@@ -1879,7 +1790,7 @@ ${onlineContextStr}
             <div className="space-y-1.5 pt-1">
               <div className="flex items-center justify-between text-xs font-bold text-stone-800">
                 <span>2. 生成字数限制</span>
-                <span className="text-purple-700 font-mono font-bold">{wordLimit} 字/轮</span>
+                <span className="text-stone-800 font-mono font-bold">{wordLimit} 字/轮</span>
               </div>
               <input
                 type="range"
@@ -1888,7 +1799,7 @@ ${onlineContextStr}
                 step={50}
                 value={wordLimit}
                 onChange={(e) => setWordLimit(Number(e.target.value))}
-                className="w-full accent-purple-700 cursor-pointer"
+                className="w-full accent-black cursor-pointer"
               />
               <div className="flex items-center gap-1">
                 {[300, 600, 1000, 1500].map((w) => (
@@ -1898,7 +1809,7 @@ ${onlineContextStr}
                     onClick={() => setWordLimit(w)}
                     className={`flex-1 py-1 text-[11px] rounded-lg font-medium border transition-all cursor-pointer ${
                       wordLimit === w
-                        ? "bg-purple-700 text-white border-purple-700 font-bold"
+                        ? "bg-black text-white border-black font-bold"
                         : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
                     }`}
                   >
@@ -1913,7 +1824,7 @@ ${onlineContextStr}
               {meetMode === "shared" ? (
                 /* 互通模式开场设定 */
                 <div className="space-y-3">
-                  <div className="bg-purple-50/70 border border-purple-100 p-2.5 rounded-2xl text-[11px] text-purple-900 leading-relaxed">
+                  <div className="bg-stone-50 border border-stone-100 p-2.5 rounded-2xl text-[11px] text-stone-800 leading-relaxed">
                     💡 <span className="font-bold">开场设定为可选（非必填）。</span>若留空直接点击“开始见面”，系统将自动结合线上聊天记录和角色人设，推断出最自然的见面场景。
                   </div>
 
@@ -1928,7 +1839,7 @@ ${onlineContextStr}
                       placeholder="例：某个周末的下午 / 大雨刚停的傍晚"
                       value={timeSetting}
                       onChange={(e) => setTimeSetting(e.target.value)}
-                      className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-purple-600"
+                      className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-black"
                     />
                     <div className="flex flex-wrap gap-1 pt-0.5">
                       {["某个周末下午", "周五下班后", "大雨刚停的傍晚"].map((tag) => (
@@ -1955,7 +1866,7 @@ ${onlineContextStr}
                       placeholder="例：街角那家旧书店 / 公园湖边的长椅"
                       value={locationSetting}
                       onChange={(e) => setLocationSetting(e.target.value)}
-                      className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-purple-600"
+                      className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-black"
                     />
                     <div className="flex flex-wrap gap-1 pt-0.5">
                       {["街角旧书店", "公园湖边长椅", "便利店门口"].map((tag) => (
@@ -1982,7 +1893,7 @@ ${onlineContextStr}
                       placeholder="例：约好了散步 / 很久没见约着聊聊"
                       value={reasonSetting}
                       onChange={(e) => setReasonSetting(e.target.value)}
-                      className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-purple-600"
+                      className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-black"
                     />
                     <div className="flex flex-wrap gap-1 pt-0.5">
                       {["约好了散步", "很久没见聊聊", "有东西要给我"].map((tag) => (
@@ -2009,7 +1920,7 @@ ${onlineContextStr}
                       placeholder="例：安静的 / 有点尴尬的 / 久别重逢的"
                       value={atmosphereSetting}
                       onChange={(e) => setAtmosphereSetting(e.target.value)}
-                      className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-purple-600"
+                      className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-black"
                     />
                     <div className="flex flex-wrap gap-1 pt-0.5">
                       {["安静温情", "略带尴尬", "久别重逢"].map((tag) => (
@@ -2026,41 +1937,23 @@ ${onlineContextStr}
                   </div>
                 </div>
               ) : (
-                /* 架空模式开场设定 */
+                /* 架空模式开场设定 (Fallback, though UI option removed) */
                 <div className="space-y-2">
-                  <div className="bg-amber-50/70 border border-amber-100 p-2.5 rounded-2xl text-[11px] text-amber-900 leading-relaxed">
-                    🌌 <span className="font-bold">架空模式两种玩法：</span><br />
-                    1. 填写下方背景，AI 将按照你的剧本展开。<br />
-                    2. 留空直接开始，AI 将依据角色人设自主随机生成剧情走向。
+                  <div className="bg-stone-50 border border-stone-100 p-2.5 rounded-2xl text-[11px] text-stone-800 leading-relaxed">
+                    🌌 <span className="font-bold">线下见面设定：</span> AI 将按照你的剧本或背景描述展开剧情。
                   </div>
 
                   <div className="space-y-1">
                     <label className="text-xs font-bold text-stone-700 block">
-                      架空背景与场景描述 <span className="text-[10px] font-normal text-stone-400">（可选）</span>
+                      背景与场景描述 <span className="text-[10px] font-normal text-stone-400">（可选）</span>
                     </label>
                     <textarea
                       rows={3}
-                      placeholder="例如：穿越到古代，在医馆里遇到一个神秘剑客；或者在未来太空港雨夜酒馆..."
+                      placeholder="例如：某个周末下午，约好了在街角书店见面..."
                       value={isolatedBackground}
                       onChange={(e) => setIsolatedBackground(e.target.value)}
-                      className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-amber-600 resize-none"
+                      className="w-full text-xs border border-stone-200 rounded-xl p-2.5 bg-white outline-none focus:border-black resize-none"
                     />
-                    <div className="flex flex-wrap gap-1 pt-0.5">
-                      {[
-                        "穿越古代在医馆相遇",
-                        "未来太空港雨夜酒馆",
-                        "魔法学院旧图书禁书区",
-                      ].map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          onClick={() => setIsolatedBackground(tag)}
-                          className="text-[10px] bg-amber-100/60 hover:bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md cursor-pointer"
-                        >
-                          +{tag}
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 </div>
               )}
@@ -2071,7 +1964,7 @@ ${onlineContextStr}
               <button
                 type="button"
                 onClick={handleStartMeeting}
-                className="w-full py-3.5 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3.5 bg-black hover:bg-stone-800 text-white font-bold text-xs rounded-xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Wand2 className="w-4 h-4" />
                 <span>开始见面（生成开场描写）</span>

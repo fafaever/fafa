@@ -5,6 +5,7 @@ import { getDefaultAvatar } from "../lib/avatarUtils";
 import { Character, Message, LoreEntry, AppSettings, ChatSession, UserPersona, MomentPost, MomentComment, BoundNPC } from "../types";
 import ProfileView from "./ProfileView";
 import { OfflineMeetView } from "./OfflineMeetView";
+import { MeetSettingsModal } from "./MeetSettingsModal";
 
 import { CharacterAvatar } from "./CharacterAvatar";
 import { generateDefaultNpcsForCharacter } from "./CharacterCreatorApp";
@@ -1068,7 +1069,7 @@ export default function ChatApp({
   // Action panel & features states
   const [showActionPanel, setShowActionPanel] = useState(false);
   const [activeCall, setActiveCall] = useState<null | "voice" | "video">(null);
-  const [activeModal, setActiveModal] = useState<null | "transfer" | "location" | "redpacket" | "games">(null);
+  const [activeModal, setActiveModal] = useState<null | "transfer" | "location" | "redpacket" | "games" | "meet">(null);
   const [transferAmount, setTransferAmount] = useState("");
   const [transferNote, setTransferNote] = useState("");
   const [locationName, setLocationName] = useState("");
@@ -3526,23 +3527,28 @@ ${existingCommentsText || "暂无评论"}
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-white text-neutral-900 select-none animate-slide-up h-full min-h-0 relative overflow-hidden">
-      {settings?.chatWallpaper && (
+    <div className={`flex-1 flex flex-col text-neutral-900 select-none animate-slide-up h-full min-h-0 relative overflow-hidden ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-transparent' : 'bg-white'}`}>
+      {(currentChatWallpaper || settings?.chatWallpaper) && (
         <div 
-          className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none opacity-30" 
-          style={{ backgroundImage: `url(${settings.chatWallpaper})` }}
+          className="absolute inset-0 z-0 bg-cover bg-center pointer-events-none" 
+          style={{ 
+            backgroundImage: `url(${currentChatWallpaper || settings.chatWallpaper})`,
+          }}
         />
+      )}
+      {(currentChatWallpaper || settings?.chatWallpaper) && (
+        <div className="absolute inset-0 z-0 bg-white/10 backdrop-blur-[1px] pointer-events-none" />
       )}
       {/* -------------------- VIEW 1: MAIN TAB INTERFACE -------------------- */}
       {activeCharId === null && (
-        <div className="flex-1 flex flex-col min-h-0 bg-neutral-50">
+        <div className={`flex-1 flex flex-col min-h-0 ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-white/10 backdrop-blur-[2px]' : 'bg-neutral-50'}`}>
           
           {/* Tab Pages rendering */}
           <div className="flex-1 flex flex-col min-h-0 relative">
             
             {/* Tab 1: 聊天 (Dialogue Sessions) */}
             {mainTab === "chat" && (
-              <div className="flex-1 flex flex-col min-h-0 bg-neutral-50 animate-fade-in">
+              <div className={`flex-1 flex flex-col min-h-0 animate-fade-in ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-transparent' : 'bg-neutral-50'}`}>
                 {/* Header */}
                 <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-neutral-100 shrink-0">
                   <button 
@@ -5329,18 +5335,10 @@ ${existingCommentsText || "暂无评论"}
                             (m) => m.role === "system" && m.content.startsWith("[OFFLINE_MEET_SESSION]") && m.content.includes("status=active")
                           );
                           if (hasActiveMeet) {
-                            alert("当前已有正在进行的线下见面。");
-                            return;
+                            setShowOfflineMeet(true);
+                          } else {
+                            setActiveModal("meet");
                           }
-                          const msgId = `msg-${Date.now()}-system`;
-                          const sysMsg: Message = {
-                            id: msgId,
-                            role: "system",
-                            content: `[OFFLINE_MEET_SESSION]id=${msgId}|status=active`,
-                            timestamp: Date.now(),
-                          };
-                          onUpdateSessionMessages(activeCharId!, [...activeSession.messages, sysMsg]);
-                          setTimeout(scrollToBottom, 100);
                         }}
                         className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
                       >
@@ -5602,6 +5600,24 @@ ${existingCommentsText || "暂无评论"}
       )}
 
       {/* Modals for Transfer, Location, Red Packet, Games */}
+      {activeModal === "meet" && activeChar && (
+        <MeetSettingsModal 
+          onClose={() => setActiveModal(null)} 
+          onStartMeet={(plot) => {
+            setActiveModal(null);
+            const msgId = `msg-${Date.now()}-system`;
+            const sysMsg: Message = {
+              id: msgId,
+              role: "system",
+              content: `[OFFLINE_MEET_SESSION]id=${msgId}|status=active|plot=${plot}`,
+              timestamp: Date.now(),
+            };
+            onUpdateSessionMessages(activeCharId!, [...activeSession.messages, sysMsg]);
+            setTimeout(scrollToBottom, 100);
+          }}
+        />
+      )}
+
       {activeModal === "transfer" && activeChar && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
           <div className="bg-white rounded-2xl w-full max-w-xs p-5 space-y-4 shadow-2xl border border-neutral-100">
