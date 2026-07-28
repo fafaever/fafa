@@ -553,20 +553,48 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
 【待总结剧情内容】：
 ${sliceText}`;
 
-      const res = await apiChat({
-        messages: [{ role: "user", content: prompt }],
-        character: { id: "summarizer", name: "总结助手", description: "剧情卡片生成" },
-        settings: {
-          ...settings,
-          apiUrl: settings?.apiUrl || localStorage.getItem("apiUrl") || "",
-          apiKey: settings?.apiKey || localStorage.getItem("apiKey") || "",
-          model: settings?.model || localStorage.getItem("model") || "gemini-3.6-flash",
-          apiFormat: settings?.apiFormat || (localStorage.getItem("apiFormat") as any) || "openai"
+      const apiUrl = localStorage.getItem('apiUrl') || settings?.apiUrl || '';
+      const apiKey = localStorage.getItem('apiKey') || settings?.apiKey || '';
+      const model = localStorage.getItem('model') || 'gpt-3.5-turbo';
+      const temperature = parseFloat(localStorage.getItem('temperature') || String(settings?.temperature) || '0.5');
+
+      if (!apiUrl || !apiKey) {
+        showToast('请先在设置页配置 API');
+        return;
+      }
+
+      const cleanApiUrl = apiUrl.replace(/\/+$/, '');
+      let endpoint = cleanApiUrl;
+      if (endpoint.endsWith('/chat/completions')) {
+        // already complete
+      } else if (endpoint.endsWith('/v1')) {
+        endpoint = endpoint + '/chat/completions';
+      } else if (endpoint.includes('/v1/')) {
+        endpoint = endpoint + (endpoint.endsWith('/') ? '' : '/') + 'chat/completions';
+      } else {
+        endpoint = endpoint + '/v1/chat/completions';
+      }
+
+      const fetchRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
         },
-        temperature: 0.5
+        body: JSON.stringify({
+          model: model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: temperature,
+        }),
       });
 
-      const summaryText = res?.text?.trim() || "剧情摘要已生成。";
+      if (!fetchRes.ok) {
+        const errText = await fetchRes.text().catch(() => '');
+        throw new Error(`API 请求失败: ${fetchRes.status} ${errText}`);
+      }
+
+      const data = await fetchRes.json();
+      const summaryText = data.choices?.[0]?.message?.content?.trim() || "剧情摘要已生成。";
 
       const newCard: TheaterSummaryCard = {
         id: `summary-${Date.now()}`,
@@ -688,6 +716,7 @@ ${sliceText}`;
 
   // AI Generation Handler
   const handleGenerateTheater = async (customPrompt?: string, overrideList?: TheaterMessage[], forceStart = false) => {
+    console.log('🔴 小剧场生成函数被调用了！');
     if (!selectedChar) return;
     if (isGenerating && !forceStart) return;
 
@@ -813,37 +842,64 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
         }];
       }
 
-      const response = await apiChat({
-        messages: payloadMessages,
-        character: {
-          id: selectedChar.id,
-          name: selectedChar.name,
-          avatar: selectedChar.avatar || "",
-          description: selectedChar.description || "",
-          systemInstruction: systemInstruction,
-          model: selectedChar.model || "gemini-3.6-flash"
+      const apiUrl = localStorage.getItem('apiUrl') || settings?.apiUrl || '';
+      const apiKey = localStorage.getItem('apiKey') || settings?.apiKey || '';
+      const model = localStorage.getItem('model') || selectedChar.model || settings?.model || 'gpt-3.5-turbo';
+      const temperature = parseFloat(localStorage.getItem('temperature') || String(settings?.temperature) || '0.8');
+
+      if (!apiUrl || !apiKey) {
+        showToast('请先在设置页配置 API');
+        return;
+      }
+
+      const cleanApiUrl = apiUrl.replace(/\/+$/, '');
+      let endpoint = cleanApiUrl;
+      if (endpoint.endsWith('/chat/completions')) {
+        // already complete
+      } else if (endpoint.endsWith('/v1')) {
+        endpoint = endpoint + '/chat/completions';
+      } else if (endpoint.includes('/v1/')) {
+        endpoint = endpoint + (endpoint.endsWith('/') ? '' : '/') + 'chat/completions';
+      } else {
+        endpoint = endpoint + '/v1/chat/completions';
+      }
+
+      const fullMessages = [
+        ...(systemInstruction ? [{ role: 'system', content: systemInstruction }] : []),
+        ...payloadMessages.map((m: any) => ({
+          role: m.role === 'assistant' || m.role === 'model' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
+          content: m.content || ''
+        }))
+      ];
+
+      console.log('🔴 小剧场请求URL:', endpoint);
+      console.log('🔴 API Key 是否存在:', !!apiKey);
+
+      const fetchRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
         },
-        settings: {
-          ...settings,
-          apiUrl: settings?.apiUrl || localStorage.getItem("apiUrl") || "",
-          apiKey: settings?.apiKey || localStorage.getItem("apiKey") || "",
-          model: selectedChar?.model || settings?.model || localStorage.getItem("model") || "gemini-3.6-flash",
-          apiFormat: settings?.apiFormat || (localStorage.getItem("apiFormat") as any) || "openai"
-        },
-        matchedLore: (loreList || []).filter(l => mountedLoreIds.includes(l.id)),
-        chatMode: "offline",
-        replyLength: "long",
-        replyCount: 1,
-        mood: "沉浸",
-        memories: charMemories,
-        isGroup: false,
-        temperature: 0.8
+        body: JSON.stringify({
+          model: model,
+          messages: fullMessages,
+          temperature: temperature,
+        }),
       });
+
+      if (!fetchRes.ok) {
+        const errText = await fetchRes.text().catch(() => '');
+        throw new Error(`API 请求失败: ${fetchRes.status} ${errText}`);
+      }
+
+      const data = await fetchRes.json();
+      const reply = data.choices?.[0]?.message?.content || '';
 
       const aiMsg: TheaterMessage = {
         id: `ai-${Date.now()}`,
         role: "assistant",
-        content: response.text || "...",
+        content: reply || "...",
         timestamp: Date.now(),
       };
 
@@ -990,37 +1046,64 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
         }];
       }
 
-      const response = await apiChat({
-        messages: payloadMessages,
-        character: {
-          id: selectedChar.id,
-          name: selectedChar.name,
-          avatar: selectedChar.avatar || "",
-          description: selectedChar.description || "",
-          systemInstruction: systemInstruction,
-          model: selectedChar.model || "gemini-3.6-flash"
+      const apiUrl = localStorage.getItem('apiUrl') || settings?.apiUrl || '';
+      const apiKey = localStorage.getItem('apiKey') || settings?.apiKey || '';
+      const model = localStorage.getItem('model') || selectedChar.model || settings?.model || 'gpt-3.5-turbo';
+      const temperature = parseFloat(localStorage.getItem('temperature') || String(settings?.temperature) || '0.8');
+
+      if (!apiUrl || !apiKey) {
+        showToast('请先在设置页配置 API');
+        return;
+      }
+
+      const cleanApiUrl = apiUrl.replace(/\/+$/, '');
+      let endpoint = cleanApiUrl;
+      if (endpoint.endsWith('/chat/completions')) {
+        // already complete
+      } else if (endpoint.endsWith('/v1')) {
+        endpoint = endpoint + '/chat/completions';
+      } else if (endpoint.includes('/v1/')) {
+        endpoint = endpoint + (endpoint.endsWith('/') ? '' : '/') + 'chat/completions';
+      } else {
+        endpoint = endpoint + '/v1/chat/completions';
+      }
+
+      const fullMessages = [
+        ...(systemInstruction ? [{ role: 'system', content: systemInstruction }] : []),
+        ...payloadMessages.map((m: any) => ({
+          role: m.role === 'assistant' || m.role === 'model' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
+          content: m.content || ''
+        }))
+      ];
+
+      console.log('🔴 小剧场请求URL:', endpoint);
+      console.log('🔴 API Key 是否存在:', !!apiKey);
+
+      const fetchRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
         },
-        settings: {
-          ...settings,
-          apiUrl: settings?.apiUrl || localStorage.getItem("apiUrl") || "",
-          apiKey: settings?.apiKey || localStorage.getItem("apiKey") || "",
-          model: selectedChar?.model || settings?.model || localStorage.getItem("model") || "gemini-3.6-flash",
-          apiFormat: settings?.apiFormat || (localStorage.getItem("apiFormat") as any) || "openai"
-        },
-        matchedLore: (loreList || []).filter(l => mountedLoreIds.includes(l.id)),
-        chatMode: "offline",
-        replyLength: "long",
-        replyCount: 1,
-        mood: "沉浸",
-        memories: charMemories,
-        isGroup: false,
-        temperature: 0.8
+        body: JSON.stringify({
+          model: model,
+          messages: fullMessages,
+          temperature: temperature,
+        }),
       });
+
+      if (!fetchRes.ok) {
+        const errText = await fetchRes.text().catch(() => '');
+        throw new Error(`API 请求失败: ${fetchRes.status} ${errText}`);
+      }
+
+      const data = await fetchRes.json();
+      const reply = data.choices?.[0]?.message?.content || '';
 
       const newAiMsg: TheaterMessage = {
         id: `ai-${Date.now()}`,
         role: "assistant",
-        content: response.text || "...",
+        content: reply || "...",
         timestamp: Date.now(),
       };
 
@@ -1068,20 +1151,50 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
     }
     setIsGenerating(true);
     try {
-      const res = await apiChat({
-        messages: [{ role: "user", content: `基于关键词：“${keywords}”，请为你和角色的小剧场生成一段精致丰富的世界观设定与故故事背景。只输出设定正文，不带多余废话。` }],
-        character: { id: "generator", name: "生成器", description: "背景生成" },
-        settings: {
-          ...settings,
-          apiUrl: settings?.apiUrl || localStorage.getItem("apiUrl") || "",
-          apiKey: settings?.apiKey || localStorage.getItem("apiKey") || "",
-          model: settings?.model || localStorage.getItem("model") || "gemini-3.6-flash",
-          apiFormat: settings?.apiFormat || (localStorage.getItem("apiFormat") as any) || "openai"
+      const apiUrl = localStorage.getItem('apiUrl') || settings?.apiUrl || '';
+      const apiKey = localStorage.getItem('apiKey') || settings?.apiKey || '';
+      const model = localStorage.getItem('model') || 'gpt-3.5-turbo';
+      const temperature = parseFloat(localStorage.getItem('temperature') || String(settings?.temperature) || '0.7');
+
+      if (!apiUrl || !apiKey) {
+        showToast('请先在设置页配置 API');
+        return;
+      }
+
+      const cleanApiUrl = apiUrl.replace(/\/+$/, '');
+      let endpoint = cleanApiUrl;
+      if (endpoint.endsWith('/chat/completions')) {
+        // already complete
+      } else if (endpoint.endsWith('/v1')) {
+        endpoint = endpoint + '/chat/completions';
+      } else if (endpoint.includes('/v1/')) {
+        endpoint = endpoint + (endpoint.endsWith('/') ? '' : '/') + 'chat/completions';
+      } else {
+        endpoint = endpoint + '/v1/chat/completions';
+      }
+
+      const fetchRes = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
         },
-        temperature: 0.7
+        body: JSON.stringify({
+          model: model,
+          messages: [{ role: "user", content: `基于关键词：“${keywords}”，请为你和角色的小剧场生成一段精致丰富的世界观设定与故故事背景。只输出设定正文，不带多余废话。` }],
+          temperature: temperature,
+        }),
       });
-      if (res && res.text) {
-        setWorldSetting(res.text.trim());
+
+      if (!fetchRes.ok) {
+        const errText = await fetchRes.text().catch(() => '');
+        throw new Error(`API 请求失败: ${fetchRes.status} ${errText}`);
+      }
+
+      const data = await fetchRes.json();
+      const reply = data.choices?.[0]?.message?.content || '';
+      if (reply) {
+        setWorldSetting(reply.trim());
         showToast("已自动生成世界设定");
       }
     } catch(e: any) { 

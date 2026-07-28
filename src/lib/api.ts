@@ -413,9 +413,21 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
   }
 
   const cleanApiUrl = config.apiUrl.replace(/\/+$/, '');
-  const endpoint = cleanApiUrl + '/chat/completions';
+  let endpoint = cleanApiUrl;
+  if (endpoint.endsWith('/chat/completions')) {
+    // already complete
+  } else if (endpoint.endsWith('/v1')) {
+    endpoint = endpoint + '/chat/completions';
+  } else if (endpoint.includes('/v1/')) {
+    endpoint = endpoint + (endpoint.endsWith('/') ? '' : '/') + 'chat/completions';
+  } else {
+    endpoint = endpoint + '/v1/chat/completions';
+  }
   
-  console.log("[callLLM] Requesting URL:", endpoint);
+  console.log("================ [callLLM Request] ================");
+  console.log("[callLLM] Full Request URL:", endpoint);
+  console.log("[callLLM] Model:", config.model || 'gpt-3.5-turbo');
+  console.log("==================================================");
 
   const formattedMessages = messages.map((m: any) => ({
     role: m.role === 'assistant' || m.role === 'model' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
@@ -428,28 +440,52 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
     temperature: temperature,
   };
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`API 请求失败 (${response.status}): ${errorText}`);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (err: any) {
+    throw new Error(`网络连接失败 (Failed to fetch): ${err?.message || "请检查网络或 API 地址"}`);
   }
 
-  const data = await response.json();
+  if (!response || !response.ok) {
+    let errorText = "";
+    try {
+      if (response) errorText = await response.text();
+    } catch (e) {}
+    let parsedErr = errorText;
+    try {
+      const json = JSON.parse(errorText);
+      parsedErr = json.error?.message || json.message || json.error || errorText;
+    } catch (e) {}
+    throw new Error(`API 请求失败 (${response?.status || 500}): ${parsedErr || "未知错误"}`);
+  }
+
+  const responseText = await response.text();
+  if (responseText.trim().startsWith("<") || responseText.trim().startsWith("<!DOCTYPE")) {
+    throw new Error("API 地址返回了 HTML 页面（可能是 404 或代理错误），请检查 API 地址是否正确。");
+  }
+
+  let data;
+  try {
+    data = JSON.parse(responseText);
+  } catch (e) {
+    throw new Error(`API 返回了非 JSON 格式数据: ${responseText.substring(0, 100)}`);
+  }
+
   if (data.choices && data.choices.length > 0) {
     return data.choices[0].message.content;
   }
   if (data.candidates && data.candidates.length > 0) {
     return data.candidates[0].content.parts[0].text;
   }
-  throw new Error('无法解析 API 响应');
+  throw new Error(`无法解析 API 响应: ${JSON.stringify(data)}`);
 }
 
 function parseCharacterInstruction(name: string, systemInstruction: string, description: string) {
@@ -776,6 +812,66 @@ export async function apiChat(params: any) {
     description: "通用AI助手",
     systemInstruction: params.systemInstruction || "你是一个友好的AI助手。"
   };
+
+  const isInitialMessage = !messages || messages.length === 0;
+
+  const currentTime = Date.now();
+  let timeGapInstruction = "";
+  if (messages && messages.length > 0) {
+    const lastMsg = messages[messages.length - 1];
+    const lastTime = lastMsg.timestamp || currentTime;
+    const diffMs = currentTime - lastTime;
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = diffMs / (1000 * 60 * 60);
+
+    const currentDateObj = new Date(currentTime);
+    const lastDateObj = new Date(lastTime);
+    const isCrossDay = currentDateObj.toDateString() !== lastDateObj.toDateString() || diffHours > 12;
+
+    let gapGuidance = "";
+    if (diffMinutes >= 5 && diffMinutes < 30) {
+      gapGuidance = "用户隔了 5 到 30 分钟才回复（例如：这么久才回，在忙吗？）。";
+    } else if (diffHours >= 1 && diffHours < 6) {
+      gapGuidance = "用户隔了 1 到 6 小时才回复（例如：一下午没动静，忙完了？）。";
+    } else if (diffHours >= 6 && diffHours < 12) {
+      gapGuidance = "用户隔了 6 到 12 小时才回复（例如：你消失了大半天。）。";
+    } else if (diffHours >= 12 && diffHours < 24) {
+      gapGuidance = "用户隔了 12 到 24 小时 / 跨日（例如：昨天说到一半人就不见了 / 昨天你说……）。";
+    } else if (diffHours >= 24) {
+      gapGuidance = `用户隔了 ${Math.floor(diffHours)} 小时（超过一天未回复，例如：你昨天消失之后就没消息了 / 好久不见）。`;
+    }
+
+    if (gapGuidance || isCrossDay) {
+      timeGapInstruction = `
+--- 【时间感知与回复间隔认知（跨日与等待时间）】 ---
+- 当前最新系统时间：${currentDateObj.toLocaleString()}。
+- 上一条消息的时间：${lastDateObj.toLocaleString()}。
+- 距离上一条消息已过去：约 ${diffHours >= 1 ? `${diffHours.toFixed(1)} 小时` : `${diffMinutes} 分钟`}。
+- 跨日状态：${isCrossDay ? "已跨日（超过12小时或不同自然日）" : "同一天内"}。
+- 间隔指引：${gapGuidance || "跨日或间隔较久未回复。"}
+- 【人设化自然体现要求】：角色应根据自身人设（活泼、高冷、温柔等），在回复中自然流露出对这段等待时间或跨日的感知（如：活泼角色更直接夸张、高冷角色简短带过不追问、温柔角色关心体贴），绝对不能使用生硬机械的固定模板！
+`;
+    }
+  }
+
+  const proactiveRuleInstruction = isInitialMessage ? `
+--- 【聊天记录为 0 时角色主动发起消息规则（首次开场白）】 ---
+- 当聊天记录为空（用户尚未发送任何消息）且用户点击 AI 生成回复按钮时，角色仍可主动发起消息。
+- 首次消息基于以下核心数据生成：
+  1. 角色人设（性格、说话风格、表达习惯）
+  2. 角色介绍与背景设定
+  3. 世界书/Lore 上下文（如已挂载）
+  4. 绑定的用户人设与社交关系网（若有）
+- 首次消息可以是打招呼、自我介绍、开启话题等自然开场白，必须完全符合角色人设。
+` : `
+--- 【角色主动发起消息规则】 ---
+- 当用户点击 AI 生成回复按钮时，角色主动发起的消息可以：
+  · 延续刚才的话题，自然接续对话
+  · 开启新话题，分享自己的想法
+  · 询问用户状态或感受
+- 【优先级规则】：优先延续当前对话上下文，如果当前话题已自然结束，再开启新话题。
+- 所有主动消息基于角色人设、记忆和上下文生成，自然流畅。
+`;
 
   const minReplies = settings?.groupChatMinReplies || 1;
   const maxReplies = settings?.groupChatMaxReplies || 6;
@@ -1238,6 +1334,10 @@ ${characterCognitionAndResponseInstruction}
 
 ${emojiAndKaomojiInstruction}
 
+${proactiveRuleInstruction}
+
+${timeGapInstruction}
+
 ${matchedLore && matchedLore.length > 0 ? `
 --- WORLD BOOK / LORE CONTEXT ---
 The following lore is active for this conversation because relevant keywords were mentioned:
@@ -1293,6 +1393,21 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
         return { role, content };
       })
     ];
+
+    if (isInitialMessage) {
+      formattedMessages.push({
+        role: "user",
+        content: "（系统指令：当前聊天记录为空，用户点击了 AI 生成回复按钮。请你作为角色主动发起第一条符合人设的消息或开场白，基于你的人设、背景设定及已挂载的世界书自然开场）"
+      });
+    } else {
+      const lastM = messages && messages.length > 0 ? messages[messages.length - 1] : null;
+      if (userDidNotReply || (lastM && lastM.role === "assistant")) {
+        formattedMessages.push({
+          role: "user",
+          content: "（系统指令：用户点击了 AI 生成回复按钮。请你作为角色主动发起消息：优先延续当前对话上下文；若话题已自然结束，可开启新话题分享想法、生活或询问用户状态/感受）"
+        });
+      }
+    }
     
     // 在这里使用 formattedMessages 和 customModel 调用 LLM
     // 假设 callLLM 函数内部已经处理了 OpenAI 格式转换，这里只需把 messages 传过去
@@ -1504,21 +1619,21 @@ export async function apiFetchModels(params: any = {}) {
   }
 
   let response: Response;
-  try {
-    // POST to our backend proxy to avoid CORS on mobile
-    response = await fetch("/api/models", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        apiUrl: config.apiUrl,
-        apiKey: config.apiKey
-      })
-    });
-  } catch (err: any) {
-    console.error("================ [FETCH MODELS ERROR] ================");
-    console.error("[Fetch Error]:", err);
-    throw new Error(`网络错误: 获取模型列表失败 (${err?.message || "Failed to fetch"})`);
-  }
+try {
+  // 直连中转站的 /models 接口
+  const modelsUrl = config.apiUrl.replace(/\/+$/, '') + '/models';
+  response = await fetch(modelsUrl, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+  });
+} catch (err: any) {
+  console.error("============== [FETCH MODELS ERROR] ================");
+  console.error("[Fetch Error]:", err);
+  throw new Error("网络错误：获取模型列表失败（" + (err?.message || "Failed to fetch") + "）");
+}
 
   if (!response.ok) {
     let errText = "";

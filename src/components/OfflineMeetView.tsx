@@ -142,6 +142,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [isInputZoomed, setIsInputZoomed] = useState<boolean>(false);
 
   // View Mode: 'chat' | 'settings_view' | 'history_replay'
   const [viewMode, setViewMode] = useState<"chat" | "settings_view" | "history_replay">("chat");
@@ -889,6 +890,83 @@ ${onlineContextStr}
     }
   };
 
+  const handleRerollAssistant = async (msgId: string) => {
+    if (isGenerating) return;
+    const idx = messages.findIndex((m) => m.id === msgId);
+    if (idx === -1) return;
+    const priorMessages = messages.slice(0, idx);
+    saveStory(priorMessages);
+
+    setIsGenerating(true);
+    setApiError(null);
+    try {
+      let systemInstruction = `
+--- 线下见面（Offline Meet）剧情演绎规则 ---
+- 你正在与用户进行面对面的沉浸式剧情互动（线下见面模式）。
+- 写作风格：${writingTone === 'literary' ? '细腻文学风，注重环境烘托与心理描写。' : writingTone === 'cold_restrained' ? '冷淡克制风，用词少，情绪收着。' : writingTone === 'warm_soft' ? '温暖柔和风，语气软，细节暖。' : '日常自然风。'}
+- 视角：${perspective === 'first' ? '第一视角（我）。' : perspective === 'third' ? '第三视角（他/她/名字）。' : '第二视角（你）。'}
+- 目标字数限制：请输出约 ${wordLimit} 字左右的细腻剧情与互动描写。
+`;
+
+      if (meetMode === "isolated") {
+        systemInstruction += `\n- 架空剧情背景设定：${isolatedBackground || "无特定背景，自由发挥"}`;
+      } else {
+        systemInstruction += `\n- 共享模式开场情境：时间「${timeSetting || "未知"}」，地点「${locationSetting || "未知"}」，缘由「${reasonSetting || "未知"}」，氛围「${atmosphereSetting || "未知"}」。`;
+      }
+
+      if (customToneKeywords.trim()) {
+        systemInstruction += `\n- 自定义文风/词汇要求：${customToneKeywords}`;
+      }
+
+      const formattedHistory = priorMessages.map((m) => {
+        const isQuoted = m.role === "user" && (m.content.startsWith("“") || m.content.startsWith("\""));
+        const typeLabel = isQuoted ? "用户说出的台词（角色可直接听到并回应）" : "用户的动作、神态或心理描写";
+        return {
+          id: m.id,
+          role: m.role as any,
+          content: m.role === "user" ? `[${typeLabel}]: ${m.content}` : m.content,
+          timestamp: m.timestamp,
+        };
+      });
+
+      const cleanCharacter = {
+        name: character.name,
+        description: character.description,
+        systemInstruction: character.systemInstruction + "\n" + systemInstruction,
+      };
+
+      const requestParams = {
+        character: cleanCharacter,
+        messages: formattedHistory,
+        settings,
+        chatMode: "offline" as const,
+        replyLength: "long",
+        replyCount: 1,
+      };
+
+      const response = await apiChat(requestParams);
+      const aiText = response.text || "（对方微笑着看着你，没有说话。）";
+      const aiMsg: OfflineStoryMessage = {
+        id: `ai-${Date.now()}`,
+        role: "assistant",
+        content: aiText,
+        timestamp: Date.now(),
+      };
+
+      const finalStoryList = [...priorMessages, aiMsg];
+      saveStory(finalStoryList);
+
+      if (meetMode === "shared" && onSyncToOnlineChat) {
+        onSyncToOnlineChat(aiText);
+      }
+    } catch (err: any) {
+      console.error("Offline meet AI reroll error:", err);
+      setApiError(err.message || "重新生成失败，请重试");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   // Send User Action / Dialogue (Appends message directly without auto-generating AI reply)
   const handleUserSend = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -964,6 +1042,9 @@ ${onlineContextStr}
       hour: "2-digit",
       minute: "2-digit",
     });
+    const d = new Date(timestamp);
+    const timeFormattedFull = `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}.${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    const wordCount = content.length;
 
     return (
       <div
@@ -987,6 +1068,42 @@ ${onlineContextStr}
           {rawParagraphs.map((para, pIdx) => (
             <p key={pIdx} className="whitespace-pre-wrap">{para}</p>
           ))}
+        </div>
+
+        {/* Card Action Bar */}
+        <div className="flex items-center justify-between pt-3 mt-3 border-t border-[#EFECE8] text-[11px] text-[#A8A39A]">
+          <div className="flex items-center gap-3">
+            <span>{timeFormattedFull}</span>
+            <span>共 {wordCount} 字</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {role === "assistant" && (
+              <button
+                type="button"
+                onClick={() => handleRerollAssistant(id)}
+                disabled={isGenerating}
+                className="flex items-center gap-1 hover:text-[#1A1A1A] transition-colors cursor-pointer disabled:opacity-50"
+                title="重新生成该段剧情"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>重roll</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm("确定要删除这条剧情卡片吗？")) {
+                  const updated = messages.filter((m) => m.id !== id);
+                  saveStory(updated);
+                }
+              }}
+              className="flex items-center gap-1 hover:text-red-600 transition-colors cursor-pointer"
+              title="删除卡片"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>删除</span>
+            </button>
+          </div>
         </div>
         
         <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1656,22 +1773,33 @@ ${onlineContextStr}
 
           {/* Bottom Input Box Area */}
           <div className="p-4 border-t border-[#EFECE8] shrink-0" style={{ backgroundColor: '#F8F6F3' }}>
-            <form onSubmit={handleUserSend} className="flex items-center gap-3">
-              <input
-                type="text"
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] text-[#A8A39A]">线下剧情互动与行动表达</span>
+              <button
+                type="button"
+                onClick={() => setIsInputZoomed(!isInputZoomed)}
+                className="text-[10px] flex items-center gap-1 text-[#A8A39A] hover:text-[#1A1A1A] bg-white border border-[#EFECE8] px-2 py-0.5 rounded shadow-2xs transition-all cursor-pointer"
+                title={isInputZoomed ? "恢复正常大小" : "放大输入框 (约4倍)"}
+              >
+                <span>{isInputZoomed ? "⤲ 恢复默认" : "⇱ 放大输入框"}</span>
+              </button>
+            </div>
+            <form onSubmit={handleUserSend} className="flex items-end gap-3">
+              <textarea
                 style={{ fontFamily: '"Inter", sans-serif', color: '#1A1A1A', backgroundColor: '#FFFFFF' }}
                 placeholder={
                   messages.length === 0
                     ? "开场生成后即可输入..."
-                    : "输入你的行动或表达..."
+                    : "输入你的行动或表达（加双引号为说出的台词，不加为动作或神态）..."
                 }
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 disabled={isGenerating || messages.length === 0}
-                className="flex-1 h-[44px] border border-[#EFECE8] rounded-[8px] px-[14px] py-[10px] text-[14px] placeholder-[#A8A39A] outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:border-[#1A1A1A]"
+                rows={isInputZoomed ? 6 : 2}
+                className={`flex-1 border border-[#EFECE8] rounded-[8px] px-[14px] py-[10px] text-[14px] placeholder-[#A8A39A] outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:border-[#1A1A1A] resize-none ${isInputZoomed ? 'h-[160px]' : 'h-[44px]'}`}
               />
 
-              <div className="flex items-center gap-[8px] shrink-0">
+              <div className="flex items-center gap-[8px] shrink-0 pb-0.5">
                 {/* 发送按钮 (纸飞机图标) */}
                 <button
                   type="submit"
@@ -1685,7 +1813,7 @@ ${onlineContextStr}
                 {/* AI推进按钮 (✨图标) */}
                 <button
                   type="button"
-                  onClick={handleContinueStory}
+                  onClick={() => handleContinueStory()}
                   disabled={isGenerating || messages.length === 0}
                   className="w-[40px] h-[40px] rounded-[8px] border border-[#1A1A1A] bg-white hover:bg-neutral-50 text-[#1A1A1A] flex items-center justify-center transition-all active:scale-95 cursor-pointer disabled:bg-white disabled:border-[#E5E2DC] disabled:text-[#A8A39A] disabled:cursor-not-allowed disabled:transform-none"
                   title={isGenerating ? "AI 正在生成中..." : "AI 推进剧情"}

@@ -5119,8 +5119,19 @@ ${existingCommentsText || "暂无评论"}
                     与 {activeChar.name} 的对话
                   </p>
                   <p className="text-xs text-neutral-400 max-w-xs mx-auto px-6 leading-relaxed">
-                    发送一条消息，开始沉浸式的对话吧。如果触发了“世界书”里的设定词，AI 会自动加载特定背景设定哦！
+                    发送一条消息，或点击下方按钮让角色主动发起第一条消息开场吧！
                   </p>
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => handleTriggerAiReply()}
+                      disabled={isGenerating}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-black hover:bg-neutral-800 disabled:bg-neutral-200 disabled:text-neutral-400 text-white text-xs font-medium rounded-full shadow-sm transition-all active:scale-95"
+                    >
+                      <Heart className="w-3.5 h-3.5 fill-white stroke-none" />
+                      让 {activeChar.name} 主动发起消息
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
