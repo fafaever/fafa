@@ -412,17 +412,7 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
     throw new Error("API 地址或 Key 未配置，请在设置中配置。");
   }
 
-  const cleanApiUrl = config.apiUrl.replace(/\/+$/, '');
-  let endpoint = cleanApiUrl;
-  if (endpoint.endsWith('/chat/completions')) {
-    // already complete
-  } else if (endpoint.endsWith('/v1')) {
-    endpoint = endpoint + '/chat/completions';
-  } else if (endpoint.includes('/v1/')) {
-    endpoint = endpoint + (endpoint.endsWith('/') ? '' : '/') + 'chat/completions';
-  } else {
-    endpoint = endpoint + '/v1/chat/completions';
-  }
+  const endpoint = config.apiUrl.replace(/\/+$/, '') + '/chat/completions';
   
   console.log("================ [callLLM Request] ================");
   console.log("[callLLM] Full Request URL:", endpoint);
@@ -442,21 +432,13 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
 
   let response: Response;
   try {
-    const forwarderUrl = `${window.location.origin}/api/chat-forwarder`;
-    response = await fetch(forwarderUrl, {
+    response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
       },
-      body: JSON.stringify({
-        url: endpoint,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${config.apiKey}`,
-        },
-        body: body,
-      }),
+      body: JSON.stringify(body),
     });
   } catch (err: any) {
     throw new Error(`网络连接失败 (Failed to fetch): ${err?.message || "请检查网络或 API 地址"}`);

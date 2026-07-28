@@ -575,24 +575,16 @@ ${sliceText}`;
         endpoint = endpoint + '/v1/chat/completions';
       }
 
-      const forwarderUrl = `${window.location.origin}/api/chat-forwarder`;
-      const fetchRes = await fetch(forwarderUrl, {
+      const fetchRes = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          url: endpoint,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          body: {
-            model: model,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: temperature,
-          },
+          model: model,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: temperature,
         }),
       });
 
@@ -883,24 +875,16 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       console.log('🔴 小剧场请求URL:', endpoint);
       console.log('🔴 API Key 是否存在:', !!apiKey);
 
-      const forwarderUrl = `${window.location.origin}/api/chat-forwarder`;
-      const fetchRes = await fetch(forwarderUrl, {
+      const fetchRes = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          url: endpoint,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          body: {
-            model: model,
-            messages: fullMessages,
-            temperature: temperature,
-          },
+          model: model,
+          messages: fullMessages,
+          temperature: temperature,
         }),
       });
 
@@ -1095,24 +1079,16 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       console.log('🔴 小剧场请求URL:', endpoint);
       console.log('🔴 API Key 是否存在:', !!apiKey);
 
-      const forwarderUrl = `${window.location.origin}/api/chat-forwarder`;
-      const fetchRes = await fetch(forwarderUrl, {
+      const fetchRes = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          url: endpoint,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          body: {
-            model: model,
-            messages: fullMessages,
-            temperature: temperature,
-          },
+          model: model,
+          messages: fullMessages,
+          temperature: temperature,
         }),
       });
 
@@ -1197,24 +1173,16 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
         endpoint = endpoint + '/v1/chat/completions';
       }
 
-      const forwarderUrl = `${window.location.origin}/api/chat-forwarder`;
-      const fetchRes = await fetch(forwarderUrl, {
+      const fetchRes = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          url: endpoint,
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-          },
-          body: {
-            model: model,
-            messages: [{ role: "user", content: `基于关键词：“${keywords}”，请为你和角色的小剧场生成一段精致丰富的世界观设定与故故事背景。只输出设定正文，不带多余废话。` }],
-            temperature: temperature,
-          },
+          model: model,
+          messages: [{ role: "user", content: `基于关键词：“${keywords}”，请为你和角色的小剧场生成一段精致丰富的世界观设定与故故事背景。只输出设定正文，不带多余废话。` }],
+          temperature: temperature,
         }),
       });
 
