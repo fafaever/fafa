@@ -28,6 +28,8 @@ import {
   Save,
   Plus,
   Menu,
+  User,
+  Users,
 } from "lucide-react";
 import { Character, AppSettings, Message } from "../types";
 import { apiChat } from "../lib/api";
@@ -111,17 +113,25 @@ export const THEME_STYLES: Record<VisualThemeType, {
   },
 };
 
+export interface OfflineMeetCardInfo {
+  time: string;
+  location: string;
+  memoryId: string;
+}
+
 interface OfflineMeetViewProps {
   character: Character;
+  allCharacters?: Character[];
   settings: AppSettings;
   onlineMessages?: Message[];
-  onSyncToOnlineChat?: (storySummary: string) => void;
+  onSyncToOnlineChat?: (storySummary: string, cardInfo?: OfflineMeetCardInfo) => void;
   onClose: () => void;
   forcedMode?: "shared" | "isolated";
 }
 
 export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   character,
+  allCharacters = [],
   settings,
   onlineMessages = [],
   onSyncToOnlineChat,
@@ -144,9 +154,13 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   // Core settings states
   const [wordLimit, setWordLimit] = useState<number>(600);
   const [meetMode, setMeetMode] = useState<MeetModeType>(forcedMode || "shared");
-  const [showSetupModal, setShowSetupModal] = useState<boolean>(false);
+  const [showSetupModal, setShowSetupModal] = useState<boolean>(true);
   const [showExitModal, setShowExitModal] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
+
+  // Plot Mode state ("single" | "multi") and selected multi character IDs
+  const [plotMode, setPlotMode] = useState<"single" | "multi">("single");
+  const [selectedMultiCharIds, setSelectedMultiCharIds] = useState<string[]>([]);
 
   // Customization & Style states
   const [activeTheme, setActiveTheme] = useState<VisualThemeType>("warm_grey");
@@ -177,6 +191,20 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   const configKey = `offline_config_${character.id}`;
   const historyKey = `offline_history_${character.id}`;
 
+  // Helper to filter characters associated with the active character
+  const getAssociatedCharacters = (): Character[] => {
+    if (!allCharacters || allCharacters.length === 0) return [];
+    return allCharacters.filter((c) => {
+      if (c.id === character.id) return false;
+      const isAssoc1 = character.associatedCharacterIds?.includes(c.id);
+      const isAssoc2 = c.associatedCharacterIds?.includes(character.id);
+      const hasRel1 = !!character.associatedRelations?.[c.id];
+      const hasRel2 = !!c.associatedRelations?.[character.id];
+      const isSub = c.parentCharacterId === character.id || character.parentCharacterId === c.id;
+      return isAssoc1 || isAssoc2 || hasRel1 || hasRel2 || isSub;
+    });
+  };
+
   // Load configuration & story history
   useEffect(() => {
     let hasLoadedStory = false;
@@ -188,6 +216,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
         const parsedCfg = JSON.parse(savedConfig);
         if (parsedCfg.wordLimit) setWordLimit(parsedCfg.wordLimit);
         if (parsedCfg.meetMode) setMeetMode(parsedCfg.meetMode);
+        if (parsedCfg.plotMode) setPlotMode(parsedCfg.plotMode);
+        if (Array.isArray(parsedCfg.selectedMultiCharIds)) setSelectedMultiCharIds(parsedCfg.selectedMultiCharIds);
         if (parsedCfg.timeSetting) setTimeSetting(parsedCfg.timeSetting);
         if (parsedCfg.locationSetting) setLocationSetting(parsedCfg.locationSetting);
         if (parsedCfg.reasonSetting) setReasonSetting(parsedCfg.reasonSetting);
@@ -256,6 +286,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   const saveAllConfig = (updated: Partial<{
     wordLimit: number;
     meetMode: MeetModeType;
+    plotMode: "single" | "multi";
+    selectedMultiCharIds: string[];
     timeSetting: string;
     locationSetting: string;
     reasonSetting: string;
@@ -270,6 +302,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   }>) => {
     const nextLimit = updated.wordLimit !== undefined ? updated.wordLimit : wordLimit;
     const nextMode = updated.meetMode !== undefined ? updated.meetMode : meetMode;
+    const nextPlot = updated.plotMode !== undefined ? updated.plotMode : plotMode;
+    const nextMultiChars = updated.selectedMultiCharIds !== undefined ? updated.selectedMultiCharIds : selectedMultiCharIds;
     const nextTheme = updated.theme !== undefined ? updated.theme : activeTheme;
     const nextPerspective = updated.perspective !== undefined ? updated.perspective : perspective;
     const nextTone = updated.writingTone !== undefined ? updated.writingTone : writingTone;
@@ -283,6 +317,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
         JSON.stringify({
           wordLimit: nextLimit,
           meetMode: nextMode,
+          plotMode: nextPlot,
+          selectedMultiCharIds: nextMultiChars,
           timeSetting,
           locationSetting,
           reasonSetting,
@@ -336,13 +372,26 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
 
   // Helper to generate dynamic style prompt instructions based on perspective & tone & custom keywords
   const getPromptStyleInstructions = () => {
+    const currentUserName = settings.userPersonaName || "用户";
+    const assocList = getAssociatedCharacters();
+    const selectedMultiChars = plotMode === "multi" ? assocList.filter((c) => selectedMultiCharIds.includes(c.id)) : [];
+    const allNames = [character.name, ...selectedMultiChars.map((c) => c.name)];
+
     let perspectiveInstruction = "";
-    if (perspective === "first") {
-      perspectiveInstruction = "【叙述视角要求】：从角色自身视角出发，使用第一人称（“我”）来进行心理活动与动作描写。";
-    } else if (perspective === "second") {
-      perspectiveInstruction = "【叙述视角要求】：在描写与叙述中直接称呼用户为“你”，拉近距离与陪伴感。";
+    if (plotMode === "multi") {
+      if (perspective === "second") {
+        perspectiveInstruction = `【叙述视角要求 - 第二人称】：所有参演角色（${allNames.join("、")}）在描述动作与对话时均使用各自的角色姓名，将用户统一称呼为“你”！`;
+      } else {
+        perspectiveInstruction = `【叙述视角要求 - 第三人称】：所有参演角色（${allNames.join("、")}）以及用户（${currentUserName}）均统一使用各自的姓名描述其动作与台词！`;
+      }
     } else {
-      perspectiveInstruction = "【叙述视角要求】：使用上帝视角/第三人称（“他/她”）来客观叙述角色的姿态、动作与心理。";
+      if (perspective === "first") {
+        perspectiveInstruction = "【叙述视角要求】：从角色自身视角出发，使用第一人称（“我”）来进行心理活动与动作描写。";
+      } else if (perspective === "second") {
+        perspectiveInstruction = "【叙述视角要求】：在描写与叙述中角色使用角色名，直接称呼用户为“你”。";
+      } else {
+        perspectiveInstruction = "【叙述视角要求】：使用第三人称（“他/她”及角色名）来客观叙述角色的姿态、动作与心理。";
+      }
     }
 
     let toneInstruction = "";
@@ -353,16 +402,26 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     } else if (writingTone === "warm_soft") {
       toneInstruction = "【文风基调 - 温暖柔和】：语气非常软，细节温馨细腻，充满关怀与陪伴感，让人感觉被包容。";
     } else {
-      toneInstruction = "【文风基调 - 日常白描】：句子短，动作具体，干净自然，像讲身边发生的事，呈现生活原本的节奏（日本电影台词本风格）。";
+      toneInstruction = "【文风基调 - 日常白描】：句子短，动作具体，干净自然，呈现生活原本的节奏（日本电影台词本风格）。";
     }
 
     const customKwStr = customToneKeywords.trim()
       ? `\n【用户自定义文风要求】：${customToneKeywords.trim()}`
       : "";
 
+    let multiRules = "";
+    if (plotMode === "multi" && selectedMultiChars.length > 0) {
+      multiRules = `
+【线下见面多人模式核心规则（极其重要）】：
+1. 【只生成一张整合剧情卡片】：绝对禁止按不同角色拆分成多条独立消息输出！本次回复必须是【单张完整的整合剧情卡片】。
+2. 【全员参演与互动连贯展开】：卡片中需以流畅的小说/剧段落，完整连贯地呈现本轮所有参演角色（${allNames.join("、")}）以及用户（${currentUserName}）的环境动作、肢体眼神细节与彼此之间的言语对话互动。
+3. 【同一卡片流利展开】：角色与角色之间的接话、动作回应、氛围起伏在同一个连续段落中流畅自然交织呈现。
+`;
+    }
+
     return `
 ${perspectiveInstruction}
-${toneInstruction}${customKwStr}
+${toneInstruction}${customKwStr}${multiRules}
 
 【核心撰写规范】：
 1. 坚决杜绝油腻、霸总、超雄、极端情绪或夸张华丽词藻的堆砌。
@@ -716,8 +775,9 @@ ${onlineContextStr}
   };
 
   // Continue story / AI Advance
-  const handleContinueStory = async () => {
-    if (isGenerating || messages.length === 0) return;
+  const handleContinueStory = async (customMsgs?: Message[]) => {
+    const msgsToUse = customMsgs || messages;
+    if (isGenerating || msgsToUse.length === 0) return;
 
     setIsGenerating(true);
     setApiError(null);
@@ -768,7 +828,7 @@ ${onlineContextStr}
           content: systemInstruction,
           timestamp: Date.now() - 10000,
         },
-        ...messages
+        ...msgsToUse
           .filter((m) => m.role !== "system")
           .map((m) => {
             if (m.role === "user") {
@@ -847,6 +907,7 @@ ${onlineContextStr}
 
     const updatedMsgs = [...messages, userMsg];
     saveStory(updatedMsgs);
+    handleContinueStory(updatedMsgs);
   };
 
   // Save edited user message
@@ -890,7 +951,14 @@ ${onlineContextStr}
       );
     }
 
-    const nameLabel = role === "user" ? "我" : character.name;
+    let nameLabel = role === "user" ? "我" : character.name;
+    if (role === "assistant" && plotMode === "multi") {
+      const assocList = getAssociatedCharacters();
+      const selectedMultiChars = assocList.filter((c) => selectedMultiCharIds.includes(c.id));
+      if (selectedMultiChars.length > 0) {
+        nameLabel = `剧情卡片 · ${[character.name, ...selectedMultiChars.map((c) => c.name)].join(" & ")}`;
+      }
+    }
     const rawParagraphs = content.split("\n").filter((p) => p.trim());
     const timeFormatted = new Date(timestamp).toLocaleTimeString([], {
       hour: "2-digit",
@@ -1032,33 +1100,56 @@ ${onlineContextStr}
 
       {/* Exit Confirmation Modal */}
       {showExitModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-[16px] p-6 w-full max-w-sm shadow-xl space-y-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in select-none">
+          <div className="bg-white rounded-[16px] p-6 w-full max-w-sm shadow-xl space-y-4 border border-stone-100 animate-scale-up">
             <h3 className="meet-title font-bold text-stone-900 text-base text-center">确认退出见面？</h3>
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               <button 
-                onClick={() => { setIsPaused(true); setShowExitModal(false); onClose(); }} 
-                className="w-full py-3 bg-white border border-stone-200 hover:bg-stone-50 text-stone-900 text-xs font-bold rounded-[8px] transition-all"
+                onClick={() => { 
+                  saveStory(messages);
+                  setIsPaused(true); 
+                  setShowExitModal(false); 
+                  onClose(); 
+                }} 
+                className="w-full py-3 bg-white border border-stone-200 hover:bg-stone-50 text-stone-900 text-xs font-bold rounded-[10px] transition-all cursor-pointer shadow-sm active:scale-[0.99]"
               >
-                保存并暂停
+                暂停并退出
               </button>
-              <button onClick={() => { 
-                const summary = messages.map(m => m.content).join(" ");
-                const memoryContent = `【线下见面回忆】\n${summary.slice(0, 500)}...`;
-                if (onSyncToOnlineChat) {
-                    onSyncToOnlineChat(memoryContent);
-                }
-                archiveCurrentSession(messages, meetMode); 
-                localStorage.removeItem(storageKey);
-                setShowExitModal(false); 
-                onClose(); 
-              }} className="w-full py-3 bg-black hover:bg-stone-900 text-white text-xs font-bold rounded-[8px] transition-all">
-                结束见面
+              <button 
+                onClick={() => { 
+                  const now = new Date();
+                  const defaultTime = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                  const finalTime = timeSetting.trim() || defaultTime;
+                  const finalLocation = locationSetting.trim() || "咖啡馆 · 窗边";
+
+                  const summaryText = messages.length > 0
+                    ? messages.map(m => m.content).join(" ")
+                    : "与角色的线下见面过程。";
+
+                  const memoryId = `meet-mem-${Date.now()}`;
+
+                  if (onSyncToOnlineChat) {
+                    onSyncToOnlineChat(summaryText, {
+                      time: finalTime,
+                      location: finalLocation,
+                      memoryId: memoryId,
+                    });
+                  }
+
+                  archiveCurrentSession(messages, meetMode); 
+                  localStorage.removeItem(storageKey);
+                  setMessages([]);
+                  setShowExitModal(false); 
+                  onClose(); 
+                }} 
+                className="w-full py-3 bg-black hover:bg-stone-900 text-white text-xs font-bold rounded-[10px] transition-all cursor-pointer shadow-sm active:scale-[0.99]"
+              >
+                结束
               </button>
             </div>
             <button 
               onClick={() => setShowExitModal(false)}
-              className="w-full text-center text-[11px] text-stone-400 hover:text-stone-600"
+              className="w-full text-center text-[11px] text-stone-400 hover:text-stone-600 cursor-pointer pt-1"
             >
               取消
             </button>
@@ -1746,50 +1837,206 @@ ${onlineContextStr}
       {/* Opening Setup Modal */}
       {showSetupModal && (
         <div className="fixed inset-0 z-60 bg-black/55 backdrop-blur-xs flex items-center justify-center p-3 animate-fade-in">
-          <div className="bg-[#FAF8F5] border border-[#E8E2D7] rounded-3xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto shadow-2xl space-y-4  text-[#2B2723]">
+          <div className="bg-[#FAF8F5] border border-[#E8E2D7] rounded-3xl p-5 w-full max-w-sm max-h-[90vh] overflow-y-auto shadow-2xl space-y-4 text-[#2B2723]">
             {/* Header */}
             <div className="flex items-center justify-between pb-2 border-b border-[#EFECE5]">
               <div className="flex items-center gap-2">
                 <Compass className="w-5 h-5 text-stone-800" />
                 <h3 className="font-bold text-base">线下见面 · 开场设定</h3>
               </div>
-              {messages.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (messages.length === 0) {
+                    onClose();
+                  } else {
+                    setShowSetupModal(false);
+                  }
+                }}
+                className="p-1.5 text-stone-400 hover:text-stone-800 rounded-full hover:bg-stone-200/60 cursor-pointer transition-colors"
+                title="退出线下见面"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 1. 剧情模式选择 (单人 vs 多人) */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-stone-800 flex items-center gap-1">
+                <span>1. 剧情模式</span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowSetupModal(false)}
-                  className="p-1 text-stone-400 hover:text-stone-800 rounded-full hover:bg-stone-200/50 cursor-pointer"
+                  onClick={() => setPlotMode("single")}
+                  className={`p-3 rounded-2xl border text-left transition-all flex flex-col gap-1 cursor-pointer ${
+                    plotMode === "single"
+                      ? "bg-stone-900 text-white border-stone-900 shadow-xs"
+                      : "bg-white text-stone-700 border-stone-200 hover:border-stone-300"
+                  }`}
                 >
-                  <X className="w-5 h-5" />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold flex items-center gap-1">
+                      <User className="w-3.5 h-3.5" />
+                      单人模式
+                    </span>
+                    {plotMode === "single" && <Check className="w-3.5 h-3.5 text-white" />}
+                  </div>
+                  <p className={`text-[10px] leading-tight ${plotMode === "single" ? "text-stone-300" : "text-stone-400"}`}>
+                    仅当前角色（{character.name}）参与
+                  </p>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlotMode("multi");
+                    const assoc = getAssociatedCharacters();
+                    if (selectedMultiCharIds.length === 0 && assoc.length > 0) {
+                      setSelectedMultiCharIds(assoc.map((c) => c.id));
+                    }
+                  }}
+                  className={`p-3 rounded-2xl border text-left transition-all flex flex-col gap-1 cursor-pointer ${
+                    plotMode === "multi"
+                      ? "bg-stone-900 text-white border-stone-900 shadow-xs"
+                      : "bg-white text-stone-700 border-stone-200 hover:border-stone-300"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold flex items-center gap-1">
+                      <Users className="w-3.5 h-3.5" />
+                      多人模式
+                    </span>
+                    {plotMode === "multi" && <Check className="w-3.5 h-3.5 text-white" />}
+                  </div>
+                  <p className={`text-[10px] leading-tight ${plotMode === "multi" ? "text-stone-300" : "text-stone-400"}`}>
+                    当前角色及关联角色共同参与
+                  </p>
+                </button>
+              </div>
+
+              {/* 多人模式关联角色选择 */}
+              {plotMode === "multi" && (
+                <div className="mt-2.5 p-3 bg-stone-100/80 border border-stone-200/80 rounded-2xl space-y-2 animate-fade-in">
+                  <div className="text-[11px] font-bold text-stone-700 flex items-center justify-between">
+                    <span>选择同场参演的关联角色：</span>
+                    <span className="text-[10px] text-stone-400 font-normal">（当前角色为默认参演）</span>
+                  </div>
+
+                  {getAssociatedCharacters().length === 0 ? (
+                    <div className="p-2.5 bg-amber-50/80 border border-amber-200/60 rounded-xl text-[11px] text-amber-800 leading-relaxed">
+                      💡 当前角色（{character.name}）暂无关联角色。你可以在角色列表中编辑该角色，添加与其他角色的关联关系。
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                      {/* 固定主角 */}
+                      <div className="flex items-center justify-between p-2 bg-white rounded-xl border border-stone-200 opacity-90">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full overflow-hidden bg-stone-200 flex items-center justify-center text-xs shrink-0">
+                            {character.chatAvatar || character.avatar ? (
+                              <img src={character.chatAvatar || character.avatar} className="w-full h-full object-cover" alt="" />
+                            ) : (
+                              character.name[0]
+                            )}
+                          </div>
+                          <div>
+                            <div className="text-xs font-bold text-stone-900">{character.name}</div>
+                            <div className="text-[9.5px] text-stone-400">发起者 (主角)</div>
+                          </div>
+                        </div>
+                        <span className="text-[10px] bg-stone-100 text-stone-500 font-medium px-2 py-0.5 rounded-full">固定</span>
+                      </div>
+
+                      {/* 关联角色列表 */}
+                      {getAssociatedCharacters().map((assocChar) => {
+                        const isChecked = selectedMultiCharIds.includes(assocChar.id);
+                        const relationText = character.associatedRelations?.[assocChar.id] || assocChar.associatedRelations?.[character.id] || "关联角色";
+                        return (
+                          <button
+                            key={assocChar.id}
+                            type="button"
+                            onClick={() => {
+                              if (isChecked) {
+                                setSelectedMultiCharIds(selectedMultiCharIds.filter((id) => id !== assocChar.id));
+                              } else {
+                                setSelectedMultiCharIds([...selectedMultiCharIds, assocChar.id]);
+                              }
+                            }}
+                            className={`w-full flex items-center justify-between p-2 rounded-xl border transition-all text-left cursor-pointer ${
+                              isChecked
+                                ? "bg-white border-stone-900 shadow-xs"
+                                : "bg-stone-50/50 border-stone-200 hover:bg-white"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div className="w-6 h-6 rounded-full overflow-hidden bg-stone-200 flex items-center justify-center text-xs shrink-0">
+                                {assocChar.chatAvatar || assocChar.avatar ? (
+                                  <img src={assocChar.chatAvatar || assocChar.avatar} className="w-full h-full object-cover" alt="" />
+                                ) : (
+                                  assocChar.name[0]
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-bold text-stone-900 truncate">{assocChar.name}</div>
+                                <div className="text-[9.5px] text-stone-500 truncate">{relationText}</div>
+                              </div>
+                            </div>
+                            <div className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
+                              isChecked ? "bg-black border-black text-white" : "border-stone-300 bg-white"
+                            }`}>
+                              {isChecked && <Check className="w-3 h-3 text-white" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
-            {/* 1. 模式选择 (Simplified, only Shared Mode) */}
-            <div className="space-y-2">
+            {/* 2. 叙述视角选择 */}
+            <div className="space-y-1.5 pt-1">
               <label className="text-xs font-bold text-stone-800 block">
-                1. 剧情模式 (默认互通模式)
+                2. 叙述视角
               </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPerspective("second")}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    perspective === "second"
+                      ? "bg-black text-white border-black shadow-xs"
+                      : "bg-white text-stone-700 border-stone-200 hover:border-stone-300"
+                  }`}
+                >
+                  <div className="text-xs font-bold">第二人称</div>
+                  <div className={`text-[9.5px] ${perspective === "second" ? "text-stone-300" : "text-stone-400"}`}>
+                    角色用角色名，用户用“你”
+                  </div>
+                </button>
 
-              <div
-                className="p-3 rounded-2xl border bg-stone-50 border-stone-200 flex flex-col justify-between gap-1.5"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-stone-900 flex items-center gap-1">
-                    <Link2 className="w-3.5 h-3.5 text-stone-800" />
-                    🔗 互通模式
-                  </span>
-                  <Check className="w-3.5 h-3.5 text-stone-800" />
-                </div>
-                <p className="text-[10.5px] text-stone-500 leading-tight">
-                  系统将读取线上聊天历史作为记忆，线下演绎的剧情也将同步至线上聊天记录中。
-                </p>
+                <button
+                  type="button"
+                  onClick={() => setPerspective("third")}
+                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                    perspective === "third"
+                      ? "bg-black text-white border-black shadow-xs"
+                      : "bg-white text-stone-700 border-stone-200 hover:border-stone-300"
+                  }`}
+                >
+                  <div className="text-xs font-bold">第三人称</div>
+                  <div className={`text-[9.5px] ${perspective === "third" ? "text-stone-300" : "text-stone-400"}`}>
+                    角色和用户均用姓名
+                  </div>
+                </button>
               </div>
             </div>
 
-            {/* 2. 字数限制 */}
+            {/* 3. 字数限制 */}
             <div className="space-y-1.5 pt-1">
               <div className="flex items-center justify-between text-xs font-bold text-stone-800">
-                <span>2. 生成字数限制</span>
+                <span>3. 生成字数限制</span>
                 <span className="text-stone-800 font-mono font-bold">{wordLimit} 字/轮</span>
               </div>
               <input
@@ -1819,7 +2066,7 @@ ${onlineContextStr}
               </div>
             </div>
 
-            {/* 3. 模式对应的开场设定表单 */}
+            {/* 4. 模式对应的开场设定表单 */}
             <div className="space-y-3 pt-2 border-t border-[#EFECE5]">
               {meetMode === "shared" ? (
                 /* 互通模式开场设定 */

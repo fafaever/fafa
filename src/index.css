@@ -141,3 +141,8 @@ html, body, #root {
   color: transparent !important;
 }
 
+/* Ensure transparent images don't get unwanted background fills */
+img.bg-transparent, img[style*="transparent"] {
+  background-color: transparent !important;
+}
+

@@ -9,6 +9,7 @@ import { MeetSettingsModal } from "./MeetSettingsModal";
 
 import { CharacterAvatar } from "./CharacterAvatar";
 import { generateDefaultNpcsForCharacter } from "./CharacterCreatorApp";
+import { compressImage as globalCompressImage } from "../utils/imageCompressor";
 
 interface ChatAppProps {
   characters: Character[];
@@ -104,6 +105,119 @@ const parseOS = (osStr: string | undefined | null) => {
   };
 };
 
+function parseImportedChatTxt(rawText: string, charName: string = "角色"): Message[] {
+  const trimmed = rawText.trim();
+  if (!trimmed) return [];
+
+  // Attempt 1: Try JSON parse
+  try {
+    const json = JSON.parse(trimmed);
+    const msgArray = Array.isArray(json) ? json : (Array.isArray(json.messages) ? json.messages : null);
+    if (msgArray && msgArray.length > 0) {
+      return msgArray.map((m: any, idx: number) => ({
+        id: m.id || `imported-${Date.now()}-${idx}`,
+        role: m.role === "user" ? "user" : m.role === "system" ? "system" : "assistant",
+        content: String(m.content || ""),
+        timestamp: typeof m.timestamp === "number" ? m.timestamp : Date.now() + idx,
+        ...(m.senderName ? { senderName: m.senderName } : {}),
+        ...(m.senderAvatar ? { senderAvatar: m.senderAvatar } : {}),
+      })).filter((m: Message) => m.content.trim() !== "");
+    }
+  } catch (e) {
+    // Not valid JSON, continue to txt parse
+  }
+
+  // Attempt 2: Line by line with headers like "[2026/7/28 12:34:56] 用户:" or "用户:" or "角色名:"
+  const lines = trimmed.split("\n");
+  const parsedMessages: Message[] = [];
+  const headerRegex = /^(?:\[(.*?)\]\s*)?([^\s:][^:]*):\s*$/;
+
+  let currentMsg: { role: "user" | "assistant" | "system"; contentLines: string[]; timestamp?: number; senderName?: string } | null = null;
+
+  for (let line of lines) {
+    if (line.startsWith("与角色 [") || line.startsWith("导出时间:") || line.startsWith("========")) {
+      continue;
+    }
+
+    const match = line.match(headerRegex);
+    if (match) {
+      if (currentMsg && currentMsg.contentLines.join("\n").trim() !== "") {
+        parsedMessages.push({
+          id: `imported-${Date.now()}-${parsedMessages.length}`,
+          role: currentMsg.role,
+          content: currentMsg.contentLines.join("\n").trim(),
+          timestamp: currentMsg.timestamp || (Date.now() + parsedMessages.length),
+          ...(currentMsg.senderName ? { senderName: currentMsg.senderName } : {})
+        });
+      }
+
+      const timeStr = match[1];
+      const senderStr = match[2].trim();
+      let role: "user" | "assistant" | "system" = "assistant";
+
+      if (senderStr === "用户" || senderStr === "我" || senderStr.toLowerCase() === "user") {
+        role = "user";
+      } else if (senderStr === "系统" || senderStr.toLowerCase() === "system") {
+        role = "system";
+      } else {
+        role = "assistant";
+      }
+
+      let parsedTs = Date.now();
+      if (timeStr) {
+        const d = new Date(timeStr);
+        if (!isNaN(d.getTime())) {
+          parsedTs = d.getTime();
+        }
+      }
+
+      currentMsg = {
+        role,
+        contentLines: [],
+        timestamp: parsedTs,
+        senderName: role === "assistant" ? senderStr : undefined
+      };
+    } else {
+      if (currentMsg) {
+        currentMsg.contentLines.push(line);
+      } else {
+        if (line.trim()) {
+          currentMsg = {
+            role: "user",
+            contentLines: [line],
+            timestamp: Date.now()
+          };
+        }
+      }
+    }
+  }
+
+  if (currentMsg && currentMsg.contentLines.join("\n").trim() !== "") {
+    parsedMessages.push({
+      id: `imported-${Date.now()}-${parsedMessages.length}`,
+      role: currentMsg.role,
+      content: currentMsg.contentLines.join("\n").trim(),
+      timestamp: currentMsg.timestamp || (Date.now() + parsedMessages.length),
+      ...(currentMsg.senderName ? { senderName: currentMsg.senderName } : {})
+    });
+  }
+
+  // Fallback Attempt 3: Double newline separated blocks if no headers found
+  if (parsedMessages.length === 0) {
+    const blocks = trimmed.split(/\n\s*\n/).filter(b => b.trim());
+    blocks.forEach((block, idx) => {
+      parsedMessages.push({
+        id: `imported-${Date.now()}-${idx}`,
+        role: idx % 2 === 0 ? "user" : "assistant",
+        content: block.trim(),
+        timestamp: Date.now() + idx
+      });
+    });
+  }
+
+  return parsedMessages;
+}
+
 export default function ChatApp({
   characters,
   loreList,
@@ -128,6 +242,62 @@ export default function ChatApp({
   // Multi-select message states
   const [isMultiSelectMode, setIsMultiSelectMode] = useState<boolean>(false);
   const [selectedMsgIds, setSelectedMsgIds] = useState<string[]>([]);
+
+  // Helper to sync delete memories from Memory App when offline meet card messages are deleted
+  const syncDeleteMemoriesForMessages = (msgsToDelete: Message[], charId: string) => {
+    if (!msgsToDelete || msgsToDelete.length === 0 || !charId) return;
+
+    const memoryIdsToRemove: string[] = [];
+    msgsToDelete.forEach((m) => {
+      if (m.type === "offline_meet_card" || m.content?.startsWith("[OFFLINE_MEET_CARD]")) {
+        let memoryId = m.offlineMeetCardData?.memoryId;
+        if (!memoryId && m.content?.startsWith("[OFFLINE_MEET_CARD]")) {
+          try {
+            const raw = m.content.replace("[OFFLINE_MEET_CARD]", "");
+            if (raw.startsWith("{")) {
+              const parsed = JSON.parse(raw);
+              memoryId = parsed.memoryId;
+            } else {
+              const parts = raw.split("|");
+              const memPart = parts.find((p) => p.startsWith("memoryId="));
+              if (memPart) memoryId = memPart.split("=")[1];
+            }
+          } catch (e) {}
+        }
+        if (memoryId) {
+          memoryIdsToRemove.push(memoryId);
+        }
+      }
+    });
+
+    if (memoryIdsToRemove.length > 0) {
+      try {
+        const key = `mobile_ai_memories_${charId}`;
+        const saved = localStorage.getItem(key);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            const updated = parsed.filter((mem: any) => !memoryIdsToRemove.includes(mem.id));
+            localStorage.setItem(key, JSON.stringify(updated));
+          }
+        }
+
+        const charSettingsKey = `char_settings_v1_${charId}`;
+        const charSettingsRaw = localStorage.getItem(charSettingsKey);
+        if (charSettingsRaw) {
+          const parsedSettings = JSON.parse(charSettingsRaw);
+          if (Array.isArray(parsedSettings.memories)) {
+            parsedSettings.memories = parsedSettings.memories.filter((memStr: any) => {
+              return !memoryIdsToRemove.some((memId) => typeof memStr === "string" && memStr.includes(memId));
+            });
+            localStorage.setItem(charSettingsKey, JSON.stringify(parsedSettings));
+          }
+        }
+      } catch (e) {
+        console.error("Error sync deleting memories for offline meet cards:", e);
+      }
+    }
+  };
 
   // Helper to render group chat avatar
   const renderGroupAvatar = (groupSession: ChatSession | { groupAvatar?: string; memberIds?: string[] }) => {
@@ -256,6 +426,7 @@ export default function ChatApp({
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatImageInputRef = useRef<HTMLInputElement>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   // Dedicated Moments User Profile details (Independent from Chat persona & Forum)
@@ -980,48 +1151,8 @@ export default function ChatApp({
     return settings.temperature ?? 0.8;
   };
 
-  const compressImage = (file: File, maxSizeKB: number = 300): Promise<string> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const img = new window.Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          let width = img.width;
-          let height = img.height;
-          const maxDim = 800;
-          if (width > maxDim || height > maxDim) {
-            if (width > height) {
-              height = Math.round(height * (maxDim / width));
-              width = maxDim;
-            } else {
-              width = Math.round(width * (maxDim / height));
-              height = maxDim;
-            }
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d')!;
-          ctx.drawImage(img, 0, 0, width, height);
-          
-          let quality = 0.85;
-          let dataUrl = canvas.toDataURL('image/jpeg', quality);
-          
-          const tryCompress = () => {
-            if (dataUrl.length > maxSizeKB * 1024 && quality > 0.1) {
-              quality -= 0.1;
-              dataUrl = canvas.toDataURL('image/jpeg', quality);
-              tryCompress();
-            } else {
-              resolve(dataUrl);
-            }
-          };
-          tryCompress();
-        };
-        img.src = e.target!.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
+  const compressImage = (file: File, _maxSizeKB: number = 200): Promise<string> => {
+    return globalCompressImage(file, 800, 0.7);
   };
   const [confirmDialog, setConfirmDialog] = useState<{
     title: string;
@@ -1418,20 +1549,15 @@ export default function ChatApp({
     }
   }, [characters]);
 
-  const handleMomentImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMomentImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      alert("图片文件过大，请选择 5MB 以内的图片");
-      return;
+    try {
+      const base64 = await globalCompressImage(file, 800, 0.7);
+      setNewMomentImage(base64);
+    } catch (err) {
+      console.error(err);
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setNewMomentImage(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
   };
 
   const handlePublishMoment = () => {
@@ -2050,31 +2176,16 @@ ${existingCommentsText || "暂无评论"}
   };
 
   // User Profile actions
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        const size = Math.min(img.width, img.height);
-        canvas.width = 120;
-        canvas.height = 120;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          const sx = (img.width - size) / 2;
-          const sy = (img.height - size) / 2;
-          ctx.drawImage(img, sx, sy, size, size, 0, 0, 120, 120);
-          const base64 = canvas.toDataURL("image/jpeg", 0.85);
-          setUserAvatar(base64);
-          localStorage.setItem("mobile_ai_user_avatar_v1", base64);
-        }
-      };
-      img.src = event.target?.result as string;
-    };
-    reader.readAsDataURL(file);
+    try {
+      const base64 = await globalCompressImage(file, 800, 0.7);
+      setUserAvatar(base64);
+      localStorage.setItem("mobile_ai_user_avatar_v1", base64);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleSaveName = () => {
@@ -2840,6 +2951,9 @@ ${existingCommentsText || "暂无评论"}
       title: "清空聊天记录",
       message: "确定要清空与该角色的聊天记录吗？此操作无法撤销。",
       onConfirm: () => {
+        if (activeSession && activeCharId) {
+          syncDeleteMemoriesForMessages(activeSession.messages, activeCharId);
+        }
         onUpdateSessionMessages(activeCharId, []);
         setConfirmDialog(null);
       }
@@ -2885,6 +2999,62 @@ ${existingCommentsText || "暂无评论"}
     link.download = `与_${activeChar?.name || "AI"}_的聊天记录_${Date.now()}.txt`;
     link.click();
     URL.revokeObjectURL(url);
+  };
+
+  // Import Chat history from .txt
+  const handleTriggerImportChat = () => {
+    if (importFileInputRef.current) {
+      importFileInputRef.current.value = "";
+      importFileInputRef.current.click();
+    }
+  };
+
+  const handleImportFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = (event.target?.result as string) || "";
+      if (!text.trim()) {
+        alert("导入的文件内容为空！");
+        return;
+      }
+
+      setConfirmDialog({
+        title: "导入聊天记录",
+        message: "导入将覆盖当前聊天记录，确定继续吗？",
+        onConfirm: () => {
+          const importedMsgs = parseImportedChatTxt(text, activeChar?.name);
+          if (importedMsgs.length === 0) {
+            alert("未能解析出有效的聊天记录。");
+            setConfirmDialog(null);
+            return;
+          }
+
+          if (activeSession) {
+            if (activeSession.isGroup) {
+              onUpdateSessionMessages(activeSession.id, importedMsgs, undefined, {
+                groupName: activeSession.groupName,
+                groupAvatar: activeSession.groupAvatar,
+                memberIds: activeSession.memberIds,
+                syncMemory: activeSession.syncMemory,
+                worldSetting: activeSession.worldSetting,
+                isGroup: true,
+              });
+            } else if (activeCharId) {
+              onUpdateSessionMessages(activeCharId, importedMsgs);
+            }
+          }
+          setConfirmDialog(null);
+          setTimeout(() => {
+            scrollToBottom();
+          }, 100);
+        },
+      });
+    };
+    reader.readAsText(file, "UTF-8");
+    e.target.value = "";
   };
 
   // Reroll AI reply
@@ -3023,8 +3193,68 @@ ${existingCommentsText || "暂无评论"}
       );
     }
 
-    if (msg?.role === "user" && !msg?.type && !content.startsWith("[CHARACTER_TRANSFER]") && !content.startsWith("[OFFLINE_INVITATION]") && !content.startsWith("[OFFLINE_MEET_SESSION]") && !content.startsWith("[TRANSFER]") && !content.startsWith("[LOCATION]") && !content.startsWith("[REDPACKET]") && !content.startsWith("[图片")) {
+    if (msg?.role === "user" && !msg?.type && !content.startsWith("[CHARACTER_TRANSFER]") && !content.startsWith("[OFFLINE_INVITATION]") && !content.startsWith("[OFFLINE_MEET_SESSION]") && !content.startsWith("[OFFLINE_MEET_CARD]") && !content.startsWith("[TRANSFER]") && !content.startsWith("[LOCATION]") && !content.startsWith("[REDPACKET]") && !content.startsWith("[图片")) {
       return <span>{content}</span>;
+    }
+
+    if (msg?.type === "offline_meet_card" || content.startsWith("[OFFLINE_MEET_CARD]")) {
+      let cardData = msg?.offlineMeetCardData;
+      if (!cardData) {
+        try {
+          const raw = content.replace("[OFFLINE_MEET_CARD]", "");
+          if (raw.startsWith("{")) {
+            cardData = JSON.parse(raw);
+          } else {
+            const parts = raw.split("|");
+            const timePart = parts.find((p) => p.startsWith("time="));
+            const locPart = parts.find((p) => p.startsWith("location="));
+            const memPart = parts.find((p) => p.startsWith("memoryId="));
+            cardData = {
+              time: timePart ? decodeURIComponent(timePart.split("=")[1]) : "未知时间",
+              location: locPart ? decodeURIComponent(locPart.split("=")[1]) : "未知地点",
+              memoryId: memPart ? memPart.split("=")[1] : "",
+            };
+          }
+        } catch (e) {
+          cardData = { time: "未知时间", location: "未知地点", memoryId: "" };
+        }
+      }
+
+      return (
+        <div className="w-full max-w-[260px] bg-white border border-neutral-200/80 rounded-[12px] p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] my-1.5 select-none text-left font-sans">
+          {/* Header */}
+          <div className="flex items-center justify-between pb-2.5 border-b border-neutral-100">
+            <span className="text-[12px] font-medium text-neutral-500 tracking-wide">
+              线下见面 · 已结束
+            </span>
+            <span className="w-1.5 h-1.5 rounded-full bg-neutral-300" />
+          </div>
+
+          {/* Time */}
+          <div className="mt-3">
+            <div className="text-[10px] text-neutral-400 font-normal">见面时间</div>
+            <div className="text-[13px] font-bold text-neutral-900 mt-0.5 tracking-tight">
+              {cardData?.time || "2026年7月28日 14:30"}
+            </div>
+          </div>
+
+          {/* Location */}
+          <div className="mt-2.5">
+            <div className="text-[10px] text-neutral-400 font-normal">见面地点</div>
+            <div className="text-[12px] font-medium text-neutral-700 mt-0.5">
+              {cardData?.location || "咖啡馆 · 窗边"}
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="mt-3 pt-2.5 border-t border-neutral-100 flex items-center justify-between">
+            <span className="text-[11px] text-neutral-400 font-normal flex items-center gap-1.5">
+              <span className="text-[12px]">📖</span>
+              <span>剧情记忆已注入</span>
+            </span>
+          </div>
+        </div>
+      );
     }
 
     if (content.startsWith("[OFFLINE_MEET_SESSION]")) {
@@ -3637,26 +3867,7 @@ ${existingCommentsText || "暂无评论"}
                                 onChange={(e) => {
                                   const file = e.target.files?.[0];
                                   if (!file) return;
-                                  const reader = new FileReader();
-                                  reader.onload = (event) => {
-                                    const img = new window.Image();
-                                    img.onload = () => {
-                                      const canvas = document.createElement("canvas");
-                                      const size = Math.min(img.width, img.height);
-                                      canvas.width = 120;
-                                      canvas.height = 120;
-                                      const ctx = canvas.getContext("2d");
-                                      if (ctx) {
-                                        const sx = (img.width - size) / 2;
-                                        const sy = (img.height - size) / 2;
-                                        ctx.drawImage(img, sx, sy, size, size, 0, 0, 120, 120);
-                                        const base64 = canvas.toDataURL("image/jpeg", 0.85);
-                                        setCharAvatar(base64);
-                                      }
-                                    };
-                                    img.src = event.target?.result as string;
-                                  };
-                                  reader.readAsDataURL(file);
+                                  globalCompressImage(file, 800, 0.7).then(base64 => setCharAvatar(base64));
                                 }}
                               />
                             </label>
@@ -4498,10 +4709,6 @@ ${existingCommentsText || "暂无评论"}
             >
               <MessageSquarePlus className={`w-5 h-5 ${mainTab === "chat" ? "stroke-[2.5]" : "stroke-[1.5]"}`} />
               <span className={`text-[10px]  ${mainTab === "chat" ? "font-bold" : "font-medium"}`}>对话</span>
-              {/* Show unread dot on tab icon if any character has unread state */}
-              {Object.values(unreads).some(val => val) && (
-                <span className="absolute top-1 right-2.5 w-2 h-2 bg-red-500 rounded-full border border-white" />
-              )}
             </button>
 
             {/* Tab 2 Indicator: Contacts */}
@@ -5330,15 +5537,7 @@ ${existingCommentsText || "暂无评论"}
                         onClick={() => {
                           setShowActionPanel(false);
                           if (!activeSession || activeSession.isGroup) return;
-                          // Check if there is already an active meet session
-                          const hasActiveMeet = activeSession.messages.some(
-                            (m) => m.role === "system" && m.content.startsWith("[OFFLINE_MEET_SESSION]") && m.content.includes("status=active")
-                          );
-                          if (hasActiveMeet) {
-                            setShowOfflineMeet(true);
-                          } else {
-                            setActiveModal("meet");
-                          }
+                          setShowOfflineMeet(true);
                         }}
                         className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
                       >
@@ -5492,6 +5691,10 @@ ${existingCommentsText || "暂无评论"}
                             message: `确定要删除选中的 ${selectedMsgIds.length} 条消息吗？`,
                             onConfirm: () => {
                               if (activeSession) {
+                                const msgsToDelete = activeSession.messages.filter(m => selectedMsgIds.includes(m.id));
+                                if (activeCharId) {
+                                  syncDeleteMemoriesForMessages(msgsToDelete, activeCharId);
+                                }
                                 const updated = activeSession.messages.filter(m => !selectedMsgIds.includes(m.id));
                                 if (activeSession.isGroup) {
                                   onUpdateSessionMessages(activeSession.id, updated, undefined, {
@@ -6147,14 +6350,28 @@ ${existingCommentsText || "暂无评论"}
               </button>
             </div>
 
-            {/* 7. Export Conversation */}
-            <div className="flex justify-center pt-8 pb-4">
+            {/* 7. Export & Import Conversation */}
+            <div className="flex justify-center items-center gap-4 pt-8 pb-4">
               <button
                 onClick={handleExportChat}
-                className="text-xs text-neutral-400 hover:text-neutral-600 underline "
+                className="text-xs text-neutral-400 hover:text-neutral-600 underline cursor-pointer"
               >
                 导出聊天记录 (.txt)
               </button>
+              <span className="text-neutral-300 text-xs">|</span>
+              <button
+                onClick={handleTriggerImportChat}
+                className="text-xs text-neutral-400 hover:text-neutral-600 underline cursor-pointer"
+              >
+                导入聊天记录 (.txt)
+              </button>
+              <input
+                ref={importFileInputRef}
+                type="file"
+                accept=".txt,text/plain"
+                className="hidden"
+                onChange={handleImportFileSelect}
+              />
             </div>
 
           </div>
@@ -6201,7 +6418,10 @@ ${existingCommentsText || "暂无评论"}
               {/* Action 1: Delete */}
               <button
                 onClick={() => {
-                  if (activeSession) {
+                  if (activeSession && activeMessage) {
+                    if (activeCharId) {
+                      syncDeleteMemoriesForMessages([activeMessage], activeCharId);
+                    }
                     const updated = activeSession.messages.filter((m) => m.id !== activeMessage.id);
                     if (activeSession.isGroup) {
                       onUpdateSessionMessages(activeSession.id, updated, undefined, {
@@ -6230,7 +6450,10 @@ ${existingCommentsText || "暂无评论"}
               {activeMessage.role === "user" && (
                 <button
                   onClick={() => {
-                    if (activeSession) {
+                    if (activeSession && activeMessage) {
+                      if (activeCharId) {
+                        syncDeleteMemoriesForMessages([activeMessage], activeCharId);
+                      }
                       const updated = activeSession.messages.map((m) => {
                         if (m.id === activeMessage.id) {
                           return { ...m, isRecalled: true };
@@ -6535,26 +6758,7 @@ ${existingCommentsText || "暂无评论"}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (!file) return;
-                          const reader = new FileReader();
-                          reader.onload = (event) => {
-                            const img = new window.Image();
-                            img.onload = () => {
-                              const canvas = document.createElement("canvas");
-                              const size = Math.min(img.width, img.height);
-                              canvas.width = 120;
-                              canvas.height = 120;
-                              const ctx = canvas.getContext("2d");
-                              if (ctx) {
-                                const sx = (img.width - size) / 2;
-                                const sy = (img.height - size) / 2;
-                                ctx.drawImage(img, sx, sy, size, size, 0, 0, 120, 120);
-                                const base64 = canvas.toDataURL("image/jpeg", 0.85);
-                                setPersonaAvatar(base64);
-                              }
-                            };
-                            img.src = event.target?.result as string;
-                          };
-                          reader.readAsDataURL(file);
+                          globalCompressImage(file, 800, 0.7).then(base64 => setPersonaAvatar(base64));
                         }}
                       />
                     </label>
@@ -6981,10 +7185,69 @@ ${existingCommentsText || "暂无评论"}
       {showOfflineMeet && activeChar && (
         <OfflineMeetView
           character={activeChar}
+          allCharacters={characters}
           settings={settings}
           onlineMessages={activeSession?.messages || []}
           onClose={() => setShowOfflineMeet(false)}
           forcedMode="shared"
+          onSyncToOnlineChat={(storySummary, cardInfo) => {
+            if (!activeCharId || !cardInfo) return;
+
+            const cardMsg: Message = {
+              id: `msg-${Date.now()}-offline-meet-card`,
+              role: "assistant",
+              type: "offline_meet_card",
+              content: `[OFFLINE_MEET_CARD]${JSON.stringify({
+                memoryId: cardInfo.memoryId,
+                time: cardInfo.time,
+                location: cardInfo.location,
+                summary: storySummary.slice(0, 300),
+              })}`,
+              offlineMeetCardData: {
+                memoryId: cardInfo.memoryId,
+                time: cardInfo.time,
+                location: cardInfo.location,
+                summary: storySummary.slice(0, 300),
+              },
+              timestamp: Date.now(),
+            };
+
+            const existingMsgs = activeSession?.messages || [];
+            const updatedMsgs = [...existingMsgs, cardMsg];
+
+            if (activeSession?.isGroup) {
+              onUpdateSessionMessages(activeSession.id, updatedMsgs, undefined, {
+                groupName: activeSession.groupName,
+                groupAvatar: activeSession.groupAvatar,
+                memberIds: activeSession.memberIds,
+                syncMemory: activeSession.syncMemory,
+                worldSetting: activeSession.worldSetting,
+                isGroup: true,
+              });
+            } else {
+              onUpdateSessionMessages(activeCharId, updatedMsgs);
+            }
+
+            // Inject memory record into Memory App
+            try {
+              const memKey = `mobile_ai_memories_${activeCharId}`;
+              const savedMems = localStorage.getItem(memKey);
+              const parsedMems = savedMems ? JSON.parse(savedMems) : [];
+              const newMemoryItem = {
+                id: cardInfo.memoryId,
+                characterId: activeCharId,
+                text: `【线下见面】时间：${cardInfo.time} | 地点：${cardInfo.location}\n过程：${storySummary.slice(0, 300)}`,
+                timestamp: Date.now(),
+                layer: 1 as const,
+                source: "线下见面剧情",
+                isShared: true,
+              };
+              const updatedMemoryList = [newMemoryItem, ...parsedMems];
+              localStorage.setItem(memKey, JSON.stringify(updatedMemoryList));
+            } catch (e) {
+              console.error("Error inserting offline meet memory into Memory App:", e);
+            }
+          }}
         />
       )}
 
@@ -7243,11 +7506,7 @@ ${existingCommentsText || "暂无评论"}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           if (file) {
-                            const reader = new FileReader();
-                            reader.onload = (event) => {
-                              setGroupAvatarInput(event.target?.result as string);
-                            };
-                            reader.readAsDataURL(file);
+                            globalCompressImage(file, 800, 0.7).then(base64 => setGroupAvatarInput(base64));
                           }
                         }}
                       />
@@ -7436,16 +7695,13 @@ ${existingCommentsText || "暂无评论"}
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (event) => {
-                            const newAvatar = event.target?.result as string;
+                          globalCompressImage(file, 800, 0.7).then(base64 => {
                             onUpdateSessionMessages(activeSession.id, activeSession.messages, activeSession.currentOS, {
                               ...activeSession,
-                              groupAvatar: newAvatar,
+                              groupAvatar: base64,
                               isGroup: true,
                             });
-                          };
-                          reader.readAsDataURL(file);
+                          });
                         }
                       }}
                     />

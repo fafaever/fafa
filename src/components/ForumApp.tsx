@@ -127,9 +127,8 @@ const isHorrorBoard = (board?: Board | null): boolean => {
 };
 
 // Helper to detect found phone boards
-const isFoundPhoneBoard = (board?: Board | null): boolean => {
-  if (!board) return false;
-  return board.name === '捡手机文学' || board.id === 'board-3';
+const isFoundPhoneBoard = (_board?: Board | null): boolean => {
+  return false;
 };
 
 // Helper to detect "不可以涩涩" boards
@@ -272,7 +271,7 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
   const [activeBoardId, setActiveBoardId] = useState<string | null>(() => {
     try {
       const saved = localStorage.getItem("mobile_ai_forum_last_board_id");
-      if (saved) return saved;
+      if (saved && saved !== 'board-3') return saved;
     } catch (e) {}
     return "board-1";
   });
@@ -357,12 +356,15 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
   const [boards, setBoards] = useState<Board[]>(() => {
     try {
       const saved = localStorage.getItem("mobile_ai_forum_boards");
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed: Board[] = JSON.parse(saved);
+        const filtered = parsed.filter(b => b.id !== 'board-3' && b.name !== '捡手机文学');
+        if (filtered.length > 0) return filtered;
+      }
     } catch (e) {}
     return [
       { id: 'board-1', name: '不可以涩涩', icon: 'love', description: '轻松有趣的“涩涩”生活吐槽、戒涩挑战失败记录与暧昧期互动脑洞。', keywords: '日常吐槽, 脑洞, 冷知识' },
       { id: 'board-2', name: '深夜食堂', icon: 'skull', description: '恐怖灵异故事分享与求助，涵盖真实灵异事件、所闻恐怖故事、身边异常求助与原创脑洞怪谈。', keywords: '悬疑, 灵异, 故事' },
-      { id: 'board-3', name: '捡手机文学', icon: 'phone', description: '太太们创作的捡手机文学板块。', keywords: '脑洞, 创作, 记录' },
     ];
   });
 
@@ -371,7 +373,9 @@ export function ForumApp({ characters, settings, loreList = [], onClose }: Forum
       const saved = localStorage.getItem("mobile_ai_forum_posts");
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter((p: ForumPost) => p.boardId !== 'board-3');
+        }
       }
     } catch (e) {}
     return [];

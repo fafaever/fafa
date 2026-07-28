@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { MessageSquare, BookOpen, Settings, Info, UserPlus, Gamepad2, Search, Book, PenTool, Sparkles, Calendar, Image as ImageIcon, Music, Map, Cloud, Camera, Plus, Network } from "lucide-react";
 import { Character, ChatSession, AppSettings } from "../types";
+import { compressImage as globalCompressImage } from "../utils/imageCompressor";
 
 const LeftPlaceholder = () => (
   <div className="w-full h-full flex flex-col items-center justify-center bg-neutral-100/40 p-3 text-neutral-400 select-none">
@@ -29,48 +30,8 @@ const RightPlaceholder = () => (
         </div>
 );
 
-const compressImage = (file: File, maxSizeKB: number = 200): Promise<string> => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new window.Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 800;
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round(height * (maxDim / width));
-            width = maxDim;
-          } else {
-            width = Math.round(width * (maxDim / height));
-            height = maxDim;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d')!;
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        let quality = 0.9;
-        let dataUrl = canvas.toDataURL('image/jpeg', quality);
-        
-        const tryCompress = () => {
-          if (dataUrl.length > maxSizeKB * 1024 && quality > 0.1) {
-            quality -= 0.1;
-            dataUrl = canvas.toDataURL('image/jpeg', quality);
-            tryCompress();
-          } else {
-            resolve(dataUrl);
-          }
-        };
-        tryCompress();
-      };
-      img.src = e.target!.result as string;
-    };
-    reader.readAsDataURL(file);
-  });
+const compressImage = (file: File, _maxSizeKB: number = 200): Promise<string> => {
+  return globalCompressImage(file, 800, 0.7);
 };
 
 interface HomeScreenProps {
@@ -495,10 +456,10 @@ export default function HomeScreen({ onOpenApp, characterCount, loreCount, isApi
 
   const getAppIcon = (key: string, fallback: React.ReactNode) => {
     if (settings?.appIcons?.[key]) {
-      return <img src={settings.appIcons[key]} className="w-full h-full object-cover" />;
+      return <img src={settings.appIcons[key]} className="w-full h-full object-contain bg-transparent" style={{ backgroundColor: 'transparent' }} alt="" />;
     }
     if (defaultIcons[key]) {
-      return <img src={defaultIcons[key]} className="w-full h-full object-cover" />;
+      return <img src={defaultIcons[key]} className="w-full h-full object-cover bg-transparent" style={{ backgroundColor: 'transparent' }} alt="" />;
     }
     return fallback;
   };

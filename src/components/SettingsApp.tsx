@@ -3,6 +3,7 @@ import { ChevronLeft, Save, Trash2, Upload, RotateCcw, Download, Plus, Check, X,
 import { AppSettings, FontOption, ThemePreset } from "../types";
 import { apiFetchModels } from "../lib/api";
 import ImageGenSettingsApp from "./ImageGenSettingsApp";
+import { compressImage } from "../utils/imageCompressor";
 
 interface SettingsAppProps {
   settings: AppSettings;
@@ -233,14 +234,18 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
     reader.readAsDataURL(file);
   };
 
-  const handleUploadWallpaper = (screen: 1 | 2) => {
+  const handleUploadWallpaper = async (screen: 1 | 2) => {
     const input = screen === 1 ? wallpaper1Ref.current : wallpaper2Ref.current;
     if (input?.files?.[0]) {
-      processWallpaperImage(input.files[0], (base64) => {
+      try {
+        const base64 = await compressImage(input.files[0], 800, 0.7);
         if (screen === 1) handleUpdate({ homeWallpaper: base64 });
         else handleUpdate({ homeWallpaper2: base64 });
+      } catch (err) {
+        console.error("Wallpaper compression error:", err);
+      } finally {
         if (input) input.value = '';
-      });
+      }
     }
   };
 
@@ -249,12 +254,15 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
     iconInputRef.current?.click();
   };
 
-  const onIconFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onIconFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0] && currentIconKey) {
-      processImage(e.target.files[0], (base64) => {
+      try {
+        const base64 = await compressImage(e.target.files[0], 800, 0.7);
         const newIcons = { ...settings.appIcons, [currentIconKey]: base64 };
         handleUpdate({ appIcons: newIcons });
-      });
+      } catch (err) {
+        console.error("Icon compression error:", err);
+      }
     }
   };
 
@@ -263,9 +271,16 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
     if (file) {
       const reader = new FileReader();
       reader.onload = (event) => {
+        const fontDataUrl = event.target?.result as string;
+        try {
+          localStorage.setItem("mobile_ai_custom_font_url", fontDataUrl);
+          localStorage.setItem("mobile_ai_global_font", "custom");
+        } catch (err) {
+          console.error("Font persist error:", err);
+        }
         handleUpdate({ 
           globalFont: 'custom', 
-          customFontUrl: event.target?.result as string 
+          customFontUrl: fontDataUrl 
         });
       };
       reader.readAsDataURL(file);
@@ -918,12 +933,12 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                     {apps.map(app => (
                       <div key={app.key} className="flex items-center justify-between p-1.5 bg-neutral-50 rounded-lg border border-neutral-100">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-md bg-white border border-neutral-100 flex items-center justify-center overflow-hidden shadow-sm shrink-0">
+                          <div className="w-8 h-8 rounded-md bg-transparent border border-neutral-200/50 flex items-center justify-center overflow-hidden shrink-0">
                             {settings.appIcons?.[app.key] ? (
-                              <img src={settings.appIcons[app.key]} className="w-full h-full object-cover" />
+                              <img src={settings.appIcons[app.key]} className="w-full h-full object-contain bg-transparent" style={{ backgroundColor: 'transparent' }} />
                             ) : (
                               defaultIcons[app.key] ? (
-                                <img src={defaultIcons[app.key]} className="w-full h-full object-cover opacity-60" />
+                                <img src={defaultIcons[app.key]} className="w-full h-full object-cover opacity-60 bg-transparent" style={{ backgroundColor: 'transparent' }} />
                               ) : (
                                 <div className="text-[7px] font-bold text-neutral-200 uppercase">Logo</div>
                               )

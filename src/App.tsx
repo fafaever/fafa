@@ -47,7 +47,7 @@ const getFontClass = (font?: FontOption) => {
     case 'sans':
       return 'font-sans';
     case 'custom':
-      return 'font-[CustomFont]';
+      return "font-['CustomFont',sans-serif]";
     case 'system':
     default:
       return 'font-sans';
@@ -339,6 +339,9 @@ export default function App() {
 
     // 3. Settings
     const savedSettings = localStorage.getItem("mobile_ai_settings");
+    const savedCustomFont = localStorage.getItem("mobile_ai_custom_font_url") || "";
+    const savedGlobalFont = (localStorage.getItem("mobile_ai_global_font") as FontOption) || null;
+
     if (savedSettings) {
       try {
         const parsed = JSON.parse(savedSettings);
@@ -352,8 +355,8 @@ export default function App() {
           homeWallpaper: parsed.homeWallpaper || "",
           homeWallpaper2: parsed.homeWallpaper2 || "",
           chatWallpaper: parsed.chatWallpaper || "",
-          globalFont: parsed.globalFont || "system",
-          customFontUrl: parsed.customFontUrl || "",
+          globalFont: savedGlobalFont || parsed.globalFont || "system",
+          customFontUrl: savedCustomFont || parsed.customFontUrl || "",
           globalTheme: parsed.globalTheme || "warm_paper",
           appIcons: parsed.appIcons || {},
           themePresets: parsed.themePresets || [],
@@ -367,9 +370,22 @@ export default function App() {
         if (s.apiUrl) localStorage.setItem("apiUrl", s.apiUrl);
         if (s.apiKey) localStorage.setItem("apiKey", s.apiKey);
         if (s.model) localStorage.setItem("model", s.model);
+        if (s.globalFont) localStorage.setItem("mobile_ai_global_font", s.globalFont);
+        if (s.customFontUrl) localStorage.setItem("mobile_ai_custom_font_url", s.customFontUrl);
       } catch (e) {
         console.error(e);
       }
+    } else if (savedCustomFont || savedGlobalFont) {
+      setSettings(prev => ({
+        ...prev,
+        globalFont: savedGlobalFont || prev.globalFont,
+        customFontUrl: savedCustomFont || prev.customFontUrl
+      }));
+      setPreviewSettings(prev => ({
+        ...prev,
+        globalFont: savedGlobalFont || prev.globalFont,
+        customFontUrl: savedCustomFont || prev.customFontUrl
+      }));
     }
 
     // 4. Chat Sessions
@@ -467,6 +483,8 @@ export default function App() {
       if (newSettings.apiUrl !== undefined && newSettings.apiUrl !== null) localStorage.setItem("apiUrl", newSettings.apiUrl);
       if (newSettings.apiKey !== undefined && newSettings.apiKey !== null) localStorage.setItem("apiKey", newSettings.apiKey);
       if (newSettings.model !== undefined && newSettings.model !== null) localStorage.setItem("model", newSettings.model);
+      if (newSettings.globalFont) localStorage.setItem("mobile_ai_global_font", newSettings.globalFont);
+      if (newSettings.customFontUrl) localStorage.setItem("mobile_ai_custom_font_url", newSettings.customFontUrl);
     } catch (err) {
       console.error("[Persist Settings Error]:", err);
     }
@@ -1324,6 +1342,10 @@ export default function App() {
         @font-face {
           font-family: 'CustomFont';
           src: url(${previewSettings.customFontUrl});
+          font-display: swap;
+        }
+        .font-\\[\\'CustomFont\\'\\,sans-serif\\] {
+          font-family: 'CustomFont', sans-serif !important;
         }
       `;
     } else {
