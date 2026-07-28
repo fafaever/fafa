@@ -442,13 +442,21 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
 
   let response: Response;
   try {
-    response = await fetch(endpoint, {
+    const forwarderUrl = `${window.location.origin}/api/chat-forwarder`;
+    response = await fetch(forwarderUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        url: endpoint,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.apiKey}`,
+        },
+        body: body,
+      }),
     });
   } catch (err: any) {
     throw new Error(`网络连接失败 (Failed to fetch): ${err?.message || "请检查网络或 API 地址"}`);
@@ -1619,21 +1627,24 @@ export async function apiFetchModels(params: any = {}) {
   }
 
   let response: Response;
-try {
-  // 直连中转站的 /models 接口
-  const modelsUrl = config.apiUrl.replace(/\/+$/, '') + '/models';
-  response = await fetch(modelsUrl, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-  });
-} catch (err: any) {
-  console.error("============== [FETCH MODELS ERROR] ================");
-  console.error("[Fetch Error]:", err);
-  throw new Error("网络错误：获取模型列表失败（" + (err?.message || "Failed to fetch") + "）");
-}
+  try {
+    // Call our server-side /api/models post proxy
+    const modelsUrl = `${window.location.origin}/api/models`;
+    response = await fetch(modelsUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        apiUrl: config.apiUrl,
+        apiKey: config.apiKey
+      })
+    });
+  } catch (err: any) {
+    console.error("============== [FETCH MODELS ERROR] ================");
+    console.error("[Fetch Error]:", err);
+    throw new Error("网络错误：获取模型列表失败（" + (err?.message || "Failed to fetch") + "）");
+  }
 
   if (!response.ok) {
     let errText = "";

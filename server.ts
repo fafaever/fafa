@@ -112,7 +112,7 @@ async function handleProxyRequest(req: express.Request, res: express.Response) {
 }
 
 // API Proxy route to bypass browser CORS / mixed content issues
-app.post("/api/proxy", handleProxyRequest);
+app.post(["/api/proxy", "/api/chat-forwarder"], handleProxyRequest);
 
 // Server-side Gemini API route
 async function generateGeminiResponse(ai: GoogleGenAI, contents: any[], systemInstruction?: string, temperature: number = 0.8) {

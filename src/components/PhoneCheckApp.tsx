@@ -3,7 +3,8 @@ import {
   ChevronLeft, MessageCircle, Image, Settings, Calendar, Users, 
   ShoppingBag, FileText, Globe, Search, Battery, Signal, Wifi,
   Plus, Check, Trash2, RefreshCw, Wand2, Loader2, Feather, Sparkles, X,
-  ShieldCheck, Clock, Send, CornerDownRight, ThumbsUp, ThumbsDown
+  ShieldCheck, Clock, Send, CornerDownRight, ThumbsUp, ThumbsDown,
+  BookOpen, Film
 } from "lucide-react";
 import { Character, AppSettings } from "../types";
 import { callLLM, getThreeDataSourcesPrompt } from "../lib/api";
@@ -62,6 +63,14 @@ interface ShoppingItem {
   timestamp: number;
 }
 
+interface ReadingItem {
+  id: string;
+  title: string;
+  type: 'movie' | 'novel';
+  thoughts: string;
+  timestamp: number;
+}
+
 export default function PhoneCheckApp({ characters, settings, onClose, onGenerateNote, isGeneratingMap, loreList = [] }: PhoneCheckAppProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
@@ -84,6 +93,10 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>([]);
   const [isGeneratingShopping, setIsGeneratingShopping] = useState(false);
   const [shoppingToast, setShoppingToast] = useState<string | null>(null);
+
+  // Reading / Watching state
+  const [readingList, setReadingList] = useState<ReadingItem[]>([]);
+  const [isGeneratingReading, setIsGeneratingReading] = useState(false);
 
   // Contacts / NPC state
   const [contacts, setContacts] = useState<NpcContact[]>([]);
@@ -115,6 +128,7 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
       setContacts([]);
       setSelectedNpcId(null);
       setActiveModule(null);
+      setReadingList([]);
       return;
     }
 
@@ -183,6 +197,19 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     } catch (e) {
       console.error(e);
       setShoppingList([]);
+    }
+
+    // 5. Load Reading List
+    try {
+      const savedReading = localStorage.getItem(`mobile_ai_phone_reading_${selectedCharId}`);
+      if (savedReading) {
+        setReadingList(JSON.parse(savedReading));
+      } else {
+        setReadingList([]);
+      }
+    } catch (e) {
+      console.error(e);
+      setReadingList([]);
     }
   }, [selectedCharId]);
 
@@ -623,11 +650,68 @@ ${recentHistory}
     }
   };
 
+  const handleGenerateReadingList = async () => {
+    if (!selectedChar) return;
+    setIsGeneratingReading(true);
+
+    try {
+      const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
+      const prompt = `${dataSourceContext}
+请根据以上角色的完整人设、记忆与世界书设定，生成 6-8 条该角色最近观看的电影或阅读的小说记录。
+【规则】：
+1. 每次生成 6-8 个条目。
+2. 每个条目必须包含以下属性：
+   - "title": 书名或电影名（请附带合适格式，如《作品名》）
+   - "type": 必须是 "movie" 或 "novel" 之一
+   - "thoughts": 角色对该电影或小说的简短感想或批注（15-40字，用第一人称口吻，高度契合角色的性格、神态、职业与背景）
+3. 电影与小说题材需非常符合该角色的特定爱好和世界观（例如悬疑迷、学术型、热血中二、文艺伤感、科幻、历史等）。
+4. 格式必须是严格的 JSON 数组：
+[
+  {"title": "《...》", "type": "movie", "thoughts": "..."},
+  {"title": "《...》", "type": "novel", "thoughts": "..."}
+]`;
+
+      const responseText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [
+        { role: "user", content: prompt }
+      ]);
+
+      let jsonStr = responseText;
+      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+      if (jsonMatch) jsonStr = jsonMatch[0];
+
+      const parsed = JSON.parse(jsonStr);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const newBatch: ReadingItem[] = parsed.map((item: any, idx: number) => ({
+          id: `read-${Date.now()}-${idx}`,
+          title: item.title || "《未知作品》",
+          type: item.type === "movie" ? "movie" : "novel",
+          thoughts: item.thoughts || "留下了独特的感想...",
+          timestamp: Date.now() - idx * 3600000
+        }));
+
+        const combined = [...newBatch, ...readingList];
+        const trimmed = combined.slice(0, 20);
+
+        setReadingList(trimmed);
+        localStorage.setItem(`mobile_ai_phone_reading_${selectedChar.id}`, JSON.stringify(trimmed));
+        showToast("阅读物更新成功");
+      } else {
+        throw new Error("解析失败");
+      }
+    } catch (e) {
+      console.error(e);
+      showToast("阅读物生成失败");
+    } finally {
+      setIsGeneratingReading(false);
+    }
+  };
+
   const modules = [
     { name: "联系人", icon: <MessageCircle className="w-6 h-6 text-[#1A1A1A]" />, id: "contacts" },
     { name: "备忘录", icon: <FileText className="w-6 h-6 text-[#1A1A1A]" />, id: "memos" },
     { name: "随笔", icon: <Feather className="w-6 h-6 text-[#1A1A1A]" />, id: "essays" },
     { name: "购物清单", icon: <ShoppingBag className="w-6 h-6 text-[#1A1A1A]" />, id: "shopping" },
+    { name: "阅读物", icon: <BookOpen className="w-6 h-6 text-[#1A1A1A]" />, id: "reading" },
   ];
 
   // ----------------------------------------------------
@@ -908,6 +992,75 @@ ${recentHistory}
             {shoppingList.length === 0 && (
               <div className="text-center py-12 text-xs text-neutral-400">
                 暂无购物清单，点击右上角“生成新清单”
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ----------------------------------------------------
+  // SUB-VIEW 6: READING & WATCHING (阅读物)
+  // ----------------------------------------------------
+  if (activeModule === 'reading') {
+    return (
+      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] text-[#1A1A1A] relative overflow-hidden animate-fade-in">
+        <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-4 shrink-0 sticky top-0 z-10">
+          <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <span className="font-bold text-sm text-neutral-900">
+            {selectedChar?.name}的阅读物
+          </span>
+          <button 
+            onClick={handleGenerateReadingList}
+            disabled={isGeneratingReading}
+            className="flex items-center gap-1 text-xs font-bold bg-neutral-900 text-white px-2.5 py-1.5 rounded-full hover:bg-black active:scale-95 transition-all disabled:opacity-50"
+          >
+            {isGeneratingReading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+            <span>生成记录</span>
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="text-[11px] text-[#A8A39A] px-1 flex items-center justify-between">
+            <span>最近观看与阅读记录 ({readingList.length}/20)</span>
+            <span>自动保留最近20条</span>
+          </div>
+
+          <div className="space-y-3">
+            {readingList.map((item) => (
+              <div 
+                key={item.id}
+                className="p-4 rounded-2xl bg-white border border-neutral-200/60 shadow-xs flex items-start gap-3"
+              >
+                <div className="mt-0.5 p-2 bg-neutral-50 rounded-xl border border-neutral-100 text-neutral-600">
+                  {item.type === 'movie' ? <Film className="w-4 h-4" /> : <BookOpen className="w-4 h-4" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-neutral-900 truncate">
+                      {item.title}
+                    </span>
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold select-none whitespace-nowrap ${
+                      item.type === 'movie' 
+                        ? 'bg-indigo-50 text-indigo-600 border border-indigo-100/50' 
+                        : 'bg-emerald-50 text-emerald-600 border border-emerald-100/50'
+                    }`}>
+                      {item.type === 'movie' ? '电影' : '小说'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-neutral-500 italic mt-1.5 leading-relaxed bg-neutral-50/50 p-2 rounded-xl border border-neutral-100/40">
+                    "{item.thoughts}"
+                  </p>
+                </div>
+              </div>
+            ))}
+
+            {readingList.length === 0 && (
+              <div className="text-center py-12 text-xs text-neutral-400">
+                暂无阅读或观看记录，点击右上角“生成记录”
               </div>
             )}
           </div>
