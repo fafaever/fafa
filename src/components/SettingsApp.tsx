@@ -176,30 +176,9 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   const processWallpaperImage = (file: File, callback: (base64: string) => void) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 1280;
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round(height * (maxDim / width));
-            width = maxDim;
-          } else {
-            width = Math.round(width * (maxDim / height));
-            height = maxDim;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
-          callback(canvas.toDataURL('image/jpeg', 0.85));
-        }
-      };
-      img.src = e.target?.result as string;
+      if (e.target?.result) {
+        callback(e.target.result as string);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -207,29 +186,9 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   const processImage = (file: File, callback: (base64: string) => void) => {
     const reader = new FileReader();
     reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const size = Math.min(img.width, img.height);
-        canvas.width = 512;
-        canvas.height = 512;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(
-            img,
-            (img.width - size) / 2,
-            (img.height - size) / 2,
-            size,
-            size,
-            0,
-            0,
-            512,
-            512
-          );
-          callback(canvas.toDataURL('image/jpeg', 0.8));
-        }
-      };
-      img.src = e.target?.result as string;
+      if (e.target?.result) {
+        callback(e.target.result as string);
+      }
     };
     reader.readAsDataURL(file);
   };

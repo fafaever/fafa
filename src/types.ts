@@ -64,6 +64,7 @@ export interface Message {
   senderId?: string;
   senderName?: string;
   senderAvatar?: string;
+  offlineMeetCardData?: any;
 }
 
 export interface LoreEntry {

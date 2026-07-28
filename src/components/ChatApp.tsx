@@ -1731,6 +1731,7 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
 
 返回格式要求：
 总共恰好生成 ${postCount} 条朋友圈动态，并为每条动态生成 1-2 条其他角色或绑定NPC在朋友圈下的精彩评论互动。
+【核心硬性规则】：评论作者只能是其他角色或自定义NPC！绝对禁止 AI 代表“用户”（或用户账号昵称如：${momentsUserNickname || '用户'}）发表任何评论、留言或内容！
 请严格返回纯 JSON 数组格式（不要包含 Markdown 代码块或额外说明文字）：
 [
   {
@@ -1740,7 +1741,7 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
     "mediaEmojis": "☕️",
     "comments": [
       {
-        "authorName": "评论作者名字（可为其他角色名，或自定义NPC名字如：咖啡店长、社恐路人、吃货小王等）",
+        "authorName": "评论作者名字（只能是其他角色名，或自定义NPC名字如：咖啡店长、社恐路人、吃货小王等，绝对不能是用户）",
         "authorAvatar": "💬",
         "isNpc": true,
         "replyToName": "",
@@ -1775,15 +1776,21 @@ ${selectedChars.map((c, idx) => `${idx + 1}. ID: "${c.id}", 名字: "${c.name}",
                 timestamp: Date.now() - idx * 1000 * 60 * 3,
                 likes: Math.floor(Math.random() * 12) + 1,
                 likedByUser: false,
-                comments: Array.isArray(item.comments) ? item.comments.map((c: any, cIdx: number) => ({
-                  id: `cmt-init-${Date.now()}-${idx}-${cIdx}`,
-                  authorName: c.authorName || "NPC小明",
-                  authorAvatar: c.authorAvatar || "💬",
-                  isNpc: c.isNpc !== false,
-                  content: c.content || "顶一下！",
-                  replyToName: c.replyToName || undefined,
-                  timestamp: Date.now() - idx * 1000 * 60 * 3 + (cIdx + 1) * 20000,
-                })) : []
+                comments: Array.isArray(item.comments) ? item.comments
+                  .filter((c: any) => {
+                    const name = c?.authorName || "";
+                    const uNick = momentsUserNickname || localStorage.getItem("mobile_ai_moments_user_nickname") || "用户";
+                    return name !== uNick && name !== "用户" && name !== "我";
+                  })
+                  .map((c: any, cIdx: number) => ({
+                    id: `cmt-init-${Date.now()}-${idx}-${cIdx}`,
+                    authorName: c.authorName || "NPC小明",
+                    authorAvatar: c.authorAvatar || "💬",
+                    isNpc: c.isNpc !== false,
+                    content: c.content || "顶一下！",
+                    replyToName: c.replyToName || undefined,
+                    timestamp: Date.now() - idx * 1000 * 60 * 3 + (cIdx + 1) * 20000,
+                  })) : []
               };
             });
           }
@@ -1970,11 +1977,12 @@ ${existingCommentsText || "暂无评论"}
    - 严禁追问对方隐私。
 4. 所有互动停留在评论区，绝不因评论而在私信中找用户对质。
 5. NPC评论可先于或与角色同时出现，角色看到NPC评论可接茬回应，但绝不暴露与用户的私密关系。
+6. 【核心绝对禁用项】：绝对禁止 AI 代表“用户”（或用户使用的账号昵称如：${momentsUserNickname || '用户'}）发表任何评论或回复！所有生成的评论必须仅来自于可见角色或绑定NPC！
 
 请生成 1~3 条符合人设的生动新评论，必须返回纯 JSON 数组：
 [
   {
-    "authorName": "必须来自于上面可见角色列表或NPC列表的名字",
+    "authorName": "必须来自于上面可见角色列表或NPC列表的名字（绝对不能是用户）",
     "replyToName": "被回复者的名字或空字符串",
     "content": "评论内容"
   }
@@ -1991,28 +1999,34 @@ ${existingCommentsText || "暂无评论"}
           const jsonMatch = rawText.match(/\[[\s\S]*\]/);
           if (jsonMatch) {
             const parsed = JSON.parse(jsonMatch[0]);
-            newComments = parsed.map((item: any, idx: number) => {
-              const charObj = characters.find(c => c.name === item.authorName);
-              const isNpc = !charObj;
-              let avatar = "💬";
-              if (charObj) {
-                avatar = charObj.realImage || charObj.chatAvatar || getDefaultAvatar(charObj.name);
-              } else {
-                const npcObj = boundNpcs.find(n => n.name === item.authorName);
-                avatar = npcObj?.avatar || "💬";
-              }
+            const uNick = momentsUserNickname || localStorage.getItem("mobile_ai_moments_user_nickname") || "用户";
+            newComments = parsed
+              .filter((item: any) => {
+                const name = item?.authorName || "";
+                return name !== uNick && name !== "用户" && name !== "我";
+              })
+              .map((item: any, idx: number) => {
+                const charObj = characters.find(c => c.name === item.authorName);
+                const isNpc = !charObj;
+                let avatar = "💬";
+                if (charObj) {
+                  avatar = charObj.realImage || charObj.chatAvatar || getDefaultAvatar(charObj.name);
+                } else {
+                  const npcObj = boundNpcs.find(n => n.name === item.authorName);
+                  avatar = npcObj?.avatar || "💬";
+                }
 
-              return {
-                id: `cmt-gen-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-                authorName: item.authorName || (charObj ? charObj.name : "NPC朋友"),
-                authorAvatar: avatar,
-                characterId: charObj?.id,
-                isNpc,
-                replyToName: item.replyToName || undefined,
-                content: item.content || "给这条朋友圈点赞！",
-                timestamp: Date.now() + idx * 1000
-              };
-            });
+                return {
+                  id: `cmt-gen-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+                  authorName: item.authorName || (charObj ? charObj.name : "NPC朋友"),
+                  authorAvatar: avatar,
+                  characterId: charObj?.id,
+                  isNpc,
+                  replyToName: item.replyToName || undefined,
+                  content: item.content || "给这条朋友圈点赞！",
+                  timestamp: Date.now() + idx * 1000
+                };
+              });
           }
         } catch (e) {
           console.warn("API comment generation failed, using local offline generator", e);
@@ -4760,9 +4774,9 @@ ${existingCommentsText || "暂无评论"}
 
       {/* -------------------- VIEW 2B: GROUP CHAT ROOM -------------------- */}
       {activeCharId !== null && activeSession?.isGroup && (
-        <div className="flex-1 flex flex-col h-full bg-white chat-container">
+        <div className={`flex-1 flex flex-col h-full chat-container ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-transparent' : 'bg-white'}`}>
           {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2.5 border-b border-neutral-100 shrink-0 bg-white z-20">
+          <div className={`flex items-center justify-between px-3 py-2.5 border-b border-neutral-100 shrink-0 z-20 ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-white/80 backdrop-blur-md' : 'bg-white'}`}>
             <button
               onClick={() => {
                 setActiveCharId(null);
@@ -4793,7 +4807,7 @@ ${existingCommentsText || "暂无评论"}
           </div>
 
           {/* Messages Stream */}
-          <div className="chat-messages p-4 space-y-4 bg-neutral-50/50 min-h-0">
+          <div className={`chat-messages p-4 space-y-4 min-h-0 ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-transparent' : 'bg-neutral-50/50'}`}>
             {activeSession.messages.map((msg, idx) => {
               const isUser = msg.role === "user";
               
@@ -4991,9 +5005,9 @@ ${existingCommentsText || "暂无评论"}
 
       {/* -------------------- VIEW 2: ACTIVE CHAT ROOM -------------------- */}
       {activeCharId !== null && activeSession && !activeSession.isGroup && (
-        <div className="flex-1 flex flex-col h-full bg-white chat-container">
+        <div className={`flex-1 flex flex-col h-full chat-container ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-transparent' : 'bg-white'}`}>
           {/* Header */}
-          <div className="flex items-center justify-between px-3 py-2.5 border-b border-neutral-100 shrink-0 bg-white z-20">
+          <div className={`flex items-center justify-between px-3 py-2.5 border-b border-neutral-100 shrink-0 z-20 ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-white/80 backdrop-blur-md' : 'bg-white'}`}>
             <button
               onClick={() => {
                 setActiveCharId(null);
@@ -5086,7 +5100,7 @@ ${existingCommentsText || "暂无评论"}
 
           {/* Messages Scroll Area */}
           <div 
-            className="flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 bg-neutral-50/50 transition-all duration-150 chat-messages"
+            className={`flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 transition-all duration-150 chat-messages ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-transparent' : 'bg-neutral-50/50'}`}
             style={{ 
               scrollBehavior: "smooth"
             }}
@@ -5449,7 +5463,7 @@ ${existingCommentsText || "暂无评论"}
           )}
 
           {/* Message input bar or Blocked display */}
-          <div className="shrink-0 bg-white z-20">
+          <div className={`shrink-0 z-20 ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-white/90 backdrop-blur-md' : 'bg-white'}`}>
             {isBlocked ? (
               <div className="p-4 bg-neutral-50 flex flex-col items-center justify-center space-y-2 shrink-0 select-none animate-fade-in">
                 <div className="flex items-center gap-2 w-full">
@@ -6266,8 +6280,13 @@ ${existingCommentsText || "暂无评论"}
                       currentChatWallpaper === wp ? "border-black shadow-md scale-105" : "border-neutral-200 hover:border-neutral-400"
                     }`}
                     onClick={() => {
-                      setCurrentChatWallpaper(wp);
-                      localStorage.setItem(`chat_current_wallpaper_${activeCharId}`, wp);
+                      if (currentChatWallpaper === wp) {
+                        setCurrentChatWallpaper(null);
+                        localStorage.removeItem(`chat_current_wallpaper_${activeCharId}`);
+                      } else {
+                        setCurrentChatWallpaper(wp);
+                        localStorage.setItem(`chat_current_wallpaper_${activeCharId}`, wp);
+                      }
                     }}
                   >
                     <img src={wp} alt={`wallpaper-${idx}`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />

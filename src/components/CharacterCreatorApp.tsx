@@ -52,46 +52,16 @@ interface CharacterCreatorAppProps {
   onNavigateToChat: (characterId: string) => void;
 }
 
-const compressAndResizeImage = (file: File, maxDimension = 300, quality = 0.8): Promise<string> => {
+const compressAndResizeImage = (file: File, _maxDimension = 300, _quality = 0.8): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error("读取图片文件失败"));
     reader.onload = (e) => {
-      const img = new Image();
-      img.onerror = () => reject(new Error("加载图片格式失败"));
-      img.onload = () => {
-        try {
-          const canvas = document.createElement("canvas");
-          let width = img.width;
-          let height = img.height;
-
-          if (width > maxDimension || height > maxDimension) {
-            if (width > height) {
-              height = Math.round((height * maxDimension) / width);
-              width = maxDimension;
-            } else {
-              width = Math.round((width * maxDimension) / height);
-              height = maxDimension;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) {
-            resolve(e.target?.result as string);
-            return;
-          }
-
-          ctx.drawImage(img, 0, 0, width, height);
-          const dataUrl = canvas.toDataURL("image/jpeg", quality);
-          resolve(dataUrl);
-        } catch (err) {
-          console.error("[Canvas Compress Warning] Exception during image compression:", err);
-          resolve(e.target?.result as string);
-        }
-      };
-      img.src = e.target?.result as string;
+      if (e.target?.result) {
+        resolve(e.target.result as string);
+      } else {
+        reject(new Error("读取图片文件失败"));
+      }
     };
     reader.readAsDataURL(file);
   });
