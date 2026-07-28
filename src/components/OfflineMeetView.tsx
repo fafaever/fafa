@@ -387,19 +387,26 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     let perspectiveInstruction = "";
     if (plotMode === "multi") {
       if (perspective === "second") {
-        perspectiveInstruction = `【叙述视角要求 - 第二人称】：所有参演角色（${allNames.join("、")}）在描述动作与对话时均使用各自的角色姓名，将用户统一称呼为“你”！`;
+        perspectiveInstruction = `【叙述视角要求 - 第二人称（绝对强制）】：所有参演角色（${allNames.join("、")}）在描述动作与对话时均使用各自的角色姓名，将用户统一称呼为“你”！即便用户的输入中使用了“我”或其他称呼，你也必须严格坚持使用角色名和“你”，绝不妥协！`;
       } else {
-        perspectiveInstruction = `【叙述视角要求 - 第三人称】：所有参演角色（${allNames.join("、")}）以及用户（${currentUserName}）均统一使用各自的姓名描述其动作与台词！`;
+        perspectiveInstruction = `【叙述视角要求 - 第三人称（绝对强制）】：所有参演角色（${allNames.join("、")}）以及用户（${currentUserName}）均统一使用各自的姓名或“他/她”描述其动作与台词！即便用户的输入中使用了“我”或“你”，你也必须严格坚持第三人称叙述，绝不切换视角！`;
       }
     } else {
       if (perspective === "first") {
-        perspectiveInstruction = "【叙述视角要求】：从角色自身视角出发，使用第一人称（“我”）来进行心理活动与动作描写。";
+        perspectiveInstruction = "【叙述视角要求 - 第一人称】：从角色自身视角出发，使用第一人称（“我”）来进行心理活动与动作描写。";
       } else if (perspective === "second") {
-        perspectiveInstruction = "【叙述视角要求】：在描写与叙述中角色使用角色名，直接称呼用户为“你”。";
+        perspectiveInstruction = `【叙述视角要求 - 第二人称（绝对强制）】：在描写与叙述中角色使用角色名，直接称呼用户为“你”。即使用户在输入中自称“我”，你在叙述中也必须称呼用户为“你”，严格保持视角一致！`;
       } else {
-        perspectiveInstruction = "【叙述视角要求】：使用第三人称（“他/她”及角色名）来客观叙述角色的姿态、动作与心理。";
+        perspectiveInstruction = `【叙述视角要求 - 第三人称（绝对强制）】：使用第三人称（“他/她”及角色名）来客观叙述角色的姿态、动作与心理。即使当前用户在输入中使用了“我”或“你”，你也必须严格保持第三人称叙述，绝不妥协！`;
       }
     }
+
+    const formattingInstruction = `
+【文本格式排版规则 (绝对强制)】：
+1. 所有的“对话内容”必须单独成行，并使用 *斜体* 显示（例如：*“你来了。”*）。
+2. 动作描写、环境描写、心理描写等叙述性内容按自然段落排列，严禁刻意换行，严禁在一段完整的动作描写中插入换行符。
+3. 对话与描写交替进行时，请确保对话内容始终是独立的段落。
+`;
 
     let toneInstruction = "";
     if (writingTone === "literary") {
@@ -426,7 +433,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
 `;
     }
 
-    return `${perspectiveInstruction}\n${toneInstruction}${customKwStr}${multiRules}`;
+    return `${perspectiveInstruction}\n${formattingInstruction}\n${toneInstruction}${customKwStr}${multiRules}`;
   };
 
   // Generate the AI's first opening scene (开场描写 - 不包含任何对话)
@@ -486,11 +493,9 @@ you are generating the 【first opening scene description】 for "offline meetin
 
 【最高优先级规则】：
 1. 【绝对严禁包含任何话语或对话内容】：第一段开场描写必须完全是环境渲染、动作细节、氛围布置、心理与眼神等叙述性画面文字。严禁出现角色说话、对话框、 quotes “...” 或任何言语台词！用户的第一次对话或行动将在开场之后由用户主动输入。
-2. 【极其重要的剧情排版格式要求】：
-- 剧情描述中，只有对话内容单独成行，动作和环境描写按自然段落排列，不刻意分行。
-- 所有的动作描写、环境描写、眼神姿态、感官细节、心理活动，必须合并在自然且连贯的完整段落中进行叙述，绝对不准刻意分行、另起新行、或把一两句零碎描写单独成行。
-- 只有当角色说出口的台词/对话内容（即带有双引号“...”的内容），才可以且必须单独成行。
-- 对话台词前后的所有动作或环境叙述一律不要中途折行。
+2. 【极其重要的剧情排版格式要求（绝对强制）】：
+- 所有的“对话内容”必须单独成行，并使用 *斜体* 显示（例如：*“你来了。”*）。虽然此开场描述严禁对话，但此规则适用于后续剧情。
+- 动作描写、环境描写、眼神姿态、感官细节、心理活动，必须合并在自然且连贯的完整段落中进行叙述，绝对不准刻意分行、另起新行、或把一两句零碎描写单独成行。
 - 确保描写自然连贯，像读小说一样，不要出现碎裂的短格或多余的换行。
 3. 【字数控制】：字数必须在 ${currentLimit} 字左右（要求 ${minWords}~${maxWords} 字）。
 4. 【角色人设】：贴合 ${character.name} 的性格风格（${character.description || ""}）。
@@ -679,10 +684,13 @@ ${contextPrompt}`;
 
       const minWords = Math.max(150, Math.floor(wordLimit * 0.75));
       const maxWords = Math.min(2500, Math.floor(wordLimit * 1.25));
+      const styleRules = getPromptStyleInstructions();
 
       const systemInstruction = `【线下见面剧情模式特别指令】：
 你正在与用户进行“线下见面”互动。这是一个纯剧情小说/剧本模式，以环境白描、肢体动作、感官细节与微小停顿为主，对话为辅。
 ${onlineContextStr}
+
+${styleRules}
 
 【线下见面与动作心理描写规则（极其重要）】：
 1. 用户发送的【未加双引号】的内容（如：好想走啊、叹了口气、心神不定），视为动作、神态、心理活动或外部表现。角色无法直接“听到”或读取用户的内心原话或想法，只能通过观察用户的外部表现、动作、表情、语气来推测（例如：观察到用户可能有些心神不定或不耐烦，推测她可能想走了）。
@@ -691,18 +699,7 @@ ${onlineContextStr}
 
 【字数控制要求】：
 请务必将你的每一轮描写控制在约 ${wordLimit} 字左右（范围：${minWords}~${maxWords} 字）。
-
-【文风与写作风格要求（日本电影台词本风格）】：
-1. 干净白描，略带文艺感，字里行间有呼吸感与阅读质感。
-2. 句式短，多用具体的名词与动词。形容词极其克制，多来自光线、雨声、温度、空气、距离等真实感官。
-3. 不喊叫，不摔东西，不砸墙。情绪不靠形容词，靠动作细节、眼神停顿与微小的心理波澜传递。
-4. 让画面静下来，让节奏慢下来。不热闹，不煽情，不装深沉。
-5. 对话自然平实，与环境细节及停顿穿插交织，呈现出真实时间流逝的质感。
-
-规则：
-1. 严禁单纯输出网聊短句，不要使用任何聊天气泡视角。
-2. 动作与心理描写可以用 *...* 或 （...） 包裹，说话内容放在 quotes “...” 中。
-3. 表现出 ${character.name} 的独特性格细节（${character.description || ""}）。`;
+`;
 
       const apiMessages = [
         {
@@ -790,10 +787,13 @@ ${onlineContextStr}
 
       const minWords = Math.max(150, Math.floor(wordLimit * 0.75));
       const maxWords = Math.min(2500, Math.floor(wordLimit * 1.25));
+      const styleRules = getPromptStyleInstructions();
 
       const systemInstruction = `【线下见面剧情模式特别指令】：
 你正在与用户进行“线下见面”互动。这是一个纯剧情小说/剧本模式，以环境白描、肢体动作、感官细节与微小停顿为主，对话为辅。
 ${onlineContextStr}
+
+${styleRules}
 
 【线下见面与动作心理描写规则（极其重要）】：
 1. 用户发送的【未加双引号】的内容（如：好想走啊、叹了口气、心神不定），视为动作、神态、心理活动或外部表现。角色无法直接“听到”或读取用户的内心原话或想法，只能通过观察用户的外部表现、动作、表情、语气来推测（例如：观察到用户可能有些心神不定或不耐烦，推测她可能想走了）。
@@ -802,18 +802,7 @@ ${onlineContextStr}
 
 【字数控制要求】：
 请务必将你的每一轮描写控制在约 ${wordLimit} 字左右（范围：${minWords}~${maxWords} 字）。
-
-【文风与写作风格要求（日本电影台词本风格）】：
-1. 干净白描，略带文艺感，字里行间有呼吸感与阅读质感。
-2. 句式短，多用具体的名词与动词。形容词极其克制，多来自光线、雨声、温度、空气、距离等真实感官。
-3. 不喊叫，不摔东西，不砸墙。情绪不靠形容词，靠动作细节、眼神停顿与微小的心理波澜传递。
-4. 让画面静下来，让节奏慢下来。不热闹，不煽情，不装深沉。
-5. 对话自然平实，与环境细节及停顿穿插交织，呈现出真实时间流逝的质感。
-
-规则：
-1. 严禁单纯输出网聊短句，不要使用任何聊天气泡视角。
-2. 动作与心理描写可以用 *...* 或 （...） 包裹，说话内容放在 quotes “...” 中。
-3. 表现出 ${character.name} 的独特性格细节（${character.description || ""}）。`;
+`;
 
       const apiMessages = [
         {
@@ -1075,9 +1064,17 @@ ${onlineContextStr}
         </div>
 
         <div className="meet-body text-sm leading-relaxed space-y-2">
-          {rawParagraphs.map((para, pIdx) => (
-            <p key={pIdx} className="whitespace-pre-wrap">{para}</p>
-          ))}
+          {rawParagraphs.map((para, pIdx) => {
+            const isDialogue = (para.includes("“") && para.includes("”")) || (para.includes("*“") && para.includes("”*"));
+            return (
+              <p 
+                key={pIdx} 
+                className={`whitespace-pre-wrap ${isDialogue ? 'italic' : ''}`}
+              >
+                {para.replace(/\*(.*?)\*/g, "$1")}
+              </p>
+            );
+          })}
         </div>
 
         {/* Card Action Bar */}

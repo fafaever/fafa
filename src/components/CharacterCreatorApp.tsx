@@ -638,34 +638,7 @@ ${decodedText.substring(0, 1500)}`;
       }
 
       setBoundNpcs(extractedNpcs);
-
-      // If settings has API key, automatically run AI analysis for premium extraction
-      if (settings?.apiKey) {
-        try {
-          const aiRes = await apiAnalyzeCharacterFile({
-            fileText: decodedText,
-            fileName,
-            settings
-          });
-          if (aiRes?.success && aiRes?.data) {
-            const { name: aiName, nickname: aiNick, personality: aiPers, chatStyle: aiChat, background: aiBg, avatar: aiAvatar } = aiRes.data;
-            if (aiName) setName(aiName);
-            if (aiNick && aiNick !== "无") setNickname(aiNick);
-            if (aiPers) setPersonality(aiPers);
-            if (aiBg) setBackground(aiBg);
-            if (aiChat) setChatStyle(aiChat);
-            if (aiAvatar) setAvatar(aiAvatar);
-            setSuccessMsg(`✨ 文件读取成功！AI 已智能提炼角色人设，并自动根据文件内容生成了 ${extractedNpcs.length} 个绑定 NPC！`);
-            setIsImporting(false);
-            return;
-          }
-        } catch (aiErr) {
-          console.warn("⚠️ [自动 AI 智能提炼失败，已采用本地文本解析]:", aiErr);
-        }
-      }
-
-      setSuccessMsg(`📂 文件读取并解析成功！已自动填充表单，并根据文件内容生成了 ${extractedNpcs.length} 个 NPC。请核对后保存。`);
-
+      setSuccessMsg("📂 角色文件解析成功！内容已完整填入对应字段，请核对。");
     } catch (err: any) {
       console.error("❌ [角色导入异常]:", err);
       setErrorMsg(err.message || "文件解析失败，请检查文件格式或重试。");
@@ -709,7 +682,7 @@ ${decodedText.substring(0, 1500)}`;
 
     for (let line of lines) {
       const trimmed = line.trim();
-      if (!trimmed) continue;
+      if (!trimmed && currentSection === null) continue;
 
       // Prioritize name extraction
       if (!parsedName) {
@@ -761,20 +734,19 @@ ${decodedText.substring(0, 1500)}`;
       }
 
       if (currentSection === 'personality') {
-        parsedPersonality += (parsedPersonality ? "\n" : "") + trimmed;
+        parsedPersonality += (parsedPersonality ? "\n" : "") + line;
       } else if (currentSection === 'chatStyle') {
-        parsedChatStyle += (parsedChatStyle ? "\n" : "") + trimmed;
+        parsedChatStyle += (parsedChatStyle ? "\n" : "") + line;
       } else if (currentSection === 'background') {
-        parsedBackground += (parsedBackground ? "\n" : "") + trimmed;
+        parsedBackground += (parsedBackground ? "\n" : "") + line;
       } else if (currentSection === 'desc') {
-        parsedDesc += (parsedDesc ? "\n" : "") + trimmed;
+        parsedDesc += (parsedDesc ? "\n" : "") + line;
       }
     }
 
     if (!hasStructure || (!parsedName && !parsedPersonality)) {
-      const baseName = fName.replace(/\.[^/.]+$/, "");
-      parsedName = baseName;
-      parsedPersonality = fileText.trim();
+      parsedPersonality = fileText;
+      parsedName = fName.replace(/\.[^/.]+$/, "");
     }
 
     if (!parsedName) {
@@ -788,9 +760,9 @@ ${decodedText.substring(0, 1500)}`;
 
     setName(parsedName);
     setNickname(parsedNickname);
-    setPersonality(parsedPersonality || fileText.trim());
-    setBackground(parsedBackground);
-    setChatStyle(parsedChatStyle || `作为${parsedName}，说话时字里行间流露出独特的个人特质与语气，语气真实生动，带有沉浸式动作与心理描写。`);
+    setPersonality(parsedPersonality.trim() || parsedDesc.trim());
+    setBackground(parsedBackground.trim());
+    setChatStyle(parsedChatStyle.trim() || `作为${parsedName}，说话时字里行间流露出独特的个人特质与语气，语气真实生动，带有沉浸式动作与心理描写。`);
   };
 
   const runAiAnalysis = async () => {

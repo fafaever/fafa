@@ -1,0 +1,38 @@
+const fs = require('fs');
+let code = fs.readFileSync('src/components/OfflineMeetView.tsx', 'utf-8');
+
+const target = `      let systemInstruction = \`--- 线下见面（Offline Meet）剧情演绎规则 ---
+- 你正在与用户进行面对面的沉浸式剧情互动（线下见面模式）。
+- 写作风格：\${writingTone === 'literary' ? '细腻文学风，注重环境烘托与心理描写。' : writingTone === 'cold_restrained' ? '冷淡克制风，用词少，情绪收着。' : writingTone === 'warm_soft' ? '温暖柔和风，语气软，细节暖。' : '日常自然风。'}
+- 视角：\${perspective === 'first' ? '第一视角（我）。' : perspective === 'third' ? '第三视角（他/她/名字）。' : '第二视角（你）。'}
+- 目标字数限制：请输出约 \${wordLimit} 字左右的细腻剧情与互动描写。\`;
+
+      if (meetMode === "isolated") {
+        systemInstruction += \`\\n- 架空剧情背景设定：\${isolatedBackground || "无特定背景，自由发挥"}\`;
+      } else {
+        systemInstruction += \`\\n- 共享模式开场情境：时间「\${timeSetting || "未知"}」，地点「\${locationSetting || "未知"}」，缘由「\${reasonSetting || "未知"}」，氛围「\${atmosphereSetting || "未知"}」。\`;
+      }
+
+      if (customToneKeywords.trim()) {
+        systemInstruction += \`\\n- 自定义文风/词汇要求：\${customToneKeywords}\`;
+      }`;
+
+const replacement = `      const styleRules = getPromptStyleInstructions();
+      let systemInstruction = \`--- 线下见面（Offline Meet）剧情演绎规则 ---
+- 你正在与用户进行面对面的沉浸式剧情互动（线下见面模式）。
+\${styleRules}
+- 目标字数限制：请输出约 \${wordLimit} 字左右的细腻剧情与互动描写。\`;
+
+      if (meetMode === "isolated") {
+        systemInstruction += \`\\n- 架空剧情背景设定：\${isolatedBackground || "无特定背景，自由发挥"}\`;
+      } else {
+        systemInstruction += \`\\n- 共享模式开场情境：时间「\${timeSetting || "未知"}」，地点「\${locationSetting || "未知"}」，缘由「\${reasonSetting || "未知"}」，氛围「\${atmosphereSetting || "未知"}」。\`;
+      }`;
+
+if (code.includes(target)) {
+  code = code.replace(target, replacement);
+  fs.writeFileSync('src/components/OfflineMeetView.tsx', code);
+  console.log("Replaced successfully!");
+} else {
+  console.log("Target not found!");
+}
