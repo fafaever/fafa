@@ -30,6 +30,7 @@ import {
   Menu,
   User,
   Users,
+  Heart,
 } from "lucide-react";
 import { Character, AppSettings, Message } from "../types";
 import { apiChat } from "../lib/api";
@@ -158,6 +159,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   const [showSetupModal, setShowSetupModal] = useState<boolean>(true);
   const [showExitModal, setShowExitModal] = useState<boolean>(false);
   const [isPaused, setIsPaused] = useState<boolean>(false);
+  const [hasSavedSetup, setHasSavedSetup] = useState<boolean>(false);
 
   // Plot Mode state ("single" | "multi") and selected multi character IDs
   const [plotMode, setPlotMode] = useState<"single" | "multi">("single");
@@ -263,6 +265,10 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     // If no story history exists, open setup modal automatically
     if (!hasLoadedStory) {
       setShowSetupModal(true);
+      setHasSavedSetup(false);
+    } else {
+      setShowSetupModal(false);
+      setHasSavedSetup(true);
     }
   }, [character.id]);
 
@@ -414,37 +420,13 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     if (plotMode === "multi" && selectedMultiChars.length > 0) {
       multiRules = `
 【线下见面多人模式核心规则（极其重要）】：
-1. 【只生成一张整合剧情卡片】：绝对禁止按不同角色拆分成多条独立消息输出！本次回复必须是【单张完整的整合剧情卡片】。
-2. 【全员参演与互动连贯展开】：卡片中需以流畅的小说/剧段落，完整连贯地呈现本轮所有参演角色（${allNames.join("、")}）以及用户（${currentUserName}）的环境动作、肢体眼神细节与彼此之间的言语对话互动。
-3. 【同一卡片流利展开】：角色与角色之间的接话、动作回应、氛围起伏在同一个连续段落中流畅自然交织呈现。
+1. 参演的其他角色包括：${selectedMultiChars.map((c) => c.name).join("、")}。
+2. 在当前的对话和动作场景中，请合理地将这些角色带入剧情，描述他们的站位、眼神、小动作以及自然的插话。
+3. 严格遵循各参演角色的性格设定（${selectedMultiChars.map((c) => `${c.name}: ${c.description || "日常性格"}`).join("；")}）。
 `;
     }
 
-    return `
-${perspectiveInstruction}
-${toneInstruction}${customKwStr}${multiRules}
-
-【核心撰写规范】：
-1. 坚决杜绝油腻、霸总、超雄、极端情绪或夸张华丽词藻的堆砌。
-2. 句式多用具体的名词与动词。形容词极其克制，多来自光线、声音、温度、空气、距离等真实感官。
-3. 情绪不依赖浮夸形容词，而是通过细腻动作、眼神停顿、肢体微调与环境变化克制地传递。
-4. 让节奏慢下来，对话平实自然，与环境细节穿插交织。
-`;
-  };
-
-  // Long press timer touch/mouse handlers
-  const handleTouchStart = (msg: OfflineStoryMessage) => {
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
-    longPressTimerRef.current = setTimeout(() => {
-      setSelectedMsgForMenu(msg);
-    }, 450);
-  };
-
-  const handleTouchEnd = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
+    return `${perspectiveInstruction}\n${toneInstruction}${customKwStr}${multiRules}`;
   };
 
   // Generate the AI's first opening scene (开场描写 - 不包含任何对话)
@@ -491,30 +473,27 @@ ${recentOnlineStr || "（此前在线上已有熟悉互动与交谈）"}`;
 ${recentOnlineStr || "（此前在线上已有熟悉互动与交谈）"}`;
         }
       } else {
-        // Isolated mode (架空模式)
-        if (isoBg.trim()) {
-          contextPrompt = `【架空模式开场背景（用户自定义）】：
-背景与场景描述：${isoBg.trim()}
-
-请以此架空背景为起点，保持你的角色性格特征，展开第一段开场描写。忽略所有线上聊天记录。`;
-        } else {
-          contextPrompt = `【架空模式开场背景（AI自由随机创作）】：
-用户未指定架空背景。请依据你的角色性格（${character.description || ""}）与世界观，完全自由地随机构思一个极具新意、悬念与吸引力的平行时空/独立剧本开场描写。忽略所有线上聊天记录。`;
-        }
+        contextPrompt = `【开场设定依据（架空剧本背景设定）】：
+${isoBg.trim() || "用户未指定架空背景。请依据你的角色性格（" + (character.description || "") + "）与世界观，完全自由地随机构思一个极具新意、悬念与吸引力的平行时空/独立剧本开场描写。忽略所有线上聊天记录。"}`;
       }
 
       const minWords = Math.max(150, Math.floor(currentLimit * 0.75));
       const maxWords = Math.min(2500, Math.floor(currentLimit * 1.25));
-
       const styleRules = getPromptStyleInstructions();
 
       const openingInstruction = `【线下见面 - 第一段开场描写特别指令】：
-你正在为“线下见面”互动生成【第一段开场描写】。
+you are generating the 【first opening scene description】 for "offline meeting".
 
 【最高优先级规则】：
 1. 【绝对严禁包含任何话语或对话内容】：第一段开场描写必须完全是环境渲染、动作细节、氛围布置、心理与眼神等叙述性画面文字。严禁出现角色说话、对话框、 quotes “...” 或任何言语台词！用户的第一次对话或行动将在开场之后由用户主动输入。
-2. 【字数控制】：字数必须在 ${currentLimit} 字左右（要求 ${minWords}~${maxWords} 字）。
-3. 【角色人设】：贴合 ${character.name} 的性格风格（${character.description || ""}）。
+2. 【极其重要的剧情排版格式要求】：
+- 剧情描述中，只有对话内容单独成行，动作和环境描写按自然段落排列，不刻意分行。
+- 所有的动作描写、环境描写、眼神姿态、感官细节、心理活动，必须合并在自然且连贯的完整段落中进行叙述，绝对不准刻意分行、另起新行、或把一两句零碎描写单独成行。
+- 只有当角色说出口的台词/对话内容（即带有双引号“...”的内容），才可以且必须单独成行。
+- 对话台词前后的所有动作或环境叙述一律不要中途折行。
+- 确保描写自然连贯，像读小说一样，不要出现碎裂的短格或多余的换行。
+3. 【字数控制】：字数必须在 ${currentLimit} 字左右（要求 ${minWords}~${maxWords} 字）。
+4. 【角色人设】：贴合 ${character.name} 的性格风格（${character.description || ""}）。
 ${styleRules}
 
 ${contextPrompt}`;
@@ -593,9 +572,52 @@ ${contextPrompt}`;
     );
   };
 
+  // Save Setup
+  const handleSaveSetup = () => {
+    saveConfigState(meetMode, wordLimit);
+    try {
+      localStorage.setItem(
+        configKey,
+        JSON.stringify({
+          wordLimit,
+          meetMode,
+          plotMode,
+          selectedMultiCharIds,
+          timeSetting,
+          locationSetting,
+          reasonSetting,
+          atmosphereSetting,
+          isolatedBackground,
+          theme: activeTheme,
+          perspective,
+          writingTone,
+          customToneKeywords,
+          customCss,
+          savedCssPresets,
+        })
+      );
+    } catch (e) {
+      console.error("Failed to save offline config:", e);
+    }
+    setHasSavedSetup(true);
+    setShowSetupModal(false);
+  };
+
+  // Reset scene
+  const handleResetScene = () => {
+    if (window.confirm("确定要重新配置并重置线下见面剧情吗？当前对话将自动存入历史记录。")) {
+      if (messages.length > 0) {
+        archiveCurrentSession(messages, meetMode);
+      }
+      setMessages([]);
+      setHasSavedSetup(false);
+      setShowSetupModal(true);
+    }
+  };
+
   // Opening setup apply handler with confirmation prompt
   const handleApplySetupWithConfirm = () => {
-    const confirmed = window.confirm("切换模式将结束当前见面并创建新见面，确定继续吗？");
+    const confirmed = window.confirm("应用新设定将结束当前见面并创建新见面，确定继续吗？");
     if (!confirmed) return;
 
     if (messages.length > 0) {
@@ -615,35 +637,6 @@ ${contextPrompt}`;
       atmosphereSetting,
       isolatedBackground
     );
-  };
-
-  // Start / Confirm Setup
-  const handleStartMeeting = () => {
-    if (messages.length > 0) {
-      archiveCurrentSession(messages, meetMode);
-    }
-    saveConfigState(meetMode, wordLimit);
-    setShowSetupModal(false);
-    generateOpeningScene(
-      meetMode,
-      wordLimit,
-      timeSetting,
-      locationSetting,
-      reasonSetting,
-      atmosphereSetting,
-      isolatedBackground
-    );
-  };
-
-  // Reset scene
-  const handleResetScene = () => {
-    if (window.confirm("确定要重新配置并重置线下见面剧情吗？当前对话将自动存入历史记录。")) {
-      if (messages.length > 0) {
-        archiveCurrentSession(messages, meetMode);
-      }
-      setMessages([]);
-      setShowSetupModal(true);
-    }
   };
 
   // Re-roll a character AI message (重新生成该条描写内容，替换原内容)
@@ -700,7 +693,7 @@ ${onlineContextStr}
 请务必将你的每一轮描写控制在约 ${wordLimit} 字左右（范围：${minWords}~${maxWords} 字）。
 
 【文风与写作风格要求（日本电影台词本风格）】：
-1. 干净白描，略带文艺感，字里行间有呼吸感与阅读质感。坚决杜绝油腻、霸总、超雄、极端情绪或华丽修辞的堆砌。
+1. 干净白描，略带文艺感，字里行间有呼吸感与阅读质感。
 2. 句式短，多用具体的名词与动词。形容词极其克制，多来自光线、雨声、温度、空气、距离等真实感官。
 3. 不喊叫，不摔东西，不砸墙。情绪不靠形容词，靠动作细节、眼神停顿与微小的心理波澜传递。
 4. 让画面静下来，让节奏慢下来。不热闹，不煽情，不装深沉。
@@ -811,7 +804,7 @@ ${onlineContextStr}
 请务必将你的每一轮描写控制在约 ${wordLimit} 字左右（范围：${minWords}~${maxWords} 字）。
 
 【文风与写作风格要求（日本电影台词本风格）】：
-1. 干净白描，略带文艺感，字里行间有呼吸感与阅读质感。坚决杜绝油腻、霸总、超雄、极端情绪或华丽修辞的堆砌。
+1. 干净白描，略带文艺感，字里行间有呼吸感与阅读质感。
 2. 句式短，多用具体的名词与动词。形容词极其克制，多来自光线、雨声、温度、空气、距离等真实感官。
 3. 不喊叫，不摔东西，不砸墙。情绪不靠形容词，靠动作细节、眼神停顿与微小的心理波澜传递。
 4. 让画面静下来，让节奏慢下来。不热闹，不煽情，不装深沉。
@@ -876,7 +869,7 @@ ${onlineContextStr}
         timestamp: Date.now(),
       };
 
-      const finalStoryList = [...messages, aiMsg];
+      const finalStoryList = [...msgsToUse, aiMsg];
       saveStory(finalStoryList);
 
       if (meetMode === "shared" && onSyncToOnlineChat) {
@@ -967,10 +960,28 @@ ${onlineContextStr}
     }
   };
 
+  // Generate AI Reply or Opening Scene (triggered exclusively by clicking the Heart button)
+  const handleGenerateAiReply = () => {
+    if (isGenerating) return;
+    if (messages.length === 0) {
+      generateOpeningScene(
+        meetMode,
+        wordLimit,
+        timeSetting,
+        locationSetting,
+        reasonSetting,
+        atmosphereSetting,
+        isolatedBackground
+      );
+    } else {
+      handleContinueStory(messages);
+    }
+  };
+
   // Send User Action / Dialogue (Appends message directly without auto-generating AI reply)
   const handleUserSend = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (isGenerating || messages.length === 0 || !inputText.trim()) return;
+    if (isGenerating || !inputText.trim()) return;
 
     const userText = inputText.trim();
     setInputText("");
@@ -985,7 +996,6 @@ ${onlineContextStr}
 
     const updatedMsgs = [...messages, userMsg];
     saveStory(updatedMsgs);
-    handleContinueStory(updatedMsgs);
   };
 
   // Save edited user message
@@ -1787,42 +1797,34 @@ ${onlineContextStr}
             <form onSubmit={handleUserSend} className="flex items-end gap-3">
               <textarea
                 style={{ fontFamily: '"Inter", sans-serif', color: '#1A1A1A', backgroundColor: '#FFFFFF' }}
-                placeholder={
-                  messages.length === 0
-                    ? "开场生成后即可输入..."
-                    : "输入你的行动或表达（加双引号为说出的台词，不加为动作或神态）..."
-                }
+                placeholder="输入你的行动或表达（双引号内为说出口的台词，不加引号则为动作/神态描述）..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
-                disabled={isGenerating || messages.length === 0}
+                disabled={isGenerating}
                 rows={isInputZoomed ? 6 : 2}
                 className={`flex-1 border border-[#EFECE8] rounded-[8px] px-[14px] py-[10px] text-[14px] placeholder-[#A8A39A] outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed focus:border-[#1A1A1A] resize-none ${isInputZoomed ? 'h-[160px]' : 'h-[44px]'}`}
               />
 
               <div className="flex items-center gap-[8px] shrink-0 pb-0.5">
-                {/* 发送按钮 (纸飞机图标) */}
+                {/* 发送按钮 (发送用户消息) */}
                 <button
                   type="submit"
-                  disabled={isGenerating || messages.length === 0 || !inputText.trim()}
+                  disabled={isGenerating || !inputText.trim()}
                   className="px-4 h-[40px] rounded-[8px] bg-[#1A1A1A] hover:bg-black text-white flex items-center justify-center transition-all active:scale-95 cursor-pointer disabled:bg-[#E5E2DC] disabled:text-[#A8A39A] disabled:cursor-not-allowed disabled:transform-none font-bold text-xs"
-                  title="发送消息"
+                  title="发送用户行动/台词"
                 >
                   发送
                 </button>
 
-                {/* AI推进按钮 (✨图标) */}
+                {/* AI回复/爱心按钮 (❤️图标) */}
                 <button
                   type="button"
-                  onClick={() => handleContinueStory()}
-                  disabled={isGenerating || messages.length === 0}
-                  className="w-[40px] h-[40px] rounded-[8px] border border-[#1A1A1A] bg-white hover:bg-neutral-50 text-[#1A1A1A] flex items-center justify-center transition-all active:scale-95 cursor-pointer disabled:bg-white disabled:border-[#E5E2DC] disabled:text-[#A8A39A] disabled:cursor-not-allowed disabled:transform-none"
-                  title={isGenerating ? "AI 正在生成中..." : "AI 推进剧情"}
+                  onClick={handleGenerateAiReply}
+                  disabled={isGenerating}
+                  className="w-[40px] h-[40px] rounded-[8px] border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 flex items-center justify-center transition-all active:scale-95 cursor-pointer disabled:bg-white disabled:border-[#E5E2DC] disabled:text-[#A8A39A] disabled:cursor-not-allowed disabled:transform-none"
+                  title={isGenerating ? "正在生成中..." : messages.length === 0 ? "爱心：生成开场剧情" : "爱心：生成角色回复"}
                 >
-                  {isGenerating ? (
-                    <Sparkles className="w-4 h-4 text-[#A8A39A] animate-spin" />
-                  ) : (
-                    <Sparkles className="w-4 h-4 text-[#1A1A1A]" />
-                  )}
+                  <Heart className={`w-4 h-4 ${isGenerating ? "animate-pulse text-rose-400" : "fill-rose-500 text-rose-500"}`} />
                 </button>
               </div>
             </form>
@@ -2338,11 +2340,11 @@ ${onlineContextStr}
             <div className="pt-2">
               <button
                 type="button"
-                onClick={handleStartMeeting}
+                onClick={handleSaveSetup}
                 className="w-full py-3.5 bg-black hover:bg-stone-800 text-white font-bold text-xs rounded-xl shadow-md active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <Wand2 className="w-4 h-4" />
-                <span>开始见面（生成开场描写）</span>
+                <Check className="w-4 h-4" />
+                <span>保存设定</span>
               </button>
             </div>
           </div>
