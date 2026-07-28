@@ -1258,6 +1258,11 @@ export default function ChatApp({
   const handleTriggerAiAction = async (type: "photo" | "invitation") => {
     if (isGenerating || !activeCharId || !activeSession) return;
     
+    if (activeChar && (!activeChar.name || !activeChar.systemInstruction)) {
+      setApiError("角色设定缺失，请检查角色配置");
+      return;
+    }
+    
     const userPrompt = type === "photo" ? "（你给我发张照片吧）" : "（我想约你出来见个面）";
     const systemPrompt = type === "photo" 
       ? "【系统提示：请立刻给用户分享一张符合当前场景和人设的照片，使用 [图片：描述内容] 格式，语气要契合人设。】" 
@@ -2561,6 +2566,12 @@ ${existingCommentsText || "暂无评论"}
   
   const handleTriggerImageAiResponse = async (imageUrl: string, messagesList: Message[]) => {
     if (!activeChar || !activeCharId) return;
+    
+    if (!activeChar.name || !activeChar.systemInstruction) {
+      setApiError("角色设定缺失，请检查角色配置");
+      return;
+    }
+
     setIsGenerating(true);
 
     try {
@@ -2626,6 +2637,11 @@ ${existingCommentsText || "暂无评论"}
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!(inputText || '').trim() || isGenerating || !activeCharId || !activeSession || isBlocked) return;
+    
+    if (activeChar && (!activeChar.name || !activeChar.systemInstruction)) {
+      setApiError("角色设定缺失，请检查角色配置");
+      return;
+    }
 
     const userText = (inputText || '').trim();
     setInputText("");
@@ -2665,6 +2681,12 @@ ${existingCommentsText || "暂无评论"}
   // Trigger AI reply (supporting customMessages, replyLength, replyCount, mood, memories)
   const handleTriggerAiReply = async (customMessages?: Message[]) => {
     if (isGenerating || !activeCharId || !activeSession || (!activeChar && !activeSession.isGroup)) return;
+
+    if (activeChar && (!activeChar.name || !activeChar.systemInstruction)) {
+      setApiError("角色设定缺失，请检查角色配置");
+      return;
+    }
+
     setApiError(null);
     setIsGenerating(true);
 
@@ -2683,6 +2705,11 @@ ${existingCommentsText || "暂无评论"}
   // Trigger personality-matching active message after user being away/offline
   const handleTriggerActiveMessage = async (delayHours: number) => {
     if (!activeChar || !activeCharId || !activeSession || isBlocked) return;
+    
+    if (!activeChar.name || !activeChar.systemInstruction) {
+      setApiError("角色设定缺失，请检查角色配置");
+      return;
+    }
 
     setApiError(null);
     setIsGenerating(true);
@@ -2966,8 +2993,21 @@ ${existingCommentsText || "暂无评论"}
       onConfirm: () => {
         if (activeSession && activeCharId) {
           syncDeleteMemoriesForMessages(activeSession.messages, activeCharId);
+          onDeleteSession(activeSession.id);
         }
-        onUpdateSessionMessages(activeCharId, []);
+        
+        const newSessionId = `${activeCharId}-${Date.now()}`;
+        onUpdateSessionMessages(newSessionId, [], undefined, { characterId: activeCharId });
+        
+        // Reset contextual states
+        setInputText("");
+        setQuotedMsgState(null);
+        setEditingMessageId(null);
+        setActiveMessage(null);
+        setPendingResendRecallId(null);
+        setApiError(null);
+        setIsGenerating(false);
+
         setConfirmDialog(null);
       }
     });
@@ -2980,9 +3020,25 @@ ${existingCommentsText || "暂无评论"}
       title: "重置对话及记忆",
       message: "确定要重置与该角色的对话吗？这将清空所有历史聊天记录和记忆，回到最原始状态。",
       onConfirm: () => {
-        onUpdateSessionMessages(activeCharId, []);
+        if (activeSession) {
+          onDeleteSession(activeSession.id);
+        }
+        
+        const newSessionId = `${activeCharId}-${Date.now()}`;
+        onUpdateSessionMessages(newSessionId, [], undefined, { characterId: activeCharId });
+        
         setMemories([]);
         saveSettings({ memories: [] });
+
+        // Reset contextual states
+        setInputText("");
+        setQuotedMsgState(null);
+        setEditingMessageId(null);
+        setActiveMessage(null);
+        setPendingResendRecallId(null);
+        setApiError(null);
+        setIsGenerating(false);
+
         setConfirmDialog(null);
       }
     });

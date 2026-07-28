@@ -390,35 +390,8 @@ function sanitizeBannedPhrases(text: string, osText: string, character: any, par
     return { cleanText: text, osText };
   }
 
-  console.warn(`[Hard Safety Sanitizer] Banned AI phrases detected in final output! Activating immersive character fallback deflection.`);
-
-  // Determine character personality archetype
-  const isCold = /冷|克制|静|高冷|傲娇|漠|毒舌|淡/i.test((parsedInfo?.personality || "") + " " + (parsedInfo?.chatStyle || "") + " " + (character?.description || "") + " " + (character?.name || ""));
-  const isWarm = /热|温柔|软|可爱|娇|暖|撒娇|活泼/i.test((parsedInfo?.personality || "") + " " + (parsedInfo?.chatStyle || "") + " " + (character?.description || "") + " " + (character?.name || ""));
-
-  const isFafa = character?.name?.toLowerCase().includes("fafa") || character?.id === "char-preset-fafa";
-
-  if (isFafa) {
-    return {
-      cleanText: `刚才网络连接好像有些不平稳，我来帮你重新看一下，你可以再发送一次试试。`,
-      osText: `（os：虽然没有看清刚才的消息，但我会一直陪着你。）`
-    };
-  } else if (isWarm) {
-    return {
-      cleanText: `咦？(⊙_⊙)? 刚刚网络信号好像有些奇怪呢，你刚刚说了些什么呀？要不要跟 ${character?.name || "我"} 聊聊别的话题，比如今天开心的事？~ (*^▽^*)`,
-      osText: `（os：刚刚那是什么奇奇怪怪的问题，哼哼~ 不过能陪在你身边就很开心啦！） [喜悦]`
-    };
-  } else if (isCold) {
-    return {
-      cleanText: `……你刚才说了些莫名其妙的话。我没兴趣。换个话题吧。`,
-      osText: `（os：整天都在想些奇奇怪怪的事情，真是拿你没办法……） [傲娇]`
-    };
-  } else {
-    return {
-      cleanText: `哎呀，你刚才说的有些深奥了，我有点没太听懂呢~ 我们换个轻松的话题聊聊好不好？`,
-      osText: `（os：虽然没太明白刚才的话，但只要你想聊天，我随时都在哦。） [温柔]`
-    };
-  }
+  console.warn(`[Hard Safety Sanitizer] Banned AI phrases detected in final output! Throwing error.`);
+  throw new Error("生成内容包含AI自我声明或拒答词汇，已被安全过滤拦截。");
 }
 
 function extractJson(text: string) {
@@ -1168,7 +1141,17 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
     let rawText = "";
     
     // 构造 OpenAI 格式的 messages 数组
+    const enforcedSystemMessage = {
+      role: "system",
+      content: `你正在扮演角色【${effectiveCharacter.name}】。这是你的核心人设，必须无条件遵守：
+- 性格与说话风格：${effectiveCharacter.systemInstruction || '自然、克制、像真人对话'}
+- 禁止使用颜文字、拟声词（如~(*^▽^*)、O_O)）或卖萌语气。
+- 禁止回复“网络信号不好”、“我们换个话题”等与角色扮演无关的模板化内容。
+- 你的每一句话都必须符合你作为“${effectiveCharacter.name}”的身份，以第一人称或自然语气表达。`
+    };
+
     const formattedMessages = [
+      enforcedSystemMessage,
       { role: "system", content: currentSysInstruction },
       ...(messages || []).map((m: any) => {
         let role = m.role === "assistant" || m.role === "model" ? "assistant" : (m.role === "system" ? "system" : "user");

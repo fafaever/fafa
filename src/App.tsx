@@ -758,7 +758,7 @@ export default function App() {
     const isGroup = characterId.startsWith("group-");
 
     if (isGroup) {
-      const session = sessions.find((s) => s.id === characterId);
+      const session = sessions.find((s) => s.characterId === characterId || s.id === characterId);
       if (!session || !session.memberIds || session.memberIds.length === 0) return;
       if (isGeneratingMap[characterId]) return;
       
