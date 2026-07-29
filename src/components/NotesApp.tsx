@@ -74,9 +74,10 @@ export default function NotesApp({ characters, settings, onClose, onGenerateNote
   };
 
   const saveNotes = (newNotes: Note[]) => {
-    setNotes(newNotes);
+    const trimmed = newNotes.slice(0, 30);
+    setNotes(trimmed);
     if (selectedCharId) {
-      localStorage.setItem(`mobile_ai_notes_${selectedCharId}`, JSON.stringify(newNotes));
+      localStorage.setItem(`mobile_ai_notes_${selectedCharId}`, JSON.stringify(trimmed));
     }
   };
 
@@ -171,8 +172,8 @@ export default function NotesApp({ characters, settings, onClose, onGenerateNote
                 <span className="w-full h-full flex items-center justify-center text-xs">{selectedChar?.avatar || "👤"}</span>
               )}
             </div>
-            <span className="font-bold text-sm text-neutral-900 truncate max-w-[120px]">
-              {selectedChar?.name}的随笔
+            <span className="font-bold text-sm text-neutral-900 truncate max-w-[150px]">
+              {selectedChar?.name}的随笔 ({notes.length}/30)
             </span>
           </div>
         </div>

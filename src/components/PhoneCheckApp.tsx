@@ -18,6 +18,7 @@ interface PhoneCheckAppProps {
   settings?: AppSettings;
   onClose: () => void;
   onGenerateNote?: (character: Character, settings: AppSettings) => Promise<void>;
+  onUpdateCharacter?: (id: string, updated: Partial<Character>) => void;
   isGeneratingMap?: Record<string, boolean>;
   loreList?: any[];
 }
@@ -71,13 +72,16 @@ interface ReadingItem {
   timestamp: number;
 }
 
-export default function PhoneCheckApp({ characters, settings, onClose, onGenerateNote, isGeneratingMap, loreList = [] }: PhoneCheckAppProps) {
+export default function PhoneCheckApp({ characters, settings, onClose, onGenerateNote, onUpdateCharacter, isGeneratingMap, loreList = [] }: PhoneCheckAppProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
   
   // Active sub-module view: null | 'memos' | 'browser' | 'essays' | 'contacts' | 'shopping'
   const [activeModule, setActiveModule] = useState<string | null>(null);
   
+  // Confirm Modal state
+  const [showClearConfirm, setShowClearConfirm] = useState<{show: boolean, type: string | null}>({show: false, type: null});
+
   // Search history state
   const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
   const [isGeneratingSearch, setIsGeneratingSearch] = useState(false);
@@ -129,6 +133,7 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
       setSelectedNpcId(null);
       setActiveModule(null);
       setReadingList([]);
+      setShoppingList([]);
       return;
     }
 
@@ -136,7 +141,7 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     try {
       const savedMemos = localStorage.getItem(`mobile_ai_phone_memos_${selectedCharId}`);
       if (savedMemos) {
-        setMemos(JSON.parse(savedMemos));
+        setMemos(JSON.parse(savedMemos).slice(0, 30));
       } else {
         setMemos([]);
       }
@@ -149,7 +154,7 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     try {
       const savedSearches = localStorage.getItem(`mobile_ai_phone_searches_${selectedCharId}`);
       if (savedSearches) {
-        setSearchHistory(JSON.parse(savedSearches));
+        setSearchHistory(JSON.parse(savedSearches).slice(0, 30));
       } else {
         setSearchHistory([]);
       }
@@ -180,6 +185,12 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
         });
       }
 
+      // Enforce 30 messages limit per contact
+      existingContacts = existingContacts.map(c => ({
+        ...c,
+        messages: c.messages.slice(-30)
+      }));
+
       setContacts(existingContacts);
     } catch (e) {
       console.error(e);
@@ -190,7 +201,7 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     try {
       const savedShopping = localStorage.getItem(`mobile_ai_phone_shopping_${selectedCharId}`);
       if (savedShopping) {
-        setShoppingList(JSON.parse(savedShopping));
+        setShoppingList(JSON.parse(savedShopping).slice(0, 30));
       } else {
         setShoppingList([]);
       }
@@ -203,7 +214,7 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     try {
       const savedReading = localStorage.getItem(`mobile_ai_phone_reading_${selectedCharId}`);
       if (savedReading) {
-        setReadingList(JSON.parse(savedReading));
+        setReadingList(JSON.parse(savedReading).slice(0, 30));
       } else {
         setReadingList([]);
       }
@@ -211,7 +222,101 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
       console.error(e);
       setReadingList([]);
     }
-  }, [selectedCharId]);
+  }, [selectedCharId, characters]);
+
+  // Helper to aggregate context from all phone modules for deduplication
+  const getPhoneModulesContext = () => {
+    if (!selectedCharId) return "";
+    
+    // Notes/Essays from localStorage
+    let essayTitles = "";
+    try {
+      const savedNotes = localStorage.getItem(`mobile_ai_notes_${selectedCharId}`);
+      if (savedNotes) {
+        const notes = JSON.parse(savedNotes);
+        essayTitles = notes.slice(0, 5).map((n: any) => n.text.slice(0, 30)).join("、");
+      }
+    } catch(e){}
+
+    const memoTitles = memos.slice(0, 15).map(m => m.content).join("、");
+    const searchQueries = searchHistory.slice(0, 15).map(s => s.query).join("、");
+    const shoppingItems = shoppingList.slice(0, 15).map(s => s.name).join("、");
+    const readingTitles = readingList.slice(0, 15).map(r => r.title).join("、");
+    const contactSummaries = contacts.slice(0, 5).map(c => {
+      const lastMsg = c.messages.length > 0 ? c.messages[c.messages.length - 1].text : "暂无对话";
+      return `${c.name}: ${lastMsg.slice(0, 30)}`;
+    }).join(" | ");
+
+    return `
+--- 【手机模块已有记录 (72小时内去重参考)】 ---
+- 最近随笔内容：${essayTitles || "无"}
+- 备忘录事项：${memoTitles || "无"}
+- 搜索历史：${searchQueries || "无"}
+- 购物清单：${shoppingItems || "无"}
+- 阅读/观看：${readingTitles || "无"}
+- 最近联系人对话：${contactSummaries || "无"}
+`;
+  };
+
+  const getRecentChatContext = () => {
+    // In a real app we'd pass sessions, here we'll try to find from localStorage
+    try {
+      const savedSessions = localStorage.getItem("mobile_ai_sessions");
+      if (savedSessions) {
+        const sessions = JSON.parse(savedSessions);
+        const session = sessions.find((s: any) => s.characterId === selectedCharId);
+        if (session && session.messages) {
+          return session.messages.slice(-10).map((m: any) => `${m.role === 'user' ? '用户' : selectedChar?.name}: ${m.content}`).join("\n");
+        }
+      }
+    } catch(e){}
+    return "暂无最近聊天记录。";
+  };
+
+  const handleClearData = (type: string) => {
+    if (!selectedCharId) return;
+
+    switch (type) {
+      case 'memos':
+        setMemos([]);
+        localStorage.removeItem(`mobile_ai_phone_memos_${selectedCharId}`);
+        break;
+      case 'browser':
+        setSearchHistory([]);
+        localStorage.removeItem(`mobile_ai_phone_searches_${selectedCharId}`);
+        break;
+      case 'contacts':
+        setContacts([]);
+        localStorage.removeItem(`mobile_ai_phone_contacts_${selectedCharId}`);
+        break;
+      case 'shopping':
+        setShoppingList([]);
+        localStorage.removeItem(`mobile_ai_phone_shopping_${selectedCharId}`);
+        break;
+      case 'reading':
+        setReadingList([]);
+        localStorage.removeItem(`mobile_ai_phone_reading_${selectedCharId}`);
+        break;
+    }
+    showToast("内容已清空");
+    setShowClearConfirm({ show: false, type: null });
+  };
+
+  const injectNpcChatToMemory = (npcName: string, relation: string, newMessages: NpcMessage[]) => {
+    if (!selectedChar || !onUpdateCharacter) return;
+    
+    // Only take the last 5 messages to keep the snippet concise
+    const recentMessages = newMessages.slice(-5);
+    const chatSnippet = recentMessages.map(m => `${m.sender === 'npc' ? npcName : selectedChar.name}: ${m.text}`).join("\n");
+    const memoryTag = `[手机记录] 与联系人 ${npcName} (${relation}) 的对话记录`;
+    const newEntry = `${memoryTag}：\n${chatSnippet}`;
+    
+    // Remove any existing entries for this same NPC to avoid duplicates
+    const otherMemories = (selectedChar.memories || []).filter(m => !m.startsWith(memoryTag));
+    const updatedMemories = [...otherMemories, newEntry];
+    
+    onUpdateCharacter(selectedChar.id, { memories: updatedMemories });
+  };
 
   // Cooldown countdown tick for Memos
   useEffect(() => {
@@ -267,16 +372,28 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     setIsGeneratingMemos(true);
     try {
       const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
-      const prompt = `${dataSourceContext}
-请根据以上角色的完整人设、记忆与世界书设定，生成 5 条该角色的最新手机备忘录。
-【硬性规则】：
-1. 包含 2-3 条『要做的事』（isCompleted: false）和 2-3 条『已做的事』（isCompleted: true）。
-2. 内容必须紧密结合该角色的日常行程、性格和当前状态，严禁凭空捏造与角色无关的事实。
-3. 每条备忘录下方必须附带一条简短的角色内心感想（15字以内，真情实感或调侃）。
-4. 格式必须是严格 JSON 数组，包含 key: content, isCompleted, reflection:
+      const phoneContext = getPhoneModulesContext();
+      const chatContext = getRecentChatContext();
+
+      const prompt = `你是角色：${selectedChar.name}。
+${dataSourceContext}
+
+【最近聊天记录】：
+${chatContext}
+
+${phoneContext}
+
+请生成 5 条最新的手机备忘录。
+【去重与生成准则】：
+1. **模块去重与视角差异**：检查【手机模块已有记录】和【最近聊天记录】。如果某个事件已在随笔、对话或搜索中出现，备忘录应从“待办事项”或“简短记录”的角度切入（如“周六看牙医”），避免直接照搬其他模块的详细描述。
+2. **禁止重复主题**：72小时内已有的主题严禁再次作为新内容核心。
+3. **数据源延伸**：基于人设兴趣或聊天话题延伸出自然的生活变化（如开始做某事、想去某地），严禁直接照搬人设背景文字。
+4. **格式**：包含 2-3 条『要做的事』（isCompleted: false）和 2-3 条『已做的事』（isCompleted: true）。每条附带 15 字以内内心感想。
+
+格式要求严格 JSON 数组：
 [
   {"content": "...", "isCompleted": false, "reflection": "..."},
-  {"content": "...", "isCompleted": true, "reflection": "..."}
+  ...
 ]`;
 
       const responseText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [
@@ -297,8 +414,9 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
           timestamp: Date.now() - idx * 600000
         }));
 
-        setMemos(newMemoList);
-        localStorage.setItem(`mobile_ai_phone_memos_${selectedChar.id}`, JSON.stringify(newMemoList));
+        const combined = [...newMemoList, ...memos].slice(0, 30);
+        setMemos(combined);
+        localStorage.setItem(`mobile_ai_phone_memos_${selectedChar.id}`, JSON.stringify(combined));
         localStorage.setItem(`mobile_ai_phone_memo_last_gen_${selectedChar.id}`, Date.now().toString());
         showToast("备忘录更新成功");
       } else {
@@ -322,60 +440,68 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
 
     try {
       const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
+      const existingQueries = searchHistory.slice(0, 10).map(h => h.query).join("、");
+      
       const prompt = `${dataSourceContext}
 请根据以上角色的完整人设、记忆与世界书设定，生成 6-8 条最新的浏览器搜索历史词条及内心想法。
-【规则】：
-1. 搜索词条要贴合角色近期关注的事物、生活琐事或隐藏小心思。
-2. 每条附带该角色搜索此词条时的【内心真实想法】（15字以内，可爱/真实/严谨）。
-3. 只有当搜索内容是角色【不想让别人知道】的隐秘心思、尴尬问题或特殊设定时，才标记为无痕模式 (isIncognito: true)。普通搜索直接标记为 false。
-4. 输出为严格 JSON 数组，格式：
+
+【最近聊天记录】：
+${getRecentChatContext()}
+
+${getPhoneModulesContext()}
+
+【去重与生成准则】：
+1. **模块去重与视角差异**：搜索词条应体现“角色看的内容”或“查资料”，与随笔或备忘录区分开。如果某个事件已在其他模块出现，搜索应是关于该事件的延伸（如“周六看牙医”对应搜索“牙医诊所哪家好”）。
+2. **禁止重复主题**：参考已有的搜索记录主题。72小时内已有的主题严禁再次作为新内容核心。
+3. **数据源延伸**：基于人设兴趣或聊天话题延伸出自然的生活变化，禁止直接照搬人设背景中的内容。
+
+【格式规则】：
+1. 每条附带该角色搜索此词条时的【内心真实想法】（15字以内）。
+2. 只有当搜索内容是角色隐秘心思或特殊设定时，才标记为无痕模式 (isIncognito: true)。普通搜索标记为 false。
+3. 输出为严格 JSON 数组，格式：
 [
   {"query": "搜索词条", "innerThought": "内心想法", "isIncognito": boolean},
   ...
-]`;
+]
+`;
 
-      const responseText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [
-        { role: "user", content: prompt }
-      ]);
+      if (settings && (settings.apiKey || settings.apiUrl)) {
+        const responseText = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [
+          { role: "user", content: prompt }
+        ]);
 
-      let jsonStr = responseText;
-      const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-      if (jsonMatch) jsonStr = jsonMatch[0];
+        let jsonStr = responseText;
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) jsonStr = jsonMatch[0];
 
-      const parsed = JSON.parse(jsonStr);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const newBatch: SearchHistoryItem[] = parsed.map((item: any, idx: number) => ({
-          id: `search-${Date.now()}-${idx}`,
-          query: item.query || "搜索词条",
-          innerThought: item.innerThought || "只是随便查查…",
-          timestamp: Date.now() - idx * 300000,
-          isIncognito: item.isIncognito === true
-        }));
+        const parsed = JSON.parse(jsonStr);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const newBatch: SearchHistoryItem[] = parsed.map((item: any, idx: number) => ({
+            id: `search-${Date.now()}-${idx}`,
+            query: item.query || "搜索词条",
+            innerThought: item.innerThought || "内心真实想法",
+            timestamp: Date.now() - idx * 600000,
+            isIncognito: item.isIncognito === true
+          }));
 
-        // Combine with previous history, keeping max 20
-        const combined = [...newBatch, ...searchHistory];
-        const trimmed = combined.slice(0, 20);
-
-        setSearchHistory(trimmed);
-        localStorage.setItem(`mobile_ai_phone_searches_${selectedChar.id}`, JSON.stringify(trimmed));
-        showToast("已生成新的搜索记录");
-      } else {
-        throw new Error("解析失败");
+          const combined = [...newBatch, ...searchHistory].slice(0, 30);
+          setSearchHistory(combined);
+          localStorage.setItem(`mobile_ai_phone_searches_${selectedChar.id}`, JSON.stringify(combined));
+          localStorage.setItem(`mobile_ai_phone_search_last_gen_${selectedChar.id}`, Date.now().toString());
+          showToast("搜索历史已更新");
+        }
       }
     } catch (e) {
       console.error(e);
-      showToast("搜索历史生成失败，请检查API配置或稍后重试");
+      showToast("搜索历史生成失败");
     } finally {
       setIsGeneratingSearch(false);
     }
   };
 
-  const handleOpenSearchBox = () => {
-    setShowSearchModal(true);
-  };
 
   // ----------------------------------------------------
-  // 4. CONTACTS & NPC DIALOGUES FEATURE (联系人)
+  // 3. NPC CONTACTS (联系人对话)
   // ----------------------------------------------------
   const handleInitNpcContacts = async () => {
     if (!selectedChar) return;
@@ -387,16 +513,11 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
 
     const contactsMap = new Map<string, ContactNPC>(contacts.map(c => [c.name, c]));
 
-    // 检查是否所有绑定的 NPC 都已经生成了至少一轮对话
-    const allHaveDialogues = boundNpcs.length > 0 && boundNpcs.every(npc => {
-      const existing = contactsMap.get(npc.name);
-      return existing && existing.messages && existing.messages.length > 0;
-    });
-
-    const sessionGenKey = `mobile_ai_phone_npc_rounds_${selectedChar.id}`;
+    // 2. 检查当日生成额度 (可选)
+    const sessionGenKey = `npc_gen_rounds_${selectedChar.id}_${new Date().toDateString()}`;
     const completedRounds = Number(localStorage.getItem(sessionGenKey) || "0");
+    const allHaveDialogues = boundNpcs.every(n => contactsMap.has(n.name) && (contactsMap.get(n.name)?.messages?.length || 0) > 0);
 
-    // 机制准则 2 & 3：如果所有 NPC 对话均已生成完毕且无新话题可续，显示“暂无新对话”提示
     if (allHaveDialogues && completedRounds >= 2) {
       showToast("暂无新对话");
       return;
@@ -423,15 +544,27 @@ ${historyMsgs}`;
       const prompt = `你是一个二次元手机聊天对话生成助手。
 请为角色【${selectedChar.name}】与其【${selectedNpcsToGen.length} 个绑定的 NPC 好友】生成或续接聊天对话记录。
 
+【角色人设与背景】：
+${selectedChar.description}
+
+【最近聊天记录 (数据源参考)】：
+${getRecentChatContext()}
+
+${getPhoneModulesContext()}
+
 【选中的 3-5 个 NPC 及历史对话】：
 ${npcsPromptText}
 
 【NPC 对话续接与更新准则】：
-1. 如果该 NPC 暂无历史对话：请生成 3-5 条两人初次或日常聊天的生活对话。
-2. 如果该 NPC 已有历史对话：
-   - 【连贯续写】：若上文话题尚未完成，请接着上文继续生成 3-6 条新对话，保持上下文语气连贯。
-   - 【开启新话题】：若上文话题已自然结束（如问候结束、事情说完），请开启一个符合两者社交身份的全新生活/工作话题，开始新一轮对话。
-3. 请输出严格纯 JSON 数组格式（不要包含 Markdown 代码块）：
+1. **模块去重与视角差异**：对话应侧重于“角色与他人的互动”，表达方式要口语化。如果某个事件已在随笔或备忘录中提及，对话中应以“聊起这件事”的方式出现，严禁重复描述。
+2. **禁止重复主题**：72小时内已有的主题严禁再次作为新内容核心。
+3. **数据源延伸**：根据角色兴趣延伸出新话题，产生自然的生活变化。严禁直接照搬人设背景。
+4. **NPC 对话规则**：
+   - 如果该 NPC 暂无历史对话：请生成 3-5 条两人初次或日常聊天的生活对话。
+   - 如果该 NPC 已有历史对话：接着上文继续生成 3-6 条新对话或开启全新生活话题。
+   - 消息数量上限为 30 条。超出时系统会自动删除最早记录。
+
+请输出严格纯 JSON 数组格式：
 [
   {
     "name": "NPC姓名",
@@ -501,7 +634,7 @@ ${npcsPromptText}
             ...updatedContacts[targetIndex],
             relation: item.relation || updatedContacts[targetIndex].relation,
             avatar: item.avatar || updatedContacts[targetIndex].avatar,
-            messages: [...updatedContacts[targetIndex].messages, ...newMsgs]
+            messages: [...updatedContacts[targetIndex].messages, ...newMsgs].slice(-30)
           };
         } else {
           updatedContacts.push({
@@ -510,7 +643,7 @@ ${npcsPromptText}
             relation: item.relation || "朋友",
             avatar: item.avatar || "💬",
             bio: "",
-            messages: newMsgs
+            messages: newMsgs.slice(-30)
           });
         }
       });
@@ -518,6 +651,15 @@ ${npcsPromptText}
       setContacts(updatedContacts);
       localStorage.setItem(`mobile_ai_phone_contacts_${selectedChar.id}`, JSON.stringify(updatedContacts));
       localStorage.setItem(sessionGenKey, String(completedRounds + 1));
+      
+      // Memory injection
+      generatedResults.forEach((item: any) => {
+        const newMsgsForThisNpc = Array.isArray(item.messages) ? item.messages : [];
+        if (newMsgsForThisNpc.length > 0) {
+          injectNpcChatToMemory(item.name, item.relation || "朋友", newMsgsForThisNpc as any);
+        }
+      });
+
       showToast(`✨ 已随机选择 ${selectedNpcsToGen.length} 个 NPC 成功生成/续接对话！`);
     } catch (e) {
       console.error(e);
@@ -573,12 +715,16 @@ ${recentHistory}
 
         const updatedNpc = {
           ...npc,
-          messages: [...npc.messages, ...newMsgs]
+          messages: [...npc.messages, ...newMsgs].slice(-30)
         };
 
         const updatedList = contacts.map(c => c.id === npc.id ? updatedNpc : c);
         setContacts(updatedList);
         localStorage.setItem(`mobile_ai_phone_contacts_${selectedChar.id}`, JSON.stringify(updatedList));
+        
+        // Memory injection
+        injectNpcChatToMemory(npc.name, npc.relation, newMsgs);
+
         showToast(`已成功续写 ${newMsgs.length} 条新对话`);
       } else {
         throw new Error("生成失败");
@@ -605,12 +751,25 @@ ${recentHistory}
 
     try {
       const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
-      const prompt = `${dataSourceContext}
-请根据以上角色的完整人设、记忆与世界书设定，自动生成 6-8 个购物清单条目。
-【规则】：
-1. 包含『要买的』和『已买的』状态。
-2. 内容必须紧密结合该角色的日常行程、性格和当前状态。
-3. 格式请输出严格 JSON 数组：
+      const phoneContext = getPhoneModulesContext();
+      const chatContext = getRecentChatContext();
+
+      const prompt = `你是角色：${selectedChar.name}。
+${dataSourceContext}
+
+【最近聊天记录】：
+${chatContext}
+
+${phoneContext}
+
+自动生成 6-8 个购物清单条目。
+【去重与生成准则】：
+1. **模块去重与视角差异**：购物清单应体现角色的消费需求或欲望。如果随笔提到某个爱好，清单里可以出现相关的器材购买（如“随笔提到喜欢画画”，清单里出现“买颜料”）。
+2. **禁止重复主题**：72小时内已有的主题严禁再次作为新内容核心。
+3. **数据源延伸**：基于人设兴趣或聊天话题延伸出自然的生活变化（如开始做某事、想去某地），禁止直接照搬人设背景中的内容。
+4. **格式**：包含『要买的』和『已买的』。
+
+格式请输出严格 JSON 数组：
 [
   {"name": "商品名称", "quantity": "数量或备注", "isBought": boolean}
 ]`;
@@ -634,7 +793,7 @@ ${recentHistory}
         }));
 
         const combined = [...newBatch, ...shoppingList];
-        const trimmed = combined.slice(0, 20);
+        const trimmed = combined.slice(0, 30);
 
         setShoppingList(trimmed);
         localStorage.setItem(`mobile_ai_phone_shopping_${selectedChar.id}`, JSON.stringify(trimmed));
@@ -656,19 +815,28 @@ ${recentHistory}
 
     try {
       const dataSourceContext = getThreeDataSourcesPrompt(selectedChar, selectedChar.memories, getCharacterLores());
-      const prompt = `${dataSourceContext}
-请根据以上角色的完整人设、记忆与世界书设定，生成 6-8 条该角色最近观看的电影或阅读的小说记录。
-【规则】：
-1. 每次生成 6-8 个条目。
-2. 每个条目必须包含以下属性：
-   - "title": 书名或电影名（请附带合适格式，如《作品名》）
-   - "type": 必须是 "movie" 或 "novel" 之一
-   - "thoughts": 角色对该电影或小说的简短感想或批注（15-40字，用第一人称口吻，高度契合角色的性格、神态、职业与背景）
-3. 电影与小说题材需非常符合该角色的特定爱好和世界观（例如悬疑迷、学术型、热血中二、文艺伤感、科幻、历史等）。
-4. 格式必须是严格的 JSON 数组：
+      const phoneContext = getPhoneModulesContext();
+      const chatContext = getRecentChatContext();
+
+      const prompt = `你是角色：${selectedChar.name}。
+${dataSourceContext}
+
+【最近聊天记录】：
+${chatContext}
+
+${phoneContext}
+
+生成 6-8 条该角色最近观看的电影或阅读的小说记录。
+【去重与生成准则】：
+1. **模块去重与视角差异**：阅读物应侧重于“角色看的内容”或“专业学习”，与随笔的感性思考区分开。阅读物是素材来源，随笔是心路历程。
+2. **禁止重复主题**：72小时内已有的主题严禁再次作为新内容核心。
+3. **数据源延伸**：基于人设兴趣或聊天话题延伸出自然的生活变化（如最近对某个领域产生兴趣），禁止直接照搬人设背景中的内容。
+4. **格式**：包含 "title", "type" (movie/novel), "thoughts" (15-40字，第一人称口吻)。
+
+格式必须是严格的 JSON 数组：
 [
   {"title": "《...》", "type": "movie", "thoughts": "..."},
-  {"title": "《...》", "type": "novel", "thoughts": "..."}
+  ...
 ]`;
 
       const responseText = await callLLM(settings?.apiUrl, settings?.apiKey, settings?.model, [
@@ -690,7 +858,7 @@ ${recentHistory}
         }));
 
         const combined = [...newBatch, ...readingList];
-        const trimmed = combined.slice(0, 20);
+        const trimmed = combined.slice(0, 30);
 
         setReadingList(trimmed);
         localStorage.setItem(`mobile_ai_phone_reading_${selectedChar.id}`, JSON.stringify(trimmed));
@@ -719,37 +887,79 @@ ${recentHistory}
   // ----------------------------------------------------
   if (!selectedCharId) {
     return (
-      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A]">
-        <div className="flex items-center p-4 border-b border-neutral-200/50 bg-white/60 backdrop-blur-md">
+      <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] text-[#1A1A1A] animate-fade-in">
+        {/* Status Bar */}
+        <div className="px-5 pt-3 flex justify-between items-center text-[10px] text-[#A8A39A] font-medium shrink-0">
+          <div className="flex items-center gap-1">
+            <Signal className="w-3 h-3" />
+            <span>中国移动</span>
+            <Wifi className="w-3 h-3" />
+          </div>
+          <div className="flex items-center gap-1">
+            <span>88%</span>
+            <Battery className="w-3 h-3 rotate-90" />
+          </div>
+        </div>
+
+        <div className="flex items-center p-4 mt-2">
           <button onClick={onClose} className="p-2 bg-white rounded-full shadow-sm active:scale-95 transition-all">
-            <ChevronLeft className="w-5 h-5" />
+            <ChevronLeft className="w-5 h-5 text-neutral-600" />
           </button>
-          <h2 className="flex-1 text-center  text-lg font-bold">查手机</h2>
+          <div className="flex-1 text-center">
+            <h2 className="text-lg font-bold text-neutral-900">查手机</h2>
+            <p className="text-[10px] text-[#A8A39A] italic">隐私窥视模式</p>
+          </div>
           <div className="w-9" />
         </div>
         
-        <div className="flex-1 p-6 overflow-y-auto">
-          <p className="text-xs text-[#A8A39A] text-center mb-6  italic">选择你想翻看哪位角色的手机秘密...</p>
-          <div className="grid grid-cols-2 gap-6 max-w-sm mx-auto">
+        <div className="flex-1 px-6 pt-4 pb-8 overflow-y-auto">
+          <div className="mb-10 text-center">
+            <div className="inline-block px-4 py-1.5 bg-white/40 backdrop-blur-sm rounded-full text-[11px] text-[#A8A39A] shadow-sm mb-4">
+              ✨ 共有 {characters.length} 个角色可供翻看
+            </div>
+            <h1 className="text-2xl font-bold text-neutral-800 tracking-tight">你想看谁的秘密？</h1>
+          </div>
+
+          <div className="grid grid-cols-2 gap-x-5 gap-y-8 max-w-sm mx-auto">
             {characters.map(char => (
               <button 
                 key={char.id}
                 onClick={() => setSelectedCharId(char.id)}
-                className="bg-white/80 p-4 rounded-2xl border border-neutral-200/60 shadow-sm hover:shadow-md flex flex-col items-center gap-3 group active:scale-95 transition-all"
+                className="flex flex-col items-center gap-3 group"
               >
-                <CharacterAvatar character={char} mode="real" size={64} className="border-2 border-white shadow-md group-hover:border-neutral-900/10 transition-colors" />
+                <div className="relative">
+                  <CharacterAvatar character={char} mode="real" size={80} className="border-4 border-white shadow-xl group-hover:scale-105 transition-all duration-300" />
+                  <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-green-500 border-2 border-white rounded-full flex items-center justify-center">
+                    <Clock className="w-3 h-3 text-white" />
+                  </div>
+                </div>
                 <div className="text-center">
-                  <span className=" text-sm font-bold text-neutral-900 block">{char.name}</span>
-                  <span className="text-[10px] text-neutral-400 line-clamp-1 mt-0.5">{char.description || "全能AI角色"}</span>
+                  <span className="text-sm font-bold text-neutral-900 block group-hover:text-black transition-colors">{char.name}</span>
+                  <span className="text-[10px] text-neutral-400 font-medium bg-white/60 px-2 py-0.5 rounded-full mt-1 inline-block">
+                    已开启同步
+                  </span>
                 </div>
               </button>
             ))}
-            {characters.length === 0 && (
-              <div className="col-span-2 text-center text-xs text-neutral-400 py-12">
-                暂无可查手机的角色，请先在主页创建角色
-              </div>
-            )}
           </div>
+
+          {characters.length === 0 && (
+            <div className="text-center py-20">
+              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-sm mx-auto mb-4 border border-neutral-100">
+                <Search className="w-8 h-8 text-neutral-300" />
+              </div>
+              <p className="text-xs text-neutral-400">暂无可查手机的角色</p>
+              <p className="text-[10px] text-neutral-300 mt-1">请先在主页创建或召唤一个角色</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer Info */}
+        <div className="p-6 text-center">
+          <p className="text-[10px] text-[#BFBAB2] leading-relaxed">
+            * 提示：查手机功能通过模拟手机镜像获取角色实时心声与生活记录。<br/>
+            所有内容均由 AI 结合人设与对话历史实时生成。
+          </p>
         </div>
       </div>
     );
@@ -766,9 +976,18 @@ ${recentHistory}
       <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A] relative overflow-hidden animate-fade-in">
         {/* Header */}
         <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-4 shrink-0 sticky top-0 z-10">
-          <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setShowClearConfirm({ show: true, type: 'memos' })}
+              className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
+              title="清空备忘录"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
           <span className=" font-bold text-sm text-neutral-900">
             {selectedChar?.name}的备忘录
           </span>
@@ -880,9 +1099,18 @@ ${recentHistory}
       <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A] relative overflow-hidden animate-fade-in">
         {/* Header */}
         <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-4 shrink-0 sticky top-0 z-10">
-          <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setShowClearConfirm({ show: true, type: 'browser' })}
+              className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
+              title="清空搜索记录"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
           <span className=" font-bold text-sm text-neutral-900">
             {selectedChar?.name}的浏览器搜索记录
           </span>
@@ -899,8 +1127,8 @@ ${recentHistory}
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           <div className="text-[11px] text-[#A8A39A] px-1 flex items-center justify-between">
-            <span>最近搜索记录 ({searchHistory.length}/20)</span>
-            <span>自动保留最近20条</span>
+            <span>最近搜索记录 ({searchHistory.length}/30)</span>
+            <span>自动保留最近30条</span>
           </div>
 
           <div className="space-y-2.5">
@@ -949,9 +1177,18 @@ ${recentHistory}
     return (
       <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A] relative overflow-hidden animate-fade-in">
         <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-4 shrink-0 sticky top-0 z-10">
-          <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setShowClearConfirm({ show: true, type: 'shopping' })}
+              className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
+              title="清空购物清单"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
           <span className=" font-bold text-sm text-neutral-900">
             {selectedChar?.name}的购物清单
           </span>
@@ -967,8 +1204,8 @@ ${recentHistory}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           <div className="text-[11px] text-[#A8A39A] px-1 flex items-center justify-between">
-            <span>最近购物清单 ({shoppingList.length}/20)</span>
-            <span>自动保留最近20条</span>
+            <span>最近购物清单 ({shoppingList.length}/30)</span>
+            <span>自动保留最近30条</span>
           </div>
 
           <div className="space-y-2.5">
@@ -1007,9 +1244,18 @@ ${recentHistory}
     return (
       <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] text-[#1A1A1A] relative overflow-hidden animate-fade-in">
         <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-4 shrink-0 sticky top-0 z-10">
-          <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setShowClearConfirm({ show: true, type: 'reading' })}
+              className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
+              title="清空阅读物"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
           <span className="font-bold text-sm text-neutral-900">
             {selectedChar?.name}的阅读物
           </span>
@@ -1025,8 +1271,8 @@ ${recentHistory}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           <div className="text-[11px] text-[#A8A39A] px-1 flex items-center justify-between">
-            <span>最近观看与阅读记录 ({readingList.length}/20)</span>
-            <span>自动保留最近20条</span>
+            <span>最近观看与阅读记录 ({readingList.length}/30)</span>
+            <span>自动保留最近30条</span>
           </div>
 
           <div className="space-y-3">
@@ -1180,9 +1426,18 @@ ${recentHistory}
       <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A] relative overflow-hidden animate-fade-in">
         {/* Header */}
         <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-4 shrink-0 sticky top-0 z-10">
-          <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
-            <ChevronLeft className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setActiveModule(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button 
+              onClick={() => setShowClearConfirm({ show: true, type: 'contacts' })}
+              className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
+              title="清空联系人对话"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
           <span className=" font-bold text-sm text-neutral-900">
             {selectedChar?.name}的联系人
           </span>
@@ -1277,7 +1532,7 @@ ${recentHistory}
       <div className="px-6 mb-6">
         <div className="relative">
           <button 
-            onClick={handleOpenSearchBox}
+            onClick={() => setActiveModule('browser')}
             className="w-full bg-white/70 backdrop-blur-md border border-neutral-200/60 rounded-xl py-2.5 px-4 flex items-center justify-between text-neutral-500 text-xs shadow-2xs hover:bg-white transition-all active:scale-[0.98]"
           >
             <div className="flex items-center gap-2 text-neutral-400">
@@ -1320,6 +1575,14 @@ ${recentHistory}
         </div>
       </div>
 
+      <ConfirmModal
+        isOpen={showClearConfirm.show}
+        title="确认清空内容"
+        message="确定要清空所有内容吗？此操作不可撤销。"
+        onConfirm={() => showClearConfirm.type && handleClearData(showClearConfirm.type)}
+        onCancel={() => setShowClearConfirm({ show: false, type: null })}
+      />
+
       {/* 2. WEBSITE SEARCH MODAL (Triggered by Top Search Bar) */}
       {showSearchModal && (
         <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4 animate-fade-in">
@@ -1328,7 +1591,7 @@ ${recentHistory}
               <div className="flex items-center gap-2">
                 <Search className="w-4 h-4 text-neutral-700" />
                 <span className=" font-bold text-sm text-neutral-900">
-                  {selectedChar?.name} 的最近搜索历史 ({searchHistory.length}/20)
+                  {selectedChar?.name} 的最近搜索历史 ({searchHistory.length}/30)
                 </span>
               </div>
               <button onClick={() => setShowSearchModal(false)} className="text-neutral-400 hover:text-black">

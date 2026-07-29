@@ -140,6 +140,8 @@ export default function CharacterCreatorApp({
 
   // Bound NPCs State (Initial count 0, generated when uploading file or created manually)
   const [boundNpcs, setBoundNpcs] = useState<BoundNPC[]>([]);
+  const [isGeneratingNpcsAI, setIsGeneratingNpcsAI] = useState<boolean>(false);
+  const [avatarPrompt, setAvatarPrompt] = useState("");
   const [associatedCharacterIds, setAssociatedCharacterIds] = useState<string[]>([]);
   const [associatedRelations, setAssociatedRelations] = useState<Record<string, string>>({});
   const [isGeneratingRelation, setIsGeneratingRelation] = useState<Record<string, boolean>>({});
@@ -193,6 +195,48 @@ export default function CharacterCreatorApp({
       console.warn("AI generation failed for relation, falling back.", e);
     }
     return getFallbackRelation(c1Name, c1Desc, c2Name, c2Desc);
+  };
+
+  const decodeFileText = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target?.result as string || "");
+      reader.onerror = () => reject(new Error("文件读取失败"));
+      reader.readAsText(file);
+    });
+  };
+
+  const handleUpdateNpc = (id: string, field: string, value: string) => {
+    setBoundNpcs(prev => prev.map(n => n.id === id ? { ...n, [field]: value } : n));
+  };
+
+  const handleDeleteNpc = (id: string) => {
+    setBoundNpcs(prev => prev.filter(n => n.id !== id));
+  };
+
+  const handleAddNpc = () => {
+    const formalNamesPool = ["林墨", "苏禾", "陆晨", "陈清源", "顾晚秋", "周致远", "沈知意", "叶天明", "许若琳", "程安"];
+    const randomName = formalNamesPool[boundNpcs.length % formalNamesPool.length];
+    const newNpc: BoundNPC = {
+      id: `npc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      name: randomName,
+      avatar: "💬",
+      relationship: "朋友/熟人",
+      description: "社交圈相关好友"
+    };
+    setBoundNpcs(prev => [...prev, newNpc]);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'real' | 'chat') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const base64 = await compressAndResizeImage(file);
+      if (type === 'chat') setChatAvatar(base64);
+      else setRealImage(base64);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleToggleAssociation = async (charId: string) => {
@@ -290,21 +334,6 @@ export default function CharacterCreatorApp({
     setActiveTab("list");
   };
 
-  const [isGeneratingNpcsAI, setIsGeneratingNpcsAI] = useState<boolean>(false);
-
-  const handleAddNpc = () => {
-    const formalNamesPool = ["林墨", "苏禾", "陆晨", "陈清源", "顾晚秋", "周致远", "沈知意", "叶天明", "许若琳", "程安"];
-    const randomName = formalNamesPool[boundNpcs.length % formalNamesPool.length];
-    const newNpc: BoundNPC = {
-      id: `npc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      name: randomName,
-      avatar: "💬",
-      relationship: "朋友/熟人",
-      description: "社交圈相关好友"
-    };
-    setBoundNpcs(prev => [...prev, newNpc]);
-  };
-
   const handleGenerateNpcsWithAI = async () => {
     setIsGeneratingNpcsAI(true);
     setErrorMsg("");
@@ -352,7 +381,7 @@ export default function CharacterCreatorApp({
         if (Array.isArray(parsed) && parsed.length >= 1) {
           const newGeneratedNpcs: BoundNPC[] = parsed.map((item: any, idx: number) => ({
             id: `npc-ai-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-            name: item.name || `林墨`,
+            name: item.name || `NPC`,
             avatar: item.avatar || "💬",
             relationship: item.relationship || "朋友",
             description: item.description || "社交圈好友"
@@ -363,17 +392,6 @@ export default function CharacterCreatorApp({
           return;
         }
       }
-
-      // Offline fallback
-      const offlineNpcs: BoundNPC[] = [
-        { id: `npc-off-${Date.now()}-1`, name: "陆致远", avatar: "👟", relationship: "邻居好友", description: "非常热心肠，经常帮忙收快递并分享美食" },
-        { id: `npc-off-${Date.now()}-2`, name: "赵明哲", avatar: "🩺", relationship: "社区医生", description: "性格温和有耐心，关注大家的健康与作息" },
-        { id: `npc-off-${Date.now()}-3`, name: "许怡雯", avatar: "🎨", relationship: "画坊艺术好友", description: "有独特的艺术审美，常邀请大家看展览" },
-        { id: `npc-off-${Date.now()}-4`, name: "张宏远", avatar: "🚴", relationship: "骑行团队长", description: "热爱户外运动，周末经常组织大家郊游" }
-      ];
-
-      setBoundNpcs(prev => [...prev, ...offlineNpcs]);
-      setSuccessMsg(`✨ 已生成 ${offlineNpcs.length} 个新 NPC 关系联系人！`);
     } catch (e: any) {
       console.error(e);
       setErrorMsg("生成 NPC 失败：" + (e?.message || e));
@@ -382,270 +400,146 @@ export default function CharacterCreatorApp({
     }
   };
 
-  const handleDeleteNpc = (npcId: string) => {
-    setErrorMsg("");
-    setBoundNpcs(prev => prev.filter(n => n.id !== npcId));
-  };
-
-  const handleUpdateNpc = (id: string, field: keyof BoundNPC, value: string) => {
-    setBoundNpcs(prev => prev.map(n => n.id === id ? { ...n, [field]: value } : n));
-  };
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: "real" | "chat") => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      setErrorMsg("只支持上传图片格式文件。");
-      return;
-    }
-
-    try {
-      const dataUrl = await compressAndResizeImage(file);
-      if (type === "real") {
-        setRealImage(dataUrl);
-      } else {
-        setChatAvatar(dataUrl);
-      }
-      setSuccessMsg("图片上传成功！");
-    } catch (err: any) {
-      console.error(err);
-      setErrorMsg(`图片解析失败: ${err.message || "未知错误"}`);
-    } finally {
-      e.target.value = "";
-    }
-  };
-
-  const decodeFileText = async (file: File): Promise<string> => {
-    const arrayBuffer = await file.arrayBuffer();
-    const uint8Array = new Uint8Array(arrayBuffer);
-
-    // Try UTF-8 with fatal check
-    try {
-      const decoder = new TextDecoder("utf-8", { fatal: true });
-      const text = decoder.decode(uint8Array);
-      if (!text.includes("\ufffd")) {
-        return text;
-      }
-    } catch (e) {
-      // Ignore
-    }
-
-    // Try GBK / GB18030 for Chinese text files
-    try {
-      const decoderGBK = new TextDecoder("gb18030");
-      const text = decoderGBK.decode(uint8Array);
-      return text;
-    } catch (e) {
-      // Fallback to standard utf-8
-      const decoderFallback = new TextDecoder("utf-8");
-      return decoderFallback.decode(uint8Array);
-    }
-  };
-
   const processFile = async (file: File, enc: string) => {
     setIsImporting(true);
     setErrorMsg("");
     setSuccessMsg("");
     try {
-      const fileName = file.name;
-      const lowerName = fileName.toLowerCase();
-      
-      let decodedText = "";
-      if (lowerName.endsWith(".docx")) {
-        const arrayBuffer = await file.arrayBuffer();
-        const zip = new JSZip();
-        const loadedZip = await zip.loadAsync(arrayBuffer);
-        const documentXml = await loadedZip.file("word/document.xml")?.async("string");
-        if (documentXml) {
-          const parser = new DOMParser();
-          const xmlDoc = parser.parseFromString(documentXml, "text/xml");
-          const paragraphs = xmlDoc.getElementsByTagName("w:p");
-          const textParts: string[] = [];
-          for (let i = 0; i < paragraphs.length; i++) {
-            const p = paragraphs[i];
-            const texts = p.getElementsByTagName("w:t");
-            let pText = "";
-            for (let j = 0; j < texts.length; j++) {
-              pText += texts[j].textContent || "";
-            }
-            textParts.push(pText);
-          }
-          decodedText = textParts.join("\n");
-        } else {
-          throw new Error("无效的 docx 结构，未找到 word/document.xml。");
-        }
-      } else {
-        if (enc === "AUTO") {
-          decodedText = await decodeFileText(file);
-        } else {
+        const fileName = file.name;
+        const lowerName = fileName.toLowerCase();
+        
+        let decodedText = "";
+        if (lowerName.endsWith(".docx")) {
           const arrayBuffer = await file.arrayBuffer();
-          const decoder = new TextDecoder(enc);
-          decodedText = decoder.decode(new Uint8Array(arrayBuffer));
+          const zip = new JSZip();
+          const loadedZip = await zip.loadAsync(arrayBuffer);
+          const documentXml = await loadedZip.file("word/document.xml")?.async("string");
+          if (documentXml) {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(documentXml, "text/xml");
+            const paragraphs = xmlDoc.getElementsByTagName("w:p");
+            const textParts: string[] = [];
+            for (let i = 0; i < paragraphs.length; i++) {
+              const p = paragraphs[i];
+              const texts = p.getElementsByTagName("w:t");
+              let pText = "";
+              for (let j = 0; j < texts.length; j++) {
+                pText += texts[j].textContent || "";
+              }
+              textParts.push(pText);
+            }
+            decodedText = textParts.join("\n");
+          } else {
+            throw new Error("无效的 docx 结构，未找到 word/document.xml。");
+          }
+        } else {
+          if (enc === "AUTO") {
+            decodedText = await decodeFileText(file);
+          } else {
+            const arrayBuffer = await file.arrayBuffer();
+            const decoder = new TextDecoder(enc);
+            decodedText = decoder.decode(new Uint8Array(arrayBuffer));
+          }
         }
-      }
-      
-      setFileContent(decodedText);
-      
-      // Perform local extraction
-      let parsedName = "";
-      let parsedNickname = "";
-      let parsedPersonality = "";
-      let parsedChatStyle = "";
-      let parsedDesc = "";
-      let parsedBackground = "";
+        
+        setFileContent(decodedText);
+        
+        // Use AI to extract Name and Summarize Chat Style, but keep Personality/Background literal
+        let parsedName = "";
+        let parsedPersonality = decodedText.trim();
+        let parsedNickname = "";
+        let parsedChatStyle = "";
+        let extractedNpcs: BoundNPC[] = [];
 
-      const lines = decodedText.split(/\r?\n/);
-      let currentSection: 'personality' | 'chatStyle' | 'desc' | 'background' | null = null;
-      let hasStructure = false;
+        if (settings && (settings.apiKey || settings.apiUrl)) {
+          try {
+            const aiResult = await apiAnalyzeCharacterFile({
+              fileText: decodedText,
+              fileName: file.name,
+              settings
+            });
 
-      for (let line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-
-        if (!parsedName) {
-          const nameMatch = trimmed.match(/^(?:姓名|角色名|主姓名|Name)\s*[:：]\s*(.+)$/i);
-          if (nameMatch) {
-            parsedName = nameMatch[1].trim();
-            hasStructure = true;
-            continue;
+            if (aiResult.success && aiResult.data) {
+              const data = aiResult.data;
+              if (data.name) parsedName = data.name;
+              if (data.nickname && data.nickname !== "无") parsedNickname = data.nickname;
+              // AI is instructed in prompt to copy personality and background verbatim.
+              if (data.personality || data.background) {
+                parsedPersonality = [data.personality, data.background].filter(Boolean).join("\n\n").trim();
+              }
+              if (data.chatStyle) parsedChatStyle = data.chatStyle;
+              if (data.avatar) setAvatarPrompt(data.avatar);
+            }
+          } catch (aiErr) {
+            console.warn("AI analysis failed during import:", aiErr);
           }
         }
 
-        const nickMatch = trimmed.match(/^(?:昵称|别名|小名|Nickname|Nick)\s*[:：]\s*(.+)$/i);
-        if (nickMatch) {
-          parsedNickname = nickMatch[1].trim();
-          hasStructure = true;
-          continue;
+        if (parsedNickname) setNickname(parsedNickname);
+
+        // Fallback for Name if AI failed
+        if (!parsedName) {
+          const firstLine = decodedText.split(/\r?\n/)[0]?.trim();
+          if (firstLine && firstLine.length < 15 && !firstLine.includes("设定") && !firstLine.includes("背景")) {
+            parsedName = firstLine;
+          } else {
+            parsedName = fileName.replace(/\.[^/.]+$/, "");
+          }
         }
 
-        const descMatch = trimmed.match(/^(?:一句话介绍|简介|介绍|描述|Slogan|Bio|Description|Desc)\s*[:：]\s*(.+)$/i);
-        if (descMatch) {
-          parsedDesc = descMatch[1].trim();
-          hasStructure = true;
-          continue;
+        if (!parsedChatStyle) {
+          parsedChatStyle = `作为${parsedName}，说话时字里行间流露出独特的个人特质与语气，语气真实生动，带有沉浸式动作与心理描写。`;
         }
 
-        const styleMatch = trimmed.match(/^(?:聊天风格|说话方式|说话风格|口癖|Chat\s*Style|Style)\s*[:：]\s*(.+)$/i);
-        if (styleMatch) {
-          parsedChatStyle = styleMatch[1].trim();
-          hasStructure = true;
-          continue;
-        }
+        // Update form fields
+        setName(parsedName);
+        setPersonality(parsedPersonality);
+        setChatStyle(parsedChatStyle);
+        setBackground(""); // We merge background into personality now per user preference for "one field" logic
 
-        if (trimmed.match(/^(?:性格特点|性格|人设背景|人设|设定|角色设定|Personality|Character\s*Setting)\s*[:：]?$/i)) {
-          currentSection = 'personality';
-          hasStructure = true;
-          continue;
-        } else if (trimmed.match(/^(?:聊天风格|聊天口吻|说话方式|说话风格|口癖|Chat\s*Style|Style|Dialogue\s*Style)\s*[:：]?$/i)) {
-          currentSection = 'chatStyle';
-          hasStructure = true;
-          continue;
-        } else if (trimmed.match(/^(?:角色背景|背景故事|背景设定|故事|Background|Story)\s*[:：]?$/i)) {
-          currentSection = 'background';
-          hasStructure = true;
-          continue;
-        } else if (trimmed.match(/^(?:简介|描述|Description|Summary)\s*[:：]?$/i)) {
-          currentSection = 'desc';
-          hasStructure = true;
-          continue;
-        }
-
-        if (currentSection === 'personality') {
-          parsedPersonality += (parsedPersonality ? "\n" : "") + trimmed;
-        } else if (currentSection === 'chatStyle') {
-          parsedChatStyle += (parsedChatStyle ? "\n" : "") + trimmed;
-        } else if (currentSection === 'background') {
-          parsedBackground += (parsedBackground ? "\n" : "") + trimmed;
-        } else if (currentSection === 'desc') {
-          parsedDesc += (parsedDesc ? "\n" : "") + trimmed;
-        }
-      }
-
-      if (!hasStructure || (!parsedName && !parsedPersonality)) {
-        const baseName = fileName.replace(/\.[^/.]+$/, "");
-        parsedName = baseName;
-        parsedPersonality = decodedText.trim();
-      }
-
-      if (!parsedName) {
-        const firstLine = decodedText.split(/\r?\n/)[0]?.trim();
-        if (firstLine && firstLine.length < 15 && !firstLine.includes("设定") && !firstLine.includes("背景")) {
-          parsedName = firstLine;
-        } else {
-          parsedName = fileName.replace(/\.[^/.]+$/, "");
-        }
-      }
-
-      const finalPersonality = parsedPersonality || decodedText.trim();
-      const finalChatStyle = parsedChatStyle || `作为${parsedName}，说话时字里行间流露出独特的个人特质与语气，语气真实生动，带有沉浸式动作与心理描写。`;
-      
-      // Update form fields for visual feedback
-      setName(parsedName);
-      setNickname(parsedNickname);
-      setPersonality(finalPersonality);
-      setBackground(parsedBackground);
-      setChatStyle(finalChatStyle);
-
-      // Automatically generate NPCs based on uploaded character file content
-      let extractedNpcs: BoundNPC[] = [];
-      if (settings && (settings.apiKey || settings.apiUrl)) {
-        try {
-          const npcPrompt = `你是一个角色关系网络生成器。请根据以下上传的角色文件内容，提炼生成 3 至 5 个与该角色相关的 NPC 联系人（如好友、同事、同学、搭档等）。
-【姓名准则 (绝对强制)】：
-1. 姓名必须是标准的正式中文姓名（如“林墨”、“苏禾”、“陆晨”、“陈清源”）。
-2. 绝对禁止使用“阿X”、“小X”、“老X”等昵称式或单一英文/拼音命名（例如绝对不能使用“阿杰”、“小涵”、“小宋”、“老王”、“Lily”等）。
-
+        // Automatically generate NPCs based on uploaded character file content
+        if (settings && (settings.apiKey || settings.apiUrl)) {
+          try {
+            const npcPrompt = `你是一个角色关系网络生成器。请根据以下角色的人设背景，提炼生成 3 至 5 个与该角色相关的 NPC 联系人（如好友、同事、同学、搭档等）。
 必须输出严格纯 JSON 数组（无 Markdown 代码块）：
 [
-  {
-    "name": "正常中文姓名",
-    "relationship": "与角色的关系",
-    "description": "几句话简介/性格特点",
-    "avatar": "Emoji"
-  }
+  { "name": "中文姓名", "relationship": "与角色的关系", "description": "简介", "avatar": "Emoji" }
 ]
 
 角色姓名：${parsedName}
-文件内容摘要：
-${decodedText.substring(0, 1500)}`;
+背景内容：${decodedText.substring(0, 1500)}`;
 
-          const responseText = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [
-            { role: "user", content: npcPrompt }
-          ]);
-
-          let jsonStr = responseText;
-          const jsonMatch = responseText.match(/\[[\s\S]*\]/);
-          if (jsonMatch) jsonStr = jsonMatch[0];
-
-          const parsedNpcs = JSON.parse(jsonStr);
-          if (Array.isArray(parsedNpcs) && parsedNpcs.length >= 1) {
-            extractedNpcs = parsedNpcs.map((item: any, idx: number) => ({
-              id: `npc-file-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
-              name: item.name || `林墨`,
-              avatar: item.avatar || "💬",
-              relationship: item.relationship || "关系人",
-              description: item.description || "社交圈相关好友"
-            }));
+            const responseText = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: npcPrompt }]);
+            const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+            const parsedNpcs = JSON.parse(jsonMatch ? jsonMatch[0] : "[]");
+            
+            if (Array.isArray(parsedNpcs) && parsedNpcs.length > 0) {
+              extractedNpcs = parsedNpcs.map((item: any, idx: number) => ({
+                id: `npc-file-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+                name: item.name || `NPC`,
+                avatar: item.avatar || "💬",
+                relationship: item.relationship || "关系人",
+                description: item.description || "背景相关人物"
+              }));
+            }
+          } catch (npcErr) {
+            console.warn("NPC generation failed:", npcErr);
           }
-        } catch (npcErr) {
-          console.warn("⚠️ [根据文件内容生成 NPC 失败，使用本地设定生成]:", npcErr);
         }
-      }
 
-      if (extractedNpcs.length === 0) {
-        extractedNpcs = generateDefaultNpcsForCharacter(parsedName, finalPersonality, parsedBackground);
-      }
+        if (extractedNpcs.length === 0) {
+          extractedNpcs = generateDefaultNpcsForCharacter(parsedName, parsedPersonality, "");
+        }
 
-      setBoundNpcs(extractedNpcs);
-      setSuccessMsg("📂 角色文件解析成功！内容已完整填入对应字段，请核对。");
-    } catch (err: any) {
-      console.error("❌ [角色导入异常]:", err);
-      setErrorMsg(err.message || "文件解析失败，请检查文件格式或重试。");
-    } finally {
-      setIsImporting(false);
-    }
-  };
+        setBoundNpcs(extractedNpcs);
+        setSuccessMsg("📂 角色文件导入成功！人设与背景已一字不差填入字段，聊天风格已智能总结。请核对并点击保存按钮。");
+      } catch (err: any) {
+        console.error("❌ [角色导入异常]:", err);
+        setErrorMsg(err.message || "文件解析失败。");
+      } finally {
+        setIsImporting(false);
+      }
+    };
 
   const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -843,7 +737,7 @@ ${decodedText.substring(0, 1500)}`;
     // Auto-generate system instruction combining name, nickname, personality, background, and chat style
     const systemInstruction = `你正在扮演角色 "${finalName}"。
 
-【基本设定 / 인设 (Personality Profile)】:
+【基本设定 / 人设 (Personality Profile)】:
 - 姓名: ${finalName}
 - 别名/昵称: ${nickname.trim() || "无"}
 
@@ -857,11 +751,13 @@ ${background.trim() || "暂无背景故事"}
 - ${finalChatStyle}
 - 保持第一人称视角的沉浸式对话。
 - 适当在动作或神态描述旁添加星号 (*), 例如：*微微一笑* 或 *叹了口气*，以此渲染对话环境。
+- 【聊天自然度准则】：不要刻意重复你的人设背景（如：“我是心理咨询师”、“我三年前经历过那件事”），只在相关语境下自然提及。像一个真实的人一样说话，话题自然流动，不要时刻提醒对方你的背景是什么。人设背景的作用是塑造你的性格和说话方式，而不是作为聊天的固定话题。
 - 绝不脱离设定，拒绝扮演旁观者或 AI 助手。`;
 
     try {
       const payload = {
         name: finalName,
+        nickname: nickname.trim(),
         avatar,
         description: finalPersonality.length > 40 ? finalPersonality.substring(0, 40) + "..." : finalPersonality,
         systemInstruction,

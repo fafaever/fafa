@@ -369,15 +369,14 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     };
 
     const updatedList = [newRecord, ...historyRecords];
-    setHistoryRecords(updatedList);
     try {
       localStorage.setItem(historyKey, JSON.stringify(updatedList));
     } catch (e) {
-      console.error("Failed to archive session:", e);
+      console.error("Failed to save history:", e);
     }
   };
 
-  // Helper to generate dynamic style prompt instructions based on perspective & tone & custom keywords
+  // Helper to generate dynamic style prompt instructions based on user settings
   const getPromptStyleInstructions = () => {
     const currentUserName = settings.userPersonaName || "用户";
     const assocList = getAssociatedCharacters();
@@ -387,17 +386,28 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     let perspectiveInstruction = "";
     if (plotMode === "multi") {
       if (perspective === "second") {
-        perspectiveInstruction = `【叙述视角要求 - 第二人称（绝对强制）】：所有参演角色（${allNames.join("、")}）在描述动作与对话时均使用各自的角色姓名，将用户统一称呼为“你”！即便用户的输入中使用了“我”或其他称呼，你也必须严格坚持使用角色名和“你”，绝不妥协！`;
+        perspectiveInstruction = `【叙述视角强制性约束 - 第二人称】：
+- 你必须严格以第二人称（“你”和角色姓名）进行叙述。
+- 角色必须直接称呼用户为“你”，角色自称使用姓名。
+- 【绝对禁令】：严禁受用户输入影响！即便用户在对话中自称“我”或称呼你为“你”，你的描写叙述部分必须始终坚持使用角色姓名和“你”，绝不妥协！`;
       } else {
-        perspectiveInstruction = `【叙述视角要求 - 第三人称（绝对强制）】：所有参演角色（${allNames.join("、")}）以及用户（${currentUserName}）均统一使用各自的姓名或“他/她”描述其动作与台词！即便用户的输入中使用了“我”或“你”，你也必须严格坚持第三人称叙述，绝不切换视角！`;
+        perspectiveInstruction = `【叙述视角强制性约束 - 第三人称】：
+- 你必须严格以第三人称（“他/她”和各自姓名）进行叙述。
+- 场景中所有角色（包括用户 ${currentUserName}）的所有动作、神态、心理描写必须统一使用各自的姓名或“他/她”。
+- 【绝对禁令】：严禁受用户输入影响！即便用户在消息中使用了“我”、“你”或第一人称，你的剧情描写文字仍必须严格按照第三人称叙述，绝对不准切换视角或称呼！`;
       }
     } else {
       if (perspective === "first") {
-        perspectiveInstruction = "【叙述视角要求 - 第一人称】：从角色自身视角出发，使用第一人称（“我”）来进行心理活动与动作描写。";
+        perspectiveInstruction = `【叙述视角强制性约束 - 第一人称】：从角色 ${character.name} 的自身视角出发，使用第一人称（“我”）进行心理活动与动作描写。`;
       } else if (perspective === "second") {
-        perspectiveInstruction = `【叙述视角要求 - 第二人称（绝对强制）】：在描写与叙述中角色使用角色名，直接称呼用户为“你”。即使用户在输入中自称“我”，你在叙述中也必须称呼用户为“你”，严格保持视角一致！`;
+        perspectiveInstruction = `【叙述视角强制性约束 - 第二人称】：
+- 你必须严格以第二人称进行叙述。角色使用角色名，直接称呼用户为“你”。
+- 【绝对禁令】：严禁受用户输入影响！即使用户在输入中自称“我”，你在描写叙述中也必须且只能称呼用户为“你”，严格保持视角高度一致！`;
       } else {
-        perspectiveInstruction = `【叙述视角要求 - 第三人称（绝对强制）】：使用第三人称（“他/她”及角色名）来客观叙述角色的姿态、动作与心理。即使当前用户在输入中使用了“我”或“你”，你也必须严格保持第三人称叙述，绝不妥协！`;
+        perspectiveInstruction = `【叙述视角强制性约束 - 第三人称】：
+- 你必须严格以第三人称（“他/她”及角色名）来叙述角色的姿态、动作与心理。
+- 严禁出现“我”、“你”等第一或第二人称的描述性文字。
+- 【绝对禁令】：严禁受用户输入影响！即使当前用户在输入中使用了“我”或“你”，你也必须严格坚持第三人称叙述，绝不妥协，不切换视角！`;
       }
     }
 

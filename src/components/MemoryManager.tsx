@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Trash2, Share2, ChevronDown, ChevronRight, Check, Wand2, Loader2, X } from "lucide-react";
-import { Character, Memory, AppSettings, ChatSession } from "../types";
+import { Trash2, Share2, ChevronDown, ChevronRight, Check, Wand2, Loader2, X, Zap, Settings } from "lucide-react";
+import { Character, Memory, AppSettings, ChatSession, ExtractionSettings } from "../types";
 import { apiChat, performVectorRetrieval, VectorRetrievedDoc } from "../lib/api";
 
 interface MemoryManagerProps {
@@ -8,16 +8,20 @@ interface MemoryManagerProps {
   settings: AppSettings;
   sessions: ChatSession[];
   vectorMemoryEnabled?: boolean;
+  onUpdateCharacter?: (id: string, updated: Partial<Character>) => void;
 }
 
-export function MemoryManager({ character, settings, sessions, vectorMemoryEnabled = false }: MemoryManagerProps) {
+export function MemoryManager({ character, settings, sessions, vectorMemoryEnabled = false, onUpdateCharacter }: MemoryManagerProps) {
   const [activeLayer, setActiveLayer] = useState<1 | 2 | 3>(1);
   const [memories, setMemories] = useState<Memory[]>([]);
-  const [expandedMonths, setExpandedMonths] = useState<string[]>([]);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isSimplifying, setIsSimplifying] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  
+  const [extractionTime, setExtractionTime] = useState(character.extractionSettings?.dailyExtractionTime || "23:00");
+  const [showTimeSettings, setShowTimeSettings] = useState(false);
 
   // Vector memory search states
   const [searchQuery, setSearchQuery] = useState("");
@@ -55,42 +59,60 @@ export function MemoryManager({ character, settings, sessions, vectorMemoryEnabl
     const parsed = savedMemories ? JSON.parse(savedMemories) : [];
     setMemories(parsed);
     
-    // Auto-extraction logic for today's memory
-    extractTodayMemory(parsed);
+    // Check if we should auto-extract based on time
+    checkAutoExtraction(parsed);
   }, [character.id]);
 
-  const extractTodayMemory = async (currentMemories: Memory[]) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const hasTodayMemory = currentMemories.some(m => {
-      const d = new Date(m.timestamp);
-      d.setHours(0, 0, 0, 0);
-      return m.layer === 1 && d.getTime() === today.getTime() && m.source === "系统自动提取";
-    });
+  const checkAutoExtraction = (currentMemories: Memory[]) => {
+    const now = new Date();
+    const [h, m] = extractionTime.split(':').map(Number);
+    const targetTime = new Date();
+    targetTime.setHours(h, m, 0, 0);
 
-    if (hasTodayMemory) return;
+    // If current time is after target time and we haven't extracted today
+    if (now >= targetTime) {
+      const lastExtracted = character.extractionSettings?.lastExtractionTimestamp || 0;
+      const lastDate = new Date(lastExtracted);
+      lastDate.setHours(0,0,0,0);
+      const todayDate = new Date();
+      todayDate.setHours(0,0,0,0);
 
-    // Get today's messages
+      if (lastDate.getTime() < todayDate.getTime()) {
+        extractMemories(currentMemories, true);
+      }
+    }
+  };
+
+  const extractMemories = async (currentMemories: Memory[], isAuto = false) => {
     const charSession = sessions.find(s => s.characterId === character.id);
     if (!charSession) return;
 
-    const todayMessages = charSession.messages.filter(m => {
-      const d = new Date(m.timestamp);
-      d.setHours(0, 0, 0, 0);
-      return d.getTime() === today.getTime();
-    });
+    const lastExtracted = character.extractionSettings?.lastExtractionTimestamp || 0;
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    
+    // We want messages from the last 24h, but only those AFTER the last extraction to avoid duplicates
+    // However, the rule says "extract past 24h memories". 
+    // If we haven't extracted for 2 days, "past 24h" only gets the most recent day.
+    // If we extracted 1 hour ago, "past 24h" would overlap 23 hours.
+    // The instruction "仅提取过去 24 小时内尚未提取过的内容" means we should filter messages by timestamp > lastExtracted AND timestamp > oneDayAgo.
+    
+    const startTime = Math.max(lastExtracted, oneDayAgo);
+    const recentMessages = charSession.messages.filter(m => m.timestamp > startTime);
 
-    if (todayMessages.length < 5) return; // Only extract if there's enough dialogue
+    if (recentMessages.length < 5) {
+      if (!isAuto) alert("暂无足够的新对话内容进行提取（需至少 5 条新消息）。");
+      return; 
+    }
 
     setIsExtracting(true);
     try {
-      const dialogueText = todayMessages.map(m => `${m.role === 'user' ? '用户' : character.name}: ${m.content}`).join('\n');
-      const prompt = `你是一个长期记忆提取助手。请根据以下当天的对话内容，进行客观的第三人称总结。
+      const dialogueText = recentMessages.map(m => `${m.role === 'user' ? '用户' : character.name}: ${m.content}`).join('\n');
+      const prompt = `你是一个长期记忆提取助手。请根据以下最近 24 小时的对话内容，进行客观的第三人称总结。
 要求：
-1. 提取出当天的关键事件、用户分享的重要信息、角色观察到的用户状态。
-2. 格式为第三人称陈述句，客观概括，不要包含角色对用户的直接说话内容。
-3. 保持简洁，不要包含开场白。
+1. 提取出关键事件、重要信息、用户分享的内容、角色的心理变化。
+2. 仅保留重要事实，自动过滤日常琐碎内容（如“吃了没”、“在干嘛”）。
+3. 格式为第三人称陈述句，客观概括，不要包含角色对用户的直接说话内容。
+4. 保持简洁，不要包含任何开场白或解释语。
 
 对话内容：
 ${dialogueText}`;
@@ -105,17 +127,28 @@ ${dialogueText}`;
 
       if (response.text) {
         const newMemory: Memory = {
-          id: `auto-${Date.now()}`,
+          id: `ext-${Date.now()}`,
           characterId: character.id,
           text: response.text.trim(),
           timestamp: Date.now(),
           layer: 1,
-          source: "系统自动提取",
-          sourceDialogue: dialogueText.slice(0, 500) // Keep snippet
+          source: isAuto ? "系统自动提取" : "手动提取",
+          sourceDialogue: dialogueText.slice(0, 500)
         };
         const updated = [newMemory, ...currentMemories];
         setMemories(updated);
         localStorage.setItem(`mobile_ai_memories_${character.id}`, JSON.stringify(updated));
+
+        // Update last extraction timestamp
+        if (onUpdateCharacter) {
+          onUpdateCharacter(character.id, {
+            extractionSettings: {
+              ...(character.extractionSettings || {}),
+              lastExtractionTimestamp: Date.now(),
+              dailyExtractionTime: extractionTime
+            }
+          });
+        }
       }
     } catch (error) {
       console.error("Extraction error:", error);
@@ -142,14 +175,15 @@ ${dialogueText}`;
     if (selectedIds.length === 0) return;
     setIsSimplifying(true);
     try {
-      const targets = memories.filter(m => selectedIds.includes(m.id));
+      const targets = memories.filter(m => selectedIds.includes(m.id)).sort((a, b) => a.timestamp - b.timestamp);
       const combinedText = targets.map(m => m.text).join('\n---\n');
       
       const prompt = `请将以下多段记忆内容浓缩为一段精华摘要。
 要求：
-1. 保留所有核心关键信息和事实，压缩比例约为 5% 左右。
-2. 语言精炼，但信息完整。
-3. 不要包含任何开场白，直接输出正文。
+1. 压缩比例：压缩为原总字数的 10%-20%。
+2. 仅保留关键事件、重要信息、情绪节点。
+3. 自动过滤日常琐碎内容（如“吃了没”、“在干嘛”等）。
+4. 语言精炼，信息完整，不要包含任何开场白。
 
 记忆内容：
 ${combinedText}`;
@@ -164,16 +198,20 @@ ${combinedText}`;
 
       if (response.text) {
         const newText = response.text.trim();
-        // Use the latest timestamp from targets
-        const latestTimestamp = Math.max(...targets.map(t => t.timestamp));
+        const startTimestamp = targets[0].timestamp;
+        const endTimestamp = targets[targets.length - 1].timestamp;
         
+        const startDate = new Date(startTimestamp);
+        const endDate = new Date(endTimestamp);
+        const dateTag = `${startDate.getMonth()+1}.${startDate.getDate()}-${endDate.getMonth()+1}.${endDate.getDate()}`;
+
         const simplifiedMemory: Memory = {
           id: `simplified-${Date.now()}`,
           characterId: character.id,
           text: newText,
-          timestamp: latestTimestamp,
+          timestamp: endTimestamp,
           layer: 1,
-          source: "AI简化提取",
+          source: dateTag,
           isSimplified: true
         };
 
@@ -204,12 +242,10 @@ ${combinedText}`;
       groups[key].push(m);
     });
 
-    // Sort within groups by timestamp desc
     Object.keys(groups).forEach(key => {
       groups[key].sort((a, b) => b.timestamp - a.timestamp);
     });
 
-    // Sort group keys desc
     return Object.keys(groups)
       .sort((a, b) => {
         const [y1, m1] = a.replace('年', '-').replace('月', '').split('-').map(Number);
@@ -219,8 +255,8 @@ ${combinedText}`;
       .map(key => ({ key, memories: groups[key] }));
   }, [memories]);
 
-  const toggleMonth = (key: string) => {
-    setExpandedMonths(prev => 
+  const toggleGroup = (key: string) => {
+    setExpandedGroups(prev => 
       prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
     );
   };
@@ -232,12 +268,24 @@ ${combinedText}`;
   };
 
   const tabClass = (layer: 1 | 2 | 3) => 
-    `pb-2 text-sm  transition-all relative ${activeLayer === layer ? "text-neutral-900 font-bold" : "text-neutral-400"}`;
+    `pb-2 text-sm transition-all relative ${activeLayer === layer ? "text-neutral-900 font-bold" : "text-neutral-400"}`;
+
+  const handleUpdateTime = (time: string) => {
+    setExtractionTime(time);
+    if (onUpdateCharacter) {
+      onUpdateCharacter(character.id, {
+        extractionSettings: {
+          ...(character.extractionSettings || {}),
+          dailyExtractionTime: time
+        }
+      });
+    }
+    setShowTimeSettings(false);
+  };
 
   if (vectorMemoryEnabled) {
     return (
       <div className="flex flex-col h-full bg-[#F5F3F0]">
-        {/* Search Input Bar */}
         <div className="bg-white p-3 border-b border-neutral-100 flex gap-2 shrink-0">
           <input
             type="text"
@@ -256,16 +304,19 @@ ${combinedText}`;
           </button>
         </div>
 
-        {/* Search Results */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           <div className="text-[11px] text-stone-500 leading-relaxed bg-stone-50 p-3 rounded-xl border border-stone-100 font-sans mb-1">
-            🎯 <strong>当前检索范围：</strong>主聊天对话记录、线下见面模式对话及剧情卡片记录。其他模块（论坛、宇宙、朋友圈等）已自动过滤，确保对话引用的精确。
+            🎯 <strong>向量检索中：</strong>已根据您的提取范围（
+            {character.extractionSettings?.vectorScope?.online?.enabled ? "线上、" : ""}
+            {character.extractionSettings?.vectorScope?.story?.enabled ? "剧情、" : ""}
+            {character.extractionSettings?.vectorScope?.other?.enabled ? "其他" : ""}
+            ）开启语义模糊匹配。
           </div>
 
           {isSearchingVector && (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-neutral-500 font-sans">
               <Loader2 className="w-8 h-8 animate-spin text-neutral-800" />
-              <span className="text-xs">正在计算高维向量语义相关度评分...</span>
+              <span className="text-xs">正在计算语义相关度评分...</span>
             </div>
           )}
 
@@ -277,56 +328,30 @@ ${combinedText}`;
 
           {!isSearchingVector && vectorResults.length > 0 && (
             <div className="space-y-3">
-              <div className="flex justify-between items-center text-[10px] text-neutral-400 font-bold uppercase tracking-widest px-1">
-                <span>检索到 {vectorResults.length} 条记忆相关数据</span>
-                <span>按相关性评分排序</span>
-              </div>
-
-              {vectorResults.map((doc, idx) => {
-                const scorePercent = Math.round(doc.score * 100);
-                const isReranked = doc.rerankScore !== undefined;
-                const rerankScorePercent = isReranked ? Math.round(doc.rerankScore! * 100) : 0;
-                
-                return (
-                  <div key={idx} className="bg-white p-4 rounded-xl border border-neutral-100 shadow-sm flex flex-col gap-2 hover:border-neutral-300 transition-all group animate-in fade-in duration-200">
-                    <div className="flex justify-between items-start gap-4">
-                      <div className="flex-1 space-y-1">
-                        {/* Tags & Time */}
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[10px] bg-[#F5F3F0] text-stone-600 font-bold px-2 py-0.5 rounded-full">
-                            {doc.source}
-                          </span>
-                          <span className="text-[10px] text-neutral-400">
-                            {new Date(doc.timestamp).toLocaleString("zh-CN", { hour12: false })}
-                          </span>
-                        </div>
-                        {/* Text */}
-                        <p className="text-[14px] leading-relaxed text-neutral-800 font-light pt-1">
-                          {doc.text}
-                        </p>
+              {vectorResults.map((doc, idx) => (
+                <div key={idx} className="bg-white p-4 rounded-xl border border-neutral-100 shadow-sm flex flex-col gap-2 hover:border-neutral-300 transition-all group animate-in fade-in duration-200">
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] bg-[#F5F3F0] text-stone-600 font-bold px-2 py-0.5 rounded-full">
+                          {doc.source}
+                        </span>
+                        <span className="text-[10px] text-neutral-400">
+                          {new Date(doc.timestamp).toLocaleString("zh-CN", { hour12: false })}
+                        </span>
                       </div>
-
-                      {/* Score Indicator */}
-                      <div className="flex flex-col items-end gap-1 shrink-0">
-                        <div className="text-right">
-                          <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full select-none ${
-                            (isReranked ? rerankScorePercent : scorePercent) > 75 
-                              ? "bg-emerald-50 text-emerald-700 border border-emerald-100" 
-                              : "bg-[#F5F3F0] text-stone-600"
-                          }`}>
-                            相关性 {isReranked ? `${rerankScorePercent}%` : `${scorePercent}%`}
-                          </span>
-                        </div>
-                        {isReranked && (
-                          <div className="text-[9px] text-neutral-400 font-mono">
-                            Embedding: {scorePercent}% | Rerank
-                          </div>
-                        )}
-                      </div>
+                      <p className="text-[14px] leading-relaxed text-neutral-800 font-light pt-1">
+                        {doc.text}
+                      </p>
+                    </div>
+                    <div className="shrink-0">
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                        {Math.round(doc.score * 100)}%
+                      </span>
                     </div>
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -346,41 +371,82 @@ ${combinedText}`;
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {isExtracting && (
-          <div className="bg-white/50 p-3 rounded-lg border border-neutral-100 flex items-center justify-center gap-2 text-xs text-neutral-500 animate-pulse">
-            <Loader2 className="w-3 h-3 animate-spin" /> 正在提取今日记忆...
-          </div>
-        )}
-
         {activeLayer === 1 && (
           <div className="space-y-4">
-            {groupedMemories.length === 0 && !isExtracting && (
-              <div className="text-center py-12 text-neutral-400 text-sm">暂无核心记忆</div>
+            {/* Extraction Controls */}
+            <div className="flex gap-2">
+              <button 
+                onClick={() => extractMemories(memories)}
+                disabled={isExtracting}
+                className="flex-1 bg-white border border-neutral-200 py-2.5 rounded-xl flex items-center justify-center gap-2 text-[12px] font-bold text-neutral-800 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {isExtracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />}
+                立即提取记忆
+              </button>
+              <button 
+                onClick={() => setShowTimeSettings(!showTimeSettings)}
+                className="px-4 bg-white border border-neutral-200 rounded-xl flex items-center justify-center text-neutral-500 hover:text-neutral-900 transition-all active:scale-95"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            </div>
+
+            {showTimeSettings && (
+              <div className="bg-white p-4 rounded-2xl border border-neutral-100 shadow-sm space-y-3 animate-in fade-in slide-in-from-top-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-neutral-800">每日自动提取时间</span>
+                  <input 
+                    type="time" 
+                    value={extractionTime} 
+                    onChange={(e) => setExtractionTime(e.target.value)}
+                    className="bg-neutral-50 border border-neutral-200 rounded-lg px-2 py-1 text-xs outline-none"
+                  />
+                </div>
+                <button 
+                  onClick={() => handleUpdateTime(extractionTime)}
+                  className="w-full bg-black text-white text-[11px] font-bold py-2 rounded-lg"
+                >
+                  保存设置
+                </button>
+              </div>
             )}
+
+            {isExtracting && (
+              <div className="bg-white/50 p-3 rounded-lg border border-neutral-100 flex items-center justify-center gap-2 text-xs text-neutral-500 animate-pulse">
+                <Loader2 className="w-3 h-3 animate-spin" /> 正在处理 24h 内记忆提取...
+              </div>
+            )}
+
+            {groupedMemories.length === 0 && !isExtracting && (
+              <div className="text-center py-12 text-neutral-400 text-sm">暂无核心记忆，可尝试手动提取</div>
+            )}
+
             {groupedMemories.map(group => (
               <div key={group.key} className="space-y-2">
                 <button 
-                  onClick={() => toggleMonth(group.key)}
-                  className="flex items-center gap-2 text-[#A8A39A]  italic text-sm py-1"
+                  onClick={() => toggleGroup(group.key)}
+                  className="flex items-center gap-2 text-[#A8A39A] italic text-sm py-1"
                 >
-                  {expandedMonths.includes(group.key) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                  {expandedGroups.includes(group.key) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                   {group.key}
                 </button>
                 
-                {expandedMonths.includes(group.key) && (
+                {expandedGroups.includes(group.key) && (
                   <div className="space-y-3 pl-2 border-l-2 border-neutral-100 ml-2">
                     {group.memories.map(m => (
                       <div 
                         key={m.id} 
                         onClick={() => isSelecting && !m.isSimplified && toggleSelect(m.id)}
-                        className={`bg-white p-4 rounded-xl shadow-sm border transition-all ${isSelecting && !m.isSimplified ? "cursor-pointer" : ""} ${selectedIds.includes(m.id) ? "border-neutral-900 ring-1 ring-neutral-900" : "border-neutral-100"} ${m.isSimplified ? "opacity-80" : ""}`}
+                        className={`bg-white p-4 rounded-xl shadow-sm border transition-all ${isSelecting && !m.isSimplified ? "cursor-pointer" : ""} ${selectedIds.includes(m.id) ? "border-neutral-900 ring-1 ring-neutral-900" : "border-neutral-100"} ${m.isSimplified ? "border-dashed border-neutral-300" : ""}`}
                       >
                         <div className="flex justify-between items-start gap-3">
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1.5">
-                              <span className="text-[11px] text-[#BFBAB2] ">{new Date(m.timestamp).toLocaleDateString()}</span>
-                              <span className="text-[11px] bg-neutral-50 text-[#BFBAB2] px-1.5 py-0.5 rounded border border-neutral-100">{m.source}</span>
-                              {m.isSimplified && <span className="text-[10px] bg-neutral-900 text-white px-1.5 py-0.5 rounded">已简化</span>}
+                              <span className="text-[11px] text-[#BFBAB2] font-medium">{new Date(m.timestamp).toLocaleDateString()}</span>
+                              <span className={`text-[11px] px-1.5 py-0.5 rounded font-bold ${m.isSimplified ? "bg-black text-white" : "bg-neutral-50 text-[#BFBAB2] border border-neutral-100"}`}>
+                                {m.source}
+                              </span>
+                              {m.isSimplified && <span className="text-[10px] text-neutral-400 font-medium">已简化合并</span>}
                             </div>
                             <p className="text-[15px] leading-relaxed text-[#1A1A1A] font-light">{m.text}</p>
                           </div>
@@ -391,8 +457,8 @@ ${combinedText}`;
                               </div>
                             )}
                             {!isSelecting && (
-                              <button onClick={(e) => { e.stopPropagation(); deleteMemory(m.id); }} className="p-1 hover:bg-neutral-50 rounded">
-                                <Trash2 className="w-4 h-4 text-neutral-300 hover:text-red-400" />
+                              <button onClick={(e) => { e.stopPropagation(); deleteMemory(m.id); }} className="p-1 hover:bg-neutral-50 rounded transition-colors group">
+                                <Trash2 className="w-4 h-4 text-neutral-200 group-hover:text-red-400" />
                               </button>
                             )}
                           </div>
@@ -405,9 +471,12 @@ ${combinedText}`;
             ))}
           </div>
         )}
-        
+
         {activeLayer === 2 && (
           <div className="space-y-3">
+             {memories.filter(m => m.layer === 2).length === 0 && (
+               <div className="text-center py-12 text-neutral-400 text-sm">暂无剧情记忆</div>
+             )}
              {memories.filter(m => m.layer === 2).map(m => (
                <div key={m.id} className="bg-white p-4 rounded-xl border border-neutral-100 shadow-sm flex justify-between items-start group">
                   <div className="flex-1">
@@ -415,39 +484,36 @@ ${combinedText}`;
                     <div className="flex items-center gap-2 mt-2">
                       <span className="text-[11px] text-[#BFBAB2] ">{new Date(m.timestamp).toLocaleString()}</span>
                       <span className="text-[11px] text-[#BFBAB2] ">来源: {m.source}</span>
-                      {m.isShared ? <span className="text-[10px] text-green-500 font-bold">已分享</span> : <span className="text-[10px] text-neutral-400">未分享</span>}
+                      {m.isShared ? <span className="text-[10px] text-green-500 font-bold">已同步到核心记忆</span> : <span className="text-[10px] text-neutral-400">未同步</span>}
                     </div>
                   </div>
                   {!m.isShared && (
                     <button 
                       onClick={() => shareToLayer1(m)}
                       className="ml-3 p-2 bg-neutral-50 rounded-lg hover:bg-neutral-100 transition-colors"
-                      title="分享到一层"
+                      title="同步到核心记忆"
                     >
                       <Share2 className="w-4 h-4 text-neutral-500" />
                     </button>
                   )}
                </div>
              ))}
-             {memories.filter(m => m.layer === 2).length === 0 && (
-               <div className="text-center py-12 text-neutral-400 text-sm">暂无剧情记忆</div>
-             )}
           </div>
         )}
 
         {activeLayer === 3 && (
           <div className="space-y-3">
-             {sessions.find(s => s.characterId === character.id)?.messages.slice(-10).reverse().map((msg, i) => (
+             {sessions.find(s => s.characterId === character.id)?.messages.slice(-15).reverse().map((msg, i) => (
                <div key={i} className="bg-white p-4 rounded-xl border border-neutral-100 shadow-sm">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-[11px] font-bold text-neutral-900">{msg.role === 'user' ? '你' : character.name}</span>
                     <span className="text-[10px] text-[#BFBAB2]">{new Date(msg.timestamp).toLocaleTimeString()}</span>
                   </div>
-                  <p className="text-[14px] text-[#1A1A1A] font-light line-clamp-2">{msg.content}</p>
+                  <p className="text-[14px] text-[#1A1A1A] font-light line-clamp-3">{msg.content}</p>
                </div>
              ))}
              {!sessions.find(s => s.characterId === character.id) && (
-               <div className="text-center py-12 text-neutral-400 text-sm">暂无即时对话</div>
+               <div className="text-center py-12 text-neutral-400 text-sm">暂无即时对话记录</div>
              )}
           </div>
         )}
@@ -458,25 +524,25 @@ ${combinedText}`;
           {!isSelecting ? (
             <button 
               onClick={() => setIsSelecting(true)}
-              className="w-full bg-white border border-neutral-200 py-3 rounded-xl flex items-center justify-center gap-2 text-[13px] font-medium text-[#1A1A1A] hover:bg-neutral-50 transition-all active:scale-95"
+              className="w-full bg-white border border-neutral-200 py-3 rounded-xl flex items-center justify-center gap-2 text-[13px] font-bold text-[#1A1A1A] hover:bg-neutral-50 transition-all active:scale-95"
             >
-              <Wand2 className="w-4 h-4" /> 简化记忆
+              <Wand2 className="w-4 h-4" /> 批量简化记忆
             </button>
           ) : (
             <div className="flex gap-3">
               <button 
                 onClick={() => { setIsSelecting(false); setSelectedIds([]); }}
-                className="flex-1 bg-neutral-100 py-3 rounded-xl flex items-center justify-center gap-2 text-[13px] font-medium text-neutral-600 active:scale-95 transition-all"
+                className="flex-1 bg-neutral-100 py-3 rounded-xl flex items-center justify-center gap-2 text-[13px] font-bold text-neutral-600 active:scale-95 transition-all"
               >
                 <X className="w-4 h-4" /> 取消
               </button>
               <button 
                 onClick={simplifyMemories}
                 disabled={selectedIds.length === 0 || isSimplifying}
-                className="flex-[2] bg-neutral-900 text-white py-3 rounded-xl flex items-center justify-center gap-2 text-[13px] font-medium disabled:opacity-50 active:scale-95 transition-all"
+                className="flex-[2] bg-neutral-900 text-white py-3 rounded-xl flex items-center justify-center gap-2 text-[13px] font-bold disabled:opacity-50 active:scale-95 transition-all shadow-lg shadow-black/10"
               >
                 {isSimplifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
-                {isSimplifying ? "正在简化..." : `确认简化 (${selectedIds.length})`}
+                {isSimplifying ? "正在简化中..." : `开始简化 (${selectedIds.length}条)`}
               </button>
             </div>
           )}

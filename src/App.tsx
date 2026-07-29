@@ -525,9 +525,27 @@ export default function App() {
       createdAt: Date.now(),
       description: char.description?.trim() || "一个充满魅力的角色",
       systemInstruction: char.systemInstruction?.trim() || defaultSysInstruction,
-      model: char.model || settings.model || "gemini-3.6-flash",
+      model: char.model || settings.model || "gemini-1.5-flash",
     };
-    persistCharacters([...characters, newChar]);
+
+    setCharacters(prev => {
+      const next = syncBidirectionalAssociations([...prev, newChar]);
+      localStorage.setItem("mobile_ai_characters", JSON.stringify(next));
+      return next;
+    });
+
+    const newSession: ChatSession = {
+      id: `sess-${Date.now()}`,
+      characterId: newCharId,
+      messages: [],
+      lastActive: Date.now(),
+    };
+    
+    setSessions(prev => {
+      const next = [...prev, newSession];
+      localStorage.setItem("mobile_ai_sessions", JSON.stringify(next));
+      return next;
+    });
 
     // Save initial character settings in localStorage
     const defaultSettings = {
@@ -546,15 +564,6 @@ export default function App() {
     } catch (e) {
       console.warn("Failed to save initial character settings to localStorage", e);
     }
-
-    // Auto-create a session for the new character to avoid "API call failure" due to missing session
-    const newSession: ChatSession = {
-      id: `sess-${Date.now()}`,
-      characterId: newCharId,
-      messages: [],
-      lastActive: Date.now(),
-    };
-    persistSessions([...sessions, newSession]);
   };
 
   const handleUpdateCharacter = (id: string, updated: Partial<Character>) => {
@@ -709,7 +718,41 @@ export default function App() {
 
     setIsGeneratingMap(prev => ({ ...prev, [character.id]: true }));
     try {
-      const data = await apiGenerateNote({ character, settings, memories: character.memories, lores: loreList });
+      // Helper to aggregate context for deduplication
+      const getPhoneContextForBackground = (charId: string) => {
+        let context = "--- 【手机模块已有记录 (72小时内去重参考)】 ---\n";
+        try {
+          const memos = JSON.parse(localStorage.getItem(`mobile_ai_phone_memos_${charId}`) || "[]");
+          const searches = JSON.parse(localStorage.getItem(`mobile_ai_phone_searches_${charId}`) || "[]");
+          const shopping = JSON.parse(localStorage.getItem(`mobile_ai_phone_shopping_${charId}`) || "[]");
+          const reading = JSON.parse(localStorage.getItem(`mobile_ai_phone_reading_${charId}`) || "[]");
+          
+          context += `- 备忘录：${memos.slice(0, 10).map((m: any) => m.content).join("、") || "无"}\n`;
+          context += `- 搜索历史：${searches.slice(0, 10).map((s: any) => s.query).join("、") || "无"}\n`;
+          context += `- 购物清单：${shopping.slice(0, 10).map((s: any) => s.name).join("、") || "无"}\n`;
+          context += `- 阅读物：${reading.slice(0, 10).map((r: any) => r.title).join("、") || "无"}\n`;
+        } catch(e) {}
+        return context;
+      };
+
+      const getChatContextForBackground = (charId: string) => {
+        try {
+          const session = sessions.find(s => s.characterId === charId);
+          if (session && session.messages) {
+            return session.messages.slice(-10).map(m => `${m.role === 'user' ? '用户' : character.name}: ${m.content}`).join("\n");
+          }
+        } catch(e) {}
+        return "暂无最近聊天记录。";
+      };
+
+      const data = await apiGenerateNote({ 
+        character, 
+        settings, 
+        memories: character.memories, 
+        lores: loreList,
+        phoneContext: getPhoneContextForBackground(character.id),
+        chatContext: getChatContextForBackground(character.id)
+      });
       if (data.text) {
         // AI 自动决定是否分享
         const isShared = Math.random() > 0.5; 
@@ -722,8 +765,9 @@ export default function App() {
         
         // Save to localStorage
         const savedNotes = localStorage.getItem(`mobile_ai_notes_${character.id}`);
-        const notes = savedNotes ? JSON.parse(savedNotes) : [];
-        localStorage.setItem(`mobile_ai_notes_${character.id}`, JSON.stringify([newNote, ...notes]));
+        let notes = savedNotes ? JSON.parse(savedNotes) : [];
+        notes = [newNote, ...notes].slice(0, 30);
+        localStorage.setItem(`mobile_ai_notes_${character.id}`, JSON.stringify(notes));
         window.dispatchEvent(new Event('notes_updated'));
         
         // Trigger notification
@@ -1460,6 +1504,7 @@ export default function App() {
             characters={characters.filter(c => c.id !== 'char-preset-fafa')}
             settings={settings}
             onClose={() => setCurrentScreen("home")}
+            onUpdateCharacter={handleUpdateCharacter}
             onGenerateNote={generateNoteBackground}
             isGeneratingMap={isGeneratingMap}
             loreList={loreList}

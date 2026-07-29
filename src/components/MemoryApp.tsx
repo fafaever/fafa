@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from "react";
 import { ChevronLeft } from "lucide-react";
-import { Character, AppSettings, ChatSession } from "../types";
+import { Character, AppSettings, ChatSession, ExtractionSettings } from "../types";
 import { MemoryDashboard } from "./MemoryDashboard";
 import { MemoryManager } from "./MemoryManager";
+import { MemoryScopeModal } from "./MemoryScopeModal";
 
 interface MemoryAppProps {
   characters: Character[];
   settings: AppSettings;
   sessions: ChatSession[];
   onClose: () => void;
+  onUpdateCharacter?: (id: string, updated: Partial<Character>) => void;
 }
 
-export default function MemoryApp({ characters, settings, sessions, onClose }: MemoryAppProps) {
+export default function MemoryApp({ characters, settings, sessions, onClose, onUpdateCharacter }: MemoryAppProps) {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
+  const [showScopeModal, setShowScopeModal] = useState(false);
 
   // Read vectorMemoryEnabled state from localStorage for the active character
   const [vectorMemoryEnabled, setVectorMemoryEnabled] = useState<boolean>(false);
@@ -29,8 +32,32 @@ export default function MemoryApp({ characters, settings, sessions, onClose }: M
   const handleToggleVectorMemory = () => {
     if (!selectedCharacterId) return;
     const nextVal = !vectorMemoryEnabled;
-    setVectorMemoryEnabled(nextVal);
-    localStorage.setItem(`vector_memory_enabled_${selectedCharacterId}`, nextVal ? "true" : "false");
+    
+    if (nextVal) {
+      setShowScopeModal(true);
+    } else {
+      setVectorMemoryEnabled(false);
+      localStorage.setItem(`vector_memory_enabled_${selectedCharacterId}`, "false");
+    }
+  };
+
+  const handleConfirmScope = (scope: ExtractionSettings["vectorScope"]) => {
+    if (!selectedCharacterId || !onUpdateCharacter) return;
+    
+    setVectorMemoryEnabled(true);
+    localStorage.setItem(`vector_memory_enabled_${selectedCharacterId}`, "true");
+    
+    // Save scope to character extraction settings
+    const activeChar = characters.find(c => c.id === selectedCharacterId);
+    if (activeChar) {
+      const updatedSettings: ExtractionSettings = {
+        ...(activeChar.extractionSettings || {}),
+        vectorScope: scope
+      };
+      onUpdateCharacter(selectedCharacterId, { extractionSettings: updatedSettings });
+    }
+    
+    setShowScopeModal(false);
   };
 
   const activeChar = selectedCharacterId ? characters.find(c => c.id === selectedCharacterId) : null;
@@ -79,6 +106,12 @@ export default function MemoryApp({ characters, settings, sessions, onClose }: M
           <MemoryDashboard characters={characters} onSelectCharacter={setSelectedCharacterId} />
         )}
       </div>
+
+      <MemoryScopeModal 
+        isOpen={showScopeModal}
+        onClose={() => setShowScopeModal(false)}
+        onConfirm={handleConfirmScope}
+      />
     </div>
   );
 }

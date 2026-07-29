@@ -6,9 +6,20 @@ export interface BoundNPC {
   description?: string; // 简短描述/性格特点
 }
 
+export interface ExtractionSettings {
+  dailyExtractionTime?: string; // e.g. "23:00"
+  lastExtractionTimestamp?: number;
+  vectorScope?: {
+    online?: { enabled: boolean; startDate?: string; endDate?: string; };
+    story?: { enabled: boolean; selectAll?: boolean; };
+    other?: { enabled: boolean; types: string[]; };
+  };
+}
+
 export interface Character {
   id: string;
   name: string;
+  nickname?: string;
   avatar: string; // Emoji or image URL
   description: string;
   systemInstruction: string;
@@ -33,6 +44,7 @@ export interface Character {
   boundNpcs?: BoundNPC[]; // 角色专属绑定的 NPC 好友列表 (至少 3 个)
   associatedCharacterIds?: string[]; // 关联角色 ID 列表
   associatedRelations?: Record<string, string>; // 关联关系设定映射 { [characterId]: 关系设定描述 }
+  extractionSettings?: ExtractionSettings;
 }
 
 export interface UserPersona {

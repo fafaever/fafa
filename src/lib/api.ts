@@ -438,15 +438,15 @@ export async function apiAnalyzeCharacterFile(params: any) {
 ${text}
 """
 
-你需要从中自动分析并精准识别提取出该角色的核心人设信息。请输出一个严格的 JSON 格式，包含以下字段：
+你需要从中识别提取出该角色的核心人设信息。请输出一个严格的 JSON 格式，包含以下字段：
 1. name (角色的真实姓名或常称)
 2. nickname (角色的别称、小名、爱称或代号，没有则填"无")
-3. personality (【极其重要：一字不差】直接从文档中摘录出关于“性格特点”、“人设”或核心特征的原始内容。严禁任何总结、改写或摘要！保留所有换行、符号与原文措辞。)
-4. chatStyle (【总结提炼】分析文档中体现的说话风格与语气特点，并总结成说话风格指令，约 50-150 字)
-5. background (【极其重要：一字不差】直接从文档中摘录出关于“背景故事”、“经历”或“世界观”相关的原始内容。严禁任何总结、改写或摘要！保留所有换行、符号与原文措辞。)
-6. avatar (根据该角色的外貌、气质、身份，智能推荐生成一组适合作为头像的英文 Prompt (用于 Image generation)，长度在 30 词以内，需简洁高级，无需开头写 "A portrait of...")
+3. personality (【极其重要：一字不差】直接从文档中摘录出关于“性格特点”、“人设”或核心特征的原始内容。绝对禁止任何总结、改写或摘要！保留所有原文文字、换行、分段和特殊符号。保留原文所有空格和排版。)
+4. chatStyle (【总结提炼】分析文档中体现的说话风格与语气特点，并提取角色的说话方式和语气特点，总结成说话风格指令，约 80-200 字)
+5. background (【极其重要：一字不差】直接从文档中摘录出关于“背景故事”、“经历”或“世界观”相关的原始内容。绝对禁止任何总结、改写或摘要！保留所有原文文字、换行、分段和特殊符号。保留原文所有空格和排版。)
+6. avatar (根据该角色的外貌、气质、身份，智能推荐生成一组适合作为头像的英文 Prompt (用于 Image generation)，长度在 30 词以内，需简洁高级)
 
-注意：请只输出符合以下结构的 JSON 字符串，不要包含任何 markdown 块或多余解释：
+注意：请务必确保 personality 和 background 字段是原文的搬运，不得有任何词句层面的修改。只输出 JSON 字符串，不要包含任何 markdown 块或多余解释：
 {
   "name": "...",
   "nickname": "...",
@@ -513,8 +513,12 @@ export function getThreeDataSourcesPrompt(character: any, memories?: any[], lore
   if (memories && memories.length > 0) {
     memoryContent = `
 --- 【数据源 2：角色记忆库 (MEMORIES)】 ---
-- 角色脑海里记着以下与用户相关的过往经历或事实，会在对话中作为默契自然提及：
-${memories.map((m: any) => `  - ${typeof m === "string" ? m : m.content || JSON.stringify(m)}`).join("\n")}
+- 角色脑海里记着以下与用户相关的过往经历或事实，会在对话中作为默契自然提及。
+- 【特别规则】：
+  1. 如果记忆来源标明为“宇宙 (Universe)”或“游戏 (Games)”，请将其视为“你和用户一起玩的线上全息穿越游戏”中的经历。在对话中提及这些内容时，请使用“上次玩游戏的时候……”或类似的自然口吻。
+  2. 如果记忆来源是“查手机 (Phone)”，请将其视为你刚才看手机时发现的信息，自然地带入对话，不要生硬。
+- 记忆详情：
+${memories.map((m: any) => `  - [来源:${m.source || '未知'}] ${typeof m === "string" ? m : m.content || m.text || JSON.stringify(m)}`).join("\n")}
 `;
   }
 
@@ -623,7 +627,15 @@ export async function apiChat(params: any) {
 - 距离上一条消息已过去：约 ${diffHours >= 1 ? `${diffHours.toFixed(1)} 小时` : `${diffMinutes} 分钟`}。
 - 跨日状态：${isCrossDay ? "已跨日（超过12小时或不同自然日）" : "同一天内"}。
 - 间隔指引：${gapGuidance || "跨日或间隔较久未回复。"}
-- 【人设化自然体现要求】：角色应根据自身人设（活泼、高冷、温柔等），在回复中自然流露出对这段等待时间或跨日的感知（如：活泼角色更直接夸张、高冷角色简短带过不追问、温柔角色关心体贴），绝对不能使用生硬机械的固定模板！
+
+【核心硬性规则】：
+1. **跨日逻辑**：
+   - 若用户昨晚说“晚安”，第二天早上你主动发消息时，必须感知到新的一天已开始，自然过渡到今日话题（如“早，今天醒得挺早的”），【绝对禁止】追问昨晚的事（除非昨晚发生了极其重大的未完结事件）。
+   - 用户昨天提到的内容，今天可以自然提及（如“你昨天说的那件事后来怎么样了”），但【禁止】以“你昨晚睡了没”这类方式翻旧账。
+2. **间隔语气**：
+   - 提及时间间隔时，语气必须符合你的人设（活泼、高冷、傲娇等），【禁止】生硬机械地播报数字。
+   - 【禁止】强行追问原因。如果用户主动解释了原因，你必须立即停止追问。
+3. **表达要求**：在回复中自然流露出对这段等待时间或跨日的感知，绝对不能使用生硬机械的固定模板！
 `;
     }
   }
@@ -688,6 +700,7 @@ ${rangeInstruction}
      · 强硬语气：“我不管”“就这样”“没有为什么”等。
    - 即使角色人设本身带有攻击性，表达方式也必须控制在“言语上的冷淡”或“轻微不耐烦”的范围内，不能上升到威胁、命令或极端情绪爆发。
    - 【严禁长篇小作文】：回复内容必须保持自然的打字聊天节奏，【绝对禁止】输出超过 150 字的大段冗长文字（长篇小作文），保持简明生动。
+    - 【聊天自然度准则】：不要刻意重复你的人设背景（如：“我是心理咨询师”、“我三年前经历过那件事”），只在相关语境下自然提及。像一个真实的人一样说话，话题自然流动，不要时刻提醒对方你的背景是什么。人设背景的作用是塑造你的性格和说话方式，而不是作为聊天的固定话题。
 
 3. 真实生活的“活人感”细节与不完美自然表达：
    - 角色在聊天中会像真实人类一样，自然而然地分享当下的生活点滴（分享今天偶然看到的一只流浪猫、工作中的小烦恼、刚喝到的一杯好喝的茶、天气变化带来的小感想或对某个兴趣的热忱等）。
@@ -933,7 +946,15 @@ AI必须首先评估人设。如果人设是直率的，必须直接坦率地表
 - 【极其重要】你拥有时间感知能力：
   · 当前真实时间是：${currTimeStr}。
   · 用户距离上一次发消息已经过去了【${params.awayTimeDesc || "一段时间"}】。
-- 请在你的回复中自然而然地体现出你对当前时间和用户离开时长的感知（例如：“你刚刚去哪了，这么久才回我”、“才一会儿不见就想我啦”、“这么晚了还在找我啊”或者“一整天都没见你理我呢”等），根据离开时长与人设进行自然生动的互动，切勿生硬播报数字！
+
+【核心硬性规则】：
+1. **跨日逻辑**：
+   - 若用户昨晚说“晚安”，第二天早上你主动发消息时，必须感知到新的一天已开始，自然过渡到今日话题（如“早，今天醒得挺早的”），【绝对禁止】追问昨晚的事（除非昨晚发生了极其重大的未完结事件）。
+   - 用户昨天提到的内容，今天可以自然提及（如“你昨天说的那件事后来怎么样了”），但【禁止】以“你昨晚睡了没”这类方式翻旧账。
+2. **间隔语气**：
+   - 提及时间间隔时，语气必须符合你的人设（活泼、高冷、傲娇等），【禁止】生硬机械地播报数字。
+   - 【禁止】强行追问原因。如果用户主动解释了原因，你必须立即停止追问。
+3. **表达要求**：请在你的回复中自然而然地体现出你对当前时间和用户离开时长的感知（例如：“你刚刚去哪了，这么久才回我”、“才一会儿不见就想我啦”、“这么晚了还在找我啊”或者“一整天都没见你理我呢”等），根据离开时长与人设进行自然生动的互动，切勿生硬播报数字！
 `;
   }
 
@@ -1238,7 +1259,7 @@ Answer in the character's voice. Stay strictly in character. Do not break charac
 }
 
 export async function apiGenerateNote(params: any) {
-  const { character, settings, memories, lore, lores } = params;
+  const { character, settings, memories, lore, lores, phoneContext, chatContext } = params;
   const effectiveCharacter = character || {
     id: "system-assistant",
     name: "AI助手",
@@ -1257,12 +1278,19 @@ ${threeDataSources}
 你现在是角色：【${effectiveCharacter.name}】。
 请综合并同时读取以上【三位一体数据源】（1.角色人设、2.记忆库、3.世界书设定），以你的第一人称写一篇碎片化的日常“随笔”。
 
-要求：
-1. 必须完全贴合角色的身份、性格、说话风格、记忆库内容与当前世界书背景。
-2. 内容要像普通人在碎片时间随手记下的想法和观察，口语化，自然。
-3. 严禁文艺、抽象、过度煽情，直接记录日常观察和真实想法。
-4. 每一句话都不要太长。
-5. 字数在 100 字以内。
+【最近聊天记录】：
+${chatContext || "暂无最近聊天记录。"}
+
+${phoneContext || "--- 【手机模块已有记录】 ---\n暂无。"}
+
+【去重与生成准则】：
+1. **模块去重与视角差异**：随笔应侧重于角色的个人思考、心理活动和细腻感受。如果某个事件已在备忘录、对话或搜索中出现，随笔应从“内心想法”的角度切入（如“今天去看牙医了，有点紧张”），避免直接照搬其他模块的简短事项。
+2. **禁止重复主题**：72小时内已有的主题严禁再次作为新内容核心。
+3. **数据源延伸**：基于人设兴趣或聊天话题延伸出自然的生活变化（如角色最近对某个事物产生兴趣），禁止直接照搬人设背景中的文字。
+4. **格式要求**：
+   - 字数在 100-180 字。
+   - 口语化，自然，像随手记下的心情。
+   - 不要包含任何开场白或引导语。
 `;
   try {
     const config = getBackgroundApiConfig(settings);
@@ -1489,78 +1517,96 @@ export async function performVectorRetrieval(characterId: string, query: string,
   const vectorModel = String(settings.vectorModel || "BAAI/bge-m3").trim();
   const rerankModel = String(settings.rerankModel || "").trim();
 
+  // Find character to check extraction settings/vector scope
+  let character: any = null;
+  try {
+    const savedChars = localStorage.getItem("mobile_ai_characters");
+    if (savedChars) {
+      const allChars = JSON.parse(savedChars);
+      character = allChars.find((c: any) => c.id === characterId);
+    }
+  } catch (e) {}
+
+  const vectorScope = character?.extractionSettings?.vectorScope || {
+    online: { enabled: true },
+    story: { enabled: true },
+    other: { enabled: true }
+  };
+
   // 2. Gather Allowed Documents
   const docs: { text: string; source: string; timestamp: number }[] = [];
 
-  // Data source A: Main chat history
-  try {
-    const sessionsRaw = localStorage.getItem("mobile_ai_sessions");
-    if (sessionsRaw) {
-      const sessions = JSON.parse(sessionsRaw);
-      const session = sessions.find((s: any) => s.characterId === characterId || s.id === characterId);
-      if (session && Array.isArray(session.messages)) {
-        session.messages.forEach((msg: any) => {
-          if (msg && msg.content && !msg.content.startsWith("【系统提示") && !msg.content.startsWith("【线下见面")) {
-            const roleName = msg.role === "user" ? "用户" : "你";
-            docs.push({
-              text: `[主聊天对话] ${roleName}: ${msg.content}`,
-              source: "主聊天对话记录",
-              timestamp: msg.timestamp || Date.now()
-            });
-          }
-        });
+  // Data source A: Main chat history (Online Memory)
+  if (vectorScope.online?.enabled !== false) {
+    try {
+      const sessionsRaw = localStorage.getItem("mobile_ai_sessions");
+      if (sessionsRaw) {
+        const sessions = JSON.parse(sessionsRaw);
+        const session = sessions.find((s: any) => s.characterId === characterId || s.id === characterId);
+        if (session && Array.isArray(session.messages)) {
+          session.messages.forEach((msg: any) => {
+            if (msg && msg.content && !msg.content.startsWith("【系统提示") && !msg.content.startsWith("【线下见面")) {
+              const roleName = msg.role === "user" ? "用户" : "你";
+              docs.push({
+                text: `[主聊天对话] ${roleName}: ${msg.content}`,
+                source: "主聊天对话记录",
+                timestamp: msg.timestamp || Date.now()
+              });
+            }
+          });
+        }
       }
+    } catch (e) {
+      console.error("Error reading chat history for vector retrieval:", e);
     }
-  } catch (e) {
-    console.error("Error reading chat history for vector retrieval:", e);
   }
 
-  // Data source B: Offline meet story (dialogue)
-  try {
-    const offlineStoryRaw = localStorage.getItem(`offline_story_${characterId}`);
-    if (offlineStoryRaw) {
-      const storyMsgs = JSON.parse(offlineStoryRaw);
-      if (Array.isArray(storyMsgs)) {
-        storyMsgs.forEach((msg: any) => {
-          if (msg && msg.content) {
-            const roleName = msg.role === "user" ? "用户" : "你";
-            docs.push({
-              text: `[线下见面对话] ${roleName}: ${msg.content}`,
-              source: "线下见面模式对话记录",
-              timestamp: msg.timestamp || Date.now()
-            });
-          }
-        });
+  // Data source B & C: Offline meet (Story Memory)
+  if (vectorScope.story?.enabled !== false) {
+    try {
+      const offlineStoryRaw = localStorage.getItem(`offline_story_${characterId}`);
+      if (offlineStoryRaw) {
+        const storyMsgs = JSON.parse(offlineStoryRaw);
+        if (Array.isArray(storyMsgs)) {
+          storyMsgs.forEach((msg: any) => {
+            if (msg && msg.content) {
+              const roleName = msg.role === "user" ? "用户" : "你";
+              docs.push({
+                text: `[线下见面对话] ${roleName}: ${msg.content}`,
+                source: "线下见面模式对话记录",
+                timestamp: msg.timestamp || Date.now()
+              });
+            }
+          });
+        }
       }
+    } catch (e) {
+      console.error("Error reading offline story for vector retrieval:", e);
     }
-  } catch (e) {
-    console.error("Error reading offline story for vector retrieval:", e);
+
+    try {
+      const offlineHistoryRaw = localStorage.getItem(`offline_history_${characterId}`);
+      if (offlineHistoryRaw) {
+        const historyItems = JSON.parse(offlineHistoryRaw);
+        if (Array.isArray(historyItems)) {
+          historyItems.forEach((item: any) => {
+            const textContent = item.summary || item.text || item.title;
+            if (textContent) {
+              docs.push({
+                text: `[线下见面剧情记录] ${textContent}`,
+                source: "线下见面剧情卡片记录",
+                timestamp: item.timestamp || Date.now()
+              });
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Error reading offline history for vector retrieval:", e);
+    }
   }
 
-  // Data source C: Offline meet history (plot cards and summaries)
-  try {
-    const offlineHistoryRaw = localStorage.getItem(`offline_history_${characterId}`);
-    if (offlineHistoryRaw) {
-      const historyItems = JSON.parse(offlineHistoryRaw);
-      if (Array.isArray(historyItems)) {
-        historyItems.forEach((item: any) => {
-          const textContent = item.summary || item.text || item.title;
-          if (textContent) {
-            docs.push({
-              text: `[线下见面剧情记录] ${textContent}`,
-              source: "线下见面剧情卡片记录",
-              timestamp: item.timestamp || Date.now()
-            });
-          }
-        });
-      }
-    }
-  } catch (e) {
-    console.error("Error reading offline history for vector retrieval:", e);
-  }
-
-  // Data source D: Memory records in mobile_ai_memories_${characterId}
-  // Filter only those from Main Chat ("系统自动提取", "AI简化提取") or Offline Meet
+  // Data source D: Memory records (Online, Story, and Other)
   try {
     const savedMemories = localStorage.getItem(`mobile_ai_memories_${characterId}`);
     if (savedMemories) {
@@ -1571,16 +1617,18 @@ export async function performVectorRetrieval(characterId: string, query: string,
           const mSrc = typeof m === 'string' ? "来自主聊天" : m.source || "来自主聊天";
           const mTime = typeof m === 'string' ? Date.now() : m.timestamp || Date.now();
 
-          // ONLY include if source matches allowed data sources
-          const isAllowedSource = 
-            mSrc === "系统自动提取" || 
-            mSrc === "AI简化提取" || 
-            mSrc === "来自主聊天" || 
-            mSrc.includes("线下") || 
-            mText.includes("线下") || 
-            mText.includes("【线下");
+          let isAllowed = false;
+          
+          // Map source to scope
+          if (mSrc === "系统自动提取" || mSrc === "AI简化提取" || mSrc === "来自主聊天" || mSrc === "手动提取") {
+            if (vectorScope.online?.enabled !== false) isAllowed = true;
+          } else if (mSrc.includes("线下") || mText.includes("线下")) {
+            if (vectorScope.story?.enabled !== false) isAllowed = true;
+          } else if (mSrc === "宇宙" || mSrc === "游戏" || mSrc === "查手机" || mSrc === "Universe" || mSrc === "Games" || mSrc === "Phone") {
+            if (vectorScope.other?.enabled !== false) isAllowed = true;
+          }
 
-          if (mText && isAllowedSource) {
+          if (mText && isAllowed) {
             docs.push({
               text: `[长期记忆卡片] ${mText}`,
               source: mSrc,
