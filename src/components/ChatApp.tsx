@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
-import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2, CheckSquare, Mic, Volume2 } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2, CheckSquare, Mic, Volume2, ArrowUp } from "lucide-react";
 import { apiChat, getPhoneContent, getThreeDataSourcesPrompt } from "../lib/api";
 import { getDefaultAvatar } from "../lib/avatarUtils";
 import { Character, Message, LoreEntry, AppSettings, ChatSession, UserPersona, MomentPost, MomentComment, BoundNPC } from "../types";
@@ -1534,6 +1534,7 @@ export default function ChatApp({
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Active character
   const activeChar = characters.find((c) => c.id === activeCharId) || null;
@@ -2243,21 +2244,6 @@ ${existingCommentsText || "暂无评论"}
       } as ChatSession)
     : null;
 
-  // Optimized message limit logic to minimize lag on chat entry
-  useEffect(() => {
-    // Priority display: render the latest 20 messages instantly
-    setDisplayMessageLimit(20);
-
-    // Asynchronously load more messages if total messages are not excessive
-    const totalMsgCount = activeSession?.messages?.length || 0;
-    if (totalMsgCount <= 100) {
-      const timer = setTimeout(() => {
-        setDisplayMessageLimit(Math.min(50, totalMsgCount));
-      }, 150);
-      return () => clearTimeout(timer);
-    }
-  }, [activeSession?.id, activeSession?.messages?.length]);
-
   const allMessages = activeSession?.messages || [];
   const hasMoreMessages = allMessages.length > displayMessageLimit;
   const displayedMessages = hasMoreMessages ? allMessages.slice(allMessages.length - displayMessageLimit) : allMessages;
@@ -2417,20 +2403,86 @@ ${existingCommentsText || "暂无评论"}
     }
   };
 
-  // Scroll to bottom when messages or generating state changes
-  const prevSessionIdRef = useRef<string | null>(null);
+  // Optimized pagination, scroll state restoration, and instant centering refs
+  const isLoadingMoreRef = useRef<boolean>(false);
+  const snapshotScrollRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+  const lastActiveSessionIdRef = useRef<string | null>(null);
+  const lastActiveTabRef = useRef<string | null>(null);
+  const lastMessageCountRef = useRef<number>(0);
+
+  // Restore scroll position after loading more messages (Requirement 4)
+  useLayoutEffect(() => {
+    if (activeTab === "chat" && isLoadingMoreRef.current && snapshotScrollRef.current && scrollContainerRef.current) {
+      const prev = snapshotScrollRef.current;
+      const currentHeight = scrollContainerRef.current.scrollHeight;
+      const diff = currentHeight - prev.scrollHeight;
+      
+      scrollContainerRef.current.scrollTop = prev.scrollTop + diff;
+      
+      isLoadingMoreRef.current = false;
+      snapshotScrollRef.current = null;
+    }
+  }, [displayedMessages.length, activeTab]);
 
   const scrollToBottom = (smooth = true) => {
-    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+    if (scrollContainerRef.current) {
+      if (smooth) {
+        scrollContainerRef.current.scrollTo({
+          top: scrollContainerRef.current.scrollHeight,
+          behavior: "smooth"
+        });
+      } else {
+        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      }
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+    }
   };
 
+  // Scroll logic for session change, tab entry, or incoming messages
   useLayoutEffect(() => {
-    if (activeTab === "chat") {
-      const isNewSession = prevSessionIdRef.current !== activeSession?.id;
-      scrollToBottom(!isNewSession);
-      prevSessionIdRef.current = activeSession?.id || null;
+    if (activeTab === "chat" && activeSession) {
+      const isNewSession = lastActiveSessionIdRef.current !== activeSession.id;
+      const tabChangedToChat = lastActiveTabRef.current !== "chat" && activeTab === "chat";
+      const totalMessages = activeSession.messages?.length || 0;
+
+      if (isNewSession || tabChangedToChat) {
+        lastActiveSessionIdRef.current = activeSession.id;
+        lastActiveTabRef.current = activeTab;
+
+        // Reset display message limit to initial 20 messages (Requirement 2)
+        setDisplayMessageLimit(20);
+        lastMessageCountRef.current = totalMessages;
+
+        // Directly position to latest message bottom, no scroll animation (Requirement 1)
+        const timer = setTimeout(() => {
+          if (scrollContainerRef.current) {
+            scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+          }
+        }, 30);
+        return () => clearTimeout(timer);
+      } else {
+        // Smooth scroll to bottom on new message send/receive
+        if (totalMessages > lastMessageCountRef.current && !isLoadingMoreRef.current) {
+          scrollToBottom(true);
+        }
+        lastMessageCountRef.current = totalMessages;
+      }
     }
-  }, [activeSession?.messages, isGenerating, activeTab, activeSession?.id]);
+    lastActiveTabRef.current = activeTab;
+  }, [activeSession?.id, activeSession?.messages?.length, activeTab, isGenerating]);
+
+  // Click handler to load more history messages (Requirement 3)
+  const handleLoadMoreMessages = () => {
+    if (scrollContainerRef.current) {
+      isLoadingMoreRef.current = true;
+      snapshotScrollRef.current = {
+        scrollHeight: scrollContainerRef.current.scrollHeight,
+        scrollTop: scrollContainerRef.current.scrollTop
+      };
+    }
+    setDisplayMessageLimit(prev => prev + 20);
+  };
 
   // Handle Character Selection
   const handleSelectChar = (id: string) => {
@@ -5183,8 +5235,8 @@ ${existingCommentsText || "暂无评论"}
 
           {/* Messages Scroll Area */}
           <div 
+            ref={scrollContainerRef}
             className={`flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 transition-all duration-150 chat-messages ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-transparent' : 'bg-neutral-50/50'}`}
-            style={{ scrollBehavior: "smooth" }}
           >
             {activeSession.messages.length === 0 && (
               <div className="py-20 text-center space-y-3">
@@ -5219,11 +5271,13 @@ ${existingCommentsText || "暂无评论"}
 
             <div className="flex flex-col space-y-4 w-full">
                   {hasMoreMessages && (
-                    <div className="flex justify-center py-2">
+                    <div className="flex justify-center py-2 animate-fade-in">
                       <button
-                        onClick={() => setDisplayMessageLimit(prev => prev + 20)}
-                        className="text-xs text-neutral-500 bg-white hover:bg-neutral-100 border border-neutral-200 px-4 py-1.5 rounded-full shadow-xs transition-all font-medium"
+                        type="button"
+                        onClick={handleLoadMoreMessages}
+                        className="text-xs text-neutral-500 bg-white hover:bg-neutral-100 active:scale-95 border border-neutral-200 px-4 py-1.5 rounded-full shadow-xs transition-all font-medium flex items-center gap-1.5 hover:text-neutral-800"
                       >
+                        <ArrowUp className="w-3.5 h-3.5 text-neutral-400" />
                         加载更多早期消息 ({allMessages.length - displayMessageLimit} 条)
                       </button>
                     </div>
