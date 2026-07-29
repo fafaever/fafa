@@ -293,9 +293,12 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
       model: settings.model,
       apiFormat: settings.apiFormat
     };
-    handleUpdate({
+    const updatedSettings = {
+      ...settings,
       apiPresets: [...(settings.apiPresets || []), newPreset]
-    });
+    };
+    handleUpdate(updatedSettings);
+    onSaveSettings(updatedSettings);
     setApiPresetName("");
     setIsSavingApiPreset(false);
   };
@@ -311,10 +314,14 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   };
 
   const deleteApiPreset = (id: string) => {
-    handleUpdate({
-      apiPresets: settings.apiPresets?.filter(p => p.id !== id),
+    const updatedApiPresets = settings.apiPresets?.filter(p => p.id !== id);
+    const updatedSettings = {
+      ...settings,
+      apiPresets: updatedApiPresets,
       activePresetId: settings.activePresetId === id ? undefined : settings.activePresetId
-    });
+    };
+    handleUpdate(updatedSettings);
+    onSaveSettings(updatedSettings);
   };
 
   const applyPresetToCard = (preset: any, type: 'main' | 'sub' | 'vector') => {

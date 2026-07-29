@@ -301,7 +301,9 @@ export default function App() {
             return {
               ...stored,
               name: preset.name,
-              avatar: preset.avatar,
+              avatar: stored.avatar || preset.avatar,
+              chatAvatar: stored.chatAvatar,
+              realImage: stored.realImage,
               description: preset.description,
               systemInstruction: preset.systemInstruction,
               isPreset: true

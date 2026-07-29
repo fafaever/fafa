@@ -232,8 +232,13 @@ export default function CharacterCreatorApp({
     if (!file) return;
     try {
       const base64 = await compressAndResizeImage(file);
-      if (type === 'chat') setChatAvatar(base64);
-      else setRealImage(base64);
+      if (type === 'chat') {
+        setChatAvatar(base64);
+        setAvatar(base64);
+      } else {
+        setRealImage(base64);
+        setAvatar(base64);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -764,7 +769,7 @@ ${background.trim() || "暂无背景故事"}
       const payload = {
         name: finalName,
         nickname: nickname.trim(),
-        avatar,
+        avatar: chatAvatar || realImage || avatar,
         description: finalPersonality.length > 40 ? finalPersonality.substring(0, 40) + "..." : finalPersonality,
         systemInstruction,
         model: settings?.model, // Default to current global model
