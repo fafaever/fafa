@@ -3391,7 +3391,7 @@ ${existingCommentsText || "暂无评论"}
           <div className="pl-2 space-y-2.5">
             <div className="flex items-center justify-between border-b border-neutral-100 pb-2">
               <span className="text-xs  font-bold text-blue-900 flex items-center gap-1.5 shrink-0">
-                线下见面
+                线下界面
               </span>
               <span className={`text-[10px]  font-medium px-2 py-0.5 rounded-full ${
                 status === "active" ? "bg-amber-100 text-amber-800" : "bg-neutral-100 text-neutral-500"
@@ -7275,7 +7275,6 @@ ${existingCommentsText || "暂无评论"}
         <OfflineMeetView
           character={activeChar}
           allCharacters={characters}
-          loreList={loreList}
           settings={settings}
           onlineMessages={activeSession?.messages || []}
           onClose={() => setShowOfflineMeet(false)}

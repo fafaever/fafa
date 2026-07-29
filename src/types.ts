@@ -45,9 +45,6 @@ export interface Character {
   associatedCharacterIds?: string[]; // 关联角色 ID 列表
   associatedRelations?: Record<string, string>; // 关联关系设定映射 { [characterId]: 关系设定描述 }
   extractionSettings?: ExtractionSettings;
-  personality?: string;
-  background?: string;
-  persona?: string;
 }
 
 export interface UserPersona {

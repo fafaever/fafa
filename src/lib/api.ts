@@ -1,7 +1,5 @@
 
 
-import { getPrioritizedMemories } from "./memoryPriority";
-
 export function stripColorEmojis(str: string): string {
   return str || "";
 }
@@ -221,74 +219,66 @@ export function cleanForbiddenPhrases(text: string): string {
 export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, messages: any[] = [], temperature: number = 0.8, apiFormat?: string) {
   const config = getStoredApiConfig(apiUrl, apiKey, model, apiFormat as any);
 
+  if (!config.apiUrl) {
+    throw new Error("API 地址未配置，请在设置中配置。");
+  }
+
+  const cleanUrl = normalizeUrl(config.apiUrl);
+  const endpoint = cleanUrl.endsWith('/chat/completions') ? cleanUrl : cleanUrl.replace(/\/+$/, '') + '/chat/completions';
+
   const formattedMessages = messages.map((m: any) => ({
     role: m.role === 'assistant' || m.role === 'model' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
     content: m.content || ''
   }));
 
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const serverEndpoint = `${origin}/api/chat`;
+  const body = {
+    model: config.model || 'gpt-3.5-turbo',
+    messages: formattedMessages,
+    temperature: temperature,
+  };
 
   console.log("================ [callLLM Request] ================");
-  console.log("[callLLM] Routing via server endpoint:", serverEndpoint);
-  console.log("[callLLM] Custom API URL configured:", config.apiUrl ? "Yes" : "No (using server fallback)");
+  console.log("[callLLM] Full Request URL:", endpoint);
+  console.log("[callLLM] Model:", config.model || 'gpt-3.5-turbo');
+  console.log("[callLLM] Parameters:", body);
   console.log("==================================================");
 
-  let response: Response | null = null;
+  console.log('========== [callLLM 调试] ==========');
+  console.log('完整请求 URL:', endpoint);
+  console.log('请求体:', JSON.stringify(body, null, 2));
+  console.log('API Key 是否存在:', !!config.apiKey);
+  console.log('====================================');
 
+  let response: Response;
   try {
-    response = await fetch(serverEndpoint, {
+    response = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        ...(config.apiKey ? { 'Authorization': `Bearer ${config.apiKey}` } : {}),
       },
-      body: JSON.stringify({
-        messages: formattedMessages,
-        temperature,
-        settings: {
-          apiUrl: config.apiUrl,
-          apiKey: config.apiKey,
-          model: config.model,
-          apiFormat: config.apiFormat,
-        }
-      }),
+      body: JSON.stringify(body),
     });
-  } catch (err: any) {
-    console.warn("[callLLM] Server route fetch failed, trying direct /api/gemini fallback:", err);
+  } catch (directErr: any) {
+    console.warn("[callLLM] Direct fetch failed, trying backend proxy (/api/proxy)...", directErr);
     try {
-      const geminiRes = await fetch(`${origin}/api/gemini`, {
+      response = await fetch('/api/proxy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: formattedMessages, temperature }),
-      });
-      if (geminiRes.ok) {
-        const gData = await geminiRes.json();
-        if (gData.text) return gData.text;
-      }
-    } catch (gErr) {
-      console.warn("[callLLM] Direct gemini fallback failed:", gErr);
-    }
-
-    if (config.apiUrl && config.apiKey) {
-      try {
-        const endpoint = config.apiUrl.replace(/\/+$/, '') + '/chat/completions';
-        response = await fetch(endpoint, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          url: endpoint,
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${config.apiKey}`,
+            ...(config.apiKey ? { 'Authorization': `Bearer ${config.apiKey}` } : {}),
           },
-          body: JSON.stringify({
-            model: config.model || 'gpt-3.5-turbo',
-            messages: formattedMessages,
-            temperature,
-          }),
-        });
-      } catch (directErr: any) {
-        return `（环境静谧，对方眼神中带有一丝思索，静静地注视着你，等待着你的进一步行动...）\n\n【互动关键点】：直面 vs 回避 （面对眼前的变化，你打算做出什么回应？）\n【分支选项1】：“抱歉，刚才有些走神了。”\n【分支选项2】：“你现在在想什么呢？”\n【分支选项3】：保持沉默，回以温和的眼神。\n【分支选项4】：轻声开口，尝试换个轻松的话题。`;
-      }
-    } else {
-      return `（环境静谧，对方眼神中带有一丝思索，静静地注视着你，等待着你的进一步行动...）\n\n【互动关键点】：直面 vs 回避 （面对眼前的变化，你打算做出什么回应？）\n【分支选项1】：“抱歉，刚才有些走神了。”\n【分支选项2】：“你现在在想什么呢？”\n【分支选项3】：保持沉默，回以温和的眼神。\n【分支选项4】：轻声开口，尝试换个轻松的话题。`;
+          body
+        })
+      });
+    } catch (proxyErr: any) {
+      throw new Error(`网络连接失败 (Failed to fetch): ${proxyErr?.message || directErr?.message || "请检查网络或 API 地址"}`);
     }
   }
 
@@ -302,37 +292,11 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
       const json = JSON.parse(errorText);
       parsedErr = json.error?.message || json.message || json.error || errorText;
     } catch (e) {}
-
-    // Fallback attempt to /api/gemini directly if proxy failed
-    try {
-      const geminiRes = await fetch(`${origin}/api/gemini`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: formattedMessages, temperature }),
-      });
-      if (geminiRes.ok) {
-        const gData = await geminiRes.json();
-        if (gData.text) return gData.text;
-      }
-    } catch (e) {}
-
     throw new Error(`API 请求失败 (${response?.status || 500}): ${parsedErr || "未知错误"}`);
   }
 
   const responseText = await response.text();
   if (responseText.trim().startsWith("<") || responseText.trim().startsWith("<!DOCTYPE")) {
-    // Attempt fallback to server gemini if custom API returned html page
-    try {
-      const geminiRes = await fetch(`${origin}/api/gemini`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: formattedMessages, temperature }),
-      });
-      if (geminiRes.ok) {
-        const gData = await geminiRes.json();
-        if (gData.text) return gData.text;
-      }
-    } catch (e) {}
     throw new Error("API 地址返回了 HTML 页面（可能是 404 或代理错误），请检查 API 地址是否正确。");
   }
 
@@ -343,16 +307,15 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
     throw new Error(`API 返回了非 JSON 格式数据: ${responseText.substring(0, 100)}`);
   }
 
-  if (typeof data.text === "string" && data.text) {
-    return data.text;
-  }
   if (data.choices && data.choices.length > 0) {
-    return data.choices[0].message?.content || data.choices[0].text;
+    return data.choices[0].message.content;
   }
   if (data.candidates && data.candidates.length > 0) {
-    return data.candidates[0].content?.parts?.[0]?.text;
+    return data.candidates[0].content.parts[0].text;
   }
-
+  if (data.text) {
+    return data.text;
+  }
   throw new Error(`无法解析 API 响应: ${JSON.stringify(data)}`);
 }
 
@@ -577,18 +540,13 @@ export function getThreeDataSourcesPrompt(character: any, memories?: any[], lore
   }
 
   let memoryContent = "";
-  if (character.id) {
-    const prioResult = getPrioritizedMemories(character.id);
-    memoryContent = `
---- 【数据源 2：角色记忆库 (MEMORIES - 遵循核心记忆优先级规则)】 ---
-- 核心记忆优先级：简化后的核心记忆 (日期范围卡片) > 核心记忆 (总结后内容) > 原始聊天上下文
-- 已总结的时间段不读取原始聊天上下文，优先读取核心记忆与简化卡片。
-${prioResult.formattedPromptText}
-`;
-  } else if (memories && memories.length > 0) {
+  if (memories && memories.length > 0) {
     memoryContent = `
 --- 【数据源 2：角色记忆库 (MEMORIES)】 ---
 - 角色脑海里记着以下与用户相关的过往经历或事实，会在对话中作为默契自然提及。
+- 【特别规则】：
+  1. 如果记忆来源标明为“宇宙 (Universe)”或“游戏 (Games)”，请将其视为“你和用户一起玩的线上全息穿越游戏”中的经历。在对话中提及这些内容时，请使用“上次玩游戏的时候……”或类似的自然口吻。
+  2. 如果记忆来源是“查手机 (Phone)”，请将其视为你刚才看手机时发现的信息，自然地带入对话，不要生硬。
 - 记忆详情：
 ${memories.map((m: any) => `  - [来源:${m.source || '未知'}] ${typeof m === "string" ? m : m.content || m.text || JSON.stringify(m)}`).join("\n")}
 `;

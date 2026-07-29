@@ -73,7 +73,7 @@ async function handleProxyRequest(req: express.Request, res: express.Response) {
     url = normalizeUrl(url);
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000); // 15s timeout for AI model proxy responses
+    const timeout = setTimeout(() => controller.abort(), 45000); // 45s timeout for AI model responses
 
     const fetchOptions: any = {
       method,
@@ -233,68 +233,40 @@ app.post(["/api/chat", "/api/chat/completions", "/api/chat/v1/chat/completions",
   if (settings?.apiUrl && settings?.apiKey) {
     let cleanUrl = normalizeUrl(settings.apiUrl);
     let endpoint = cleanUrl.endsWith("/chat/completions") ? cleanUrl : `${cleanUrl}/chat/completions`;
-    
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000); // 8s fast proxy timeout to avoid client network drop
-
-      const fetchOptions: any = {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${settings.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: settings.model || "gpt-3.5-turbo",
-          messages,
-          temperature: temperature || 0.8,
-          max_tokens: 2048,
-          stream: false,
-        }),
-        signal: controller.signal,
-      };
-
-      const targetRes = await fetch(endpoint, fetchOptions);
-      clearTimeout(timeout);
-
-      if (targetRes.ok) {
-        const contentType = targetRes.headers.get("content-type") || "";
-        const responseText = await targetRes.text();
-        if (contentType.includes("application/json")) {
-          try {
-            return res.json(JSON.parse(responseText));
-          } catch (e) {
-            return res.send(responseText);
-          }
-        }
-        return res.send(responseText);
-      } else {
-        console.warn(`[Proxy attempt failed with status ${targetRes.status}, falling back to Gemini]`);
-      }
-    } catch (proxyErr: any) {
-      console.warn(`[Proxy connection failed: ${proxyErr.message}, falling back to Gemini]`);
-    }
+    req.body = {
+      url: endpoint,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${settings.apiKey}`,
+      },
+      body: {
+        model: settings.model || "gpt-3.5-turbo",
+        messages,
+        temperature: temperature || 0.8,
+        max_tokens: 2048,
+        stream: false,
+      },
+    };
+    return handleProxyRequest(req, res);
   }
 
   // Fallback to Gemini
   const ai = getGenAI();
-  if (ai) {
-    try {
-      const sysMsg = (messages || []).find((m: any) => m.role === "system");
-      const chatMsgs = (messages || []).filter((m: any) => m.role !== "system");
-      const contents = formatGeminiContents(chatMsgs);
-
-      const text = await generateGeminiResponse(ai, contents, sysMsg?.content || undefined, temperature);
-      return res.json({ text });
-    } catch (err: any) {
-      console.error("[Server Gemini generation error]", err);
-    }
+  if (!ai) {
+    return res.status(400).json({ error: "Server GEMINI_API_KEY is not configured" });
   }
 
-  // Final fallback text if both custom API proxy and Gemini server failed
-  const defaultFallbackText = `（环境静谧，对方眼神中带有一丝思索，静静地注视着你，等待着你的进一步行动...）\n\n【互动关键点】：直面 vs 回避 （面对眼前的变化与气氛，你打算做出什么回应？）\n【分支选项1】：“抱歉，刚才有些走神了。”\n【分支选项2】：“你现在在想什么呢？”\n【分支选项3】：保持沉默，回以温和的眼神。\n【分支选项4】：轻声开口，尝试换个轻松的话题。`;
+  try {
+    const sysMsg = (messages || []).find((m: any) => m.role === "system");
+    const chatMsgs = (messages || []).filter((m: any) => m.role !== "system");
+    const contents = formatGeminiContents(chatMsgs);
 
-  return res.json({ text: defaultFallbackText });
+    const text = await generateGeminiResponse(ai, contents, sysMsg?.content || undefined, temperature);
+    return res.json({ text });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message || "Chat generation failed" });
+  }
 });
 
 // GET route to support pulling models from local API proxy or default list
