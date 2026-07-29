@@ -242,6 +242,7 @@ export default function ChatApp({
   // Multi-select message states
   const [isMultiSelectMode, setIsMultiSelectMode] = useState<boolean>(false);
   const [selectedMsgIds, setSelectedMsgIds] = useState<string[]>([]);
+  const [displayMessageLimit, setDisplayMessageLimit] = useState<number>(50);
 
   // Helper to sync delete memories from Memory App when offline meet card messages are deleted
   const syncDeleteMemoriesForMessages = (msgsToDelete: Message[], charId: string) => {
@@ -2242,17 +2243,40 @@ ${existingCommentsText || "暂无评论"}
       } as ChatSession)
     : null;
 
-  // Load character-specific settings
+  // Optimized message limit logic to minimize lag on chat entry
+  useEffect(() => {
+    // Priority display: render the latest 20 messages instantly
+    setDisplayMessageLimit(20);
+
+    // Asynchronously load more messages if total messages are not excessive
+    const totalMsgCount = activeSession?.messages?.length || 0;
+    if (totalMsgCount <= 100) {
+      const timer = setTimeout(() => {
+        setDisplayMessageLimit(Math.min(50, totalMsgCount));
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [activeSession?.id, activeSession?.messages?.length]);
+
+  const allMessages = activeSession?.messages || [];
+  const hasMoreMessages = allMessages.length > displayMessageLimit;
+  const displayedMessages = hasMoreMessages ? allMessages.slice(allMessages.length - displayMessageLimit) : allMessages;
+
+  // Mood randomization: ONLY run when activeCharId changes, avoiding updates on other character list syncs
+  useEffect(() => {
+    if (activeCharId) {
+      const moods: Array<"开心" | "平静" | "疲惫" | "烦躁"> = ["开心", "平静", "疲惫", "烦躁"];
+      const randomMood = moods[Math.floor(Math.random() * moods.length)];
+      setMood(randomMood);
+    }
+  }, [activeCharId]);
+
+  // Load character-specific settings: ONLY run when activeCharId changes, avoiding unnecessary repeats on characters list sync
   useEffect(() => {
     if (activeCharId) {
       const activeChar = characters.find(c => c.id === activeCharId);
       const isSub = activeChar?.isSubAccount;
       const parentId = activeChar?.parentCharacterId;
-
-      // Mood randomization when opening chat / changing character
-      const moods: Array<"开心" | "平静" | "疲惫" | "烦躁"> = ["开心", "平静", "疲惫", "烦躁"];
-      const randomMood = moods[Math.floor(Math.random() * moods.length)];
-      setMood(randomMood);
 
       const savedSelf = localStorage.getItem(`char_settings_v1_${activeCharId}`);
       let parsedSelf: any = {};
@@ -2302,7 +2326,7 @@ ${existingCommentsText || "暂无评论"}
       const savedWp = localStorage.getItem(`chat_current_wallpaper_${activeCharId}`);
       setCurrentChatWallpaper(savedWp || null);
     }
-  }, [activeCharId, characters]);
+  }, [activeCharId]);
 
   const saveSettings = (updated: Partial<{
     replyLength: "short" | "medium" | "detailed";
@@ -5160,11 +5184,9 @@ ${existingCommentsText || "暂无评论"}
           {/* Messages Scroll Area */}
           <div 
             className={`flex-1 overflow-y-auto px-4 py-4 space-y-4 min-h-0 transition-all duration-150 chat-messages ${(currentChatWallpaper || settings?.chatWallpaper) ? 'bg-transparent' : 'bg-neutral-50/50'}`}
-            style={{ 
-              scrollBehavior: "smooth"
-            }}
+            style={{ scrollBehavior: "smooth" }}
           >
-            {activeSession.messages.length === 0 ? (
+            {activeSession.messages.length === 0 && (
               <div className="py-20 text-center space-y-3">
                 <div className="w-14 h-14 rounded-full bg-white border border-neutral-200/60 shadow-sm flex items-center justify-center mx-auto overflow-hidden text-3xl shrink-0">
                   {activeChar.chatAvatar ? (
@@ -5193,8 +5215,20 @@ ${existingCommentsText || "暂无评论"}
                   </div>
                 </div>
               </div>
-            ) : (
-              activeSession.messages.map((msg, idx) => {
+            )}
+
+            <div className="flex flex-col space-y-4 w-full">
+                  {hasMoreMessages && (
+                    <div className="flex justify-center py-2">
+                      <button
+                        onClick={() => setDisplayMessageLimit(prev => prev + 20)}
+                        className="text-xs text-neutral-500 bg-white hover:bg-neutral-100 border border-neutral-200 px-4 py-1.5 rounded-full shadow-xs transition-all font-medium"
+                      >
+                        加载更多早期消息 ({allMessages.length - displayMessageLimit} 条)
+                      </button>
+                    </div>
+                  )}
+                {displayedMessages.map((msg, idx) => {
                 const isBot = msg.role === "assistant";
                 
                 // Render Recalled message differently
@@ -5243,7 +5277,7 @@ ${existingCommentsText || "暂无评论"}
                 const botAvatarNode = isBot ? (
                   <div className="w-[36px] h-[36px] rounded-full bg-[#E5E0D8] text-neutral-800 flex items-center justify-center text-sm overflow-hidden shrink-0 shadow-sm">
                     {activeChar?.chatAvatar ? (
-                      <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
                     ) : (
                       activeChar?.avatar || activeChar?.name?.charAt(0) || "🤖"
                     )}
@@ -5254,7 +5288,7 @@ ${existingCommentsText || "暂无评论"}
                   <div className="flex flex-col items-center gap-1">
                     <div className="w-[36px] h-[36px] rounded-full bg-[#2C2C2E] text-white flex items-center justify-center text-sm overflow-hidden shrink-0 shadow-sm">
                       {currentUserAvatar && currentUserAvatar.length > 5 ? (
-                        <img src={currentUserAvatar} alt={currentUserName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                        <img src={currentUserAvatar} alt={currentUserName} className="w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
                       ) : (
                         currentUserAvatar || "👤"
                       )}
@@ -5444,7 +5478,7 @@ ${existingCommentsText || "暂无评论"}
                                       setPreviewImageUrl(msg.image!);
                                     }}
                                   >
-                                    <img src={msg.image} alt="图片消息" className="w-full max-h-48 object-cover hover:scale-105 transition-transform" referrerPolicy="no-referrer" />
+                                    <img src={msg.image} alt="图片消息" className="w-full max-h-48 object-cover hover:scale-105 transition-transform" referrerPolicy="no-referrer" loading="lazy" />
                                   </div>
                                 )}
 
@@ -5476,17 +5510,17 @@ ${existingCommentsText || "暂无评论"}
                         </div>
                       );
                     })}
-                  </div>
-                );
-              })
-            )}
+                </div>
+              );
+            })}
+          </div>
 
             {/* Blinking Typing indicator */}
             {isGenerating && (
               <div className="flex items-start gap-[10px] justify-start animate-fade-in">
                 <div className="w-[36px] h-[36px] rounded-full bg-[#E5E0D8] text-neutral-800 flex items-center justify-center text-xs overflow-hidden shrink-0 shadow-sm">
                   {activeChar?.chatAvatar ? (
-                    <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
                   ) : (
                     activeChar?.avatar || activeChar?.name?.charAt(0) || "🤖"
                   )}

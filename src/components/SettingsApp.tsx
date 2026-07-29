@@ -325,29 +325,53 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   };
 
   const applyPresetToCard = (preset: any, type: 'main' | 'sub' | 'vector') => {
+    let updatedSettings = { ...settings };
     if (type === 'main') {
-      handleUpdate({
-        apiUrl: preset.apiUrl,
-        apiKey: preset.apiKey,
-        model: preset.model,
+      updatedSettings = {
+        ...settings,
+        apiUrl: preset.apiUrl || "",
+        apiKey: preset.apiKey || "",
+        model: preset.model || "",
         apiFormat: preset.apiFormat || 'openai',
         temperature: preset.temperature !== undefined ? preset.temperature : 0.8,
-      });
+        activePresetId: preset.id
+      };
+      localStorage.setItem("apiUrl", preset.apiUrl || "");
+      localStorage.setItem("apiKey", preset.apiKey || "");
+      localStorage.setItem("model", preset.model || "");
+      localStorage.setItem("temperature", (preset.temperature !== undefined ? preset.temperature : 0.8).toString());
+      localStorage.setItem("apiFormat", preset.apiFormat || 'openai');
+      localStorage.setItem("mobile_ai_settings", JSON.stringify(updatedSettings));
     } else if (type === 'sub') {
-      handleUpdate({
-        subApiUrl: preset.apiUrl,
-        subApiKey: preset.apiKey,
-        subModel: preset.model,
+      updatedSettings = {
+        ...settings,
+        subApiUrl: preset.apiUrl || "",
+        subApiKey: preset.apiKey || "",
+        subModel: preset.model || "",
         subApiFormat: preset.apiFormat || 'openai',
         subTemperature: preset.temperature !== undefined ? preset.temperature : 0.8,
-      });
+      };
+      localStorage.setItem("subApiUrl", preset.apiUrl || "");
+      localStorage.setItem("subApiKey", preset.apiKey || "");
+      localStorage.setItem("subModel", preset.model || "");
+      localStorage.setItem("subTemperature", (preset.temperature !== undefined ? preset.temperature : 0.8).toString());
+      localStorage.setItem("subApiFormat", preset.apiFormat || 'openai');
+      localStorage.setItem("mobile_ai_settings", JSON.stringify(updatedSettings));
     } else {
-      handleUpdate({
-        vectorApiUrl: preset.apiUrl,
-        vectorApiKey: preset.apiKey,
-        vectorModel: preset.model,
-      });
+      updatedSettings = {
+        ...settings,
+        vectorApiUrl: preset.apiUrl || "",
+        vectorApiKey: preset.apiKey || "",
+        vectorModel: preset.model || "",
+      };
+      localStorage.setItem("vectorApiUrl", preset.apiUrl || "");
+      localStorage.setItem("vectorApiKey", preset.apiKey || "");
+      localStorage.setItem("vectorModel", preset.model || "");
+      localStorage.setItem("mobile_ai_settings", JSON.stringify(updatedSettings));
     }
+    handleUpdate(updatedSettings);
+    onSaveSettings(updatedSettings);
+    alert("预设已应用");
   };
 
   const savePresetToLocal = (type: 'main' | 'sub' | 'vector') => {
@@ -1481,6 +1505,14 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                 </span>
               </div>
 
+              {/* Display currently active model name */}
+              <div className="bg-neutral-50 border border-neutral-200/60 rounded-xl p-3 flex items-center justify-between text-xs font-sans">
+                <span className="text-neutral-500 font-medium">当前使用的模型:</span>
+                <span className="font-bold text-neutral-800 bg-white border border-neutral-200/80 px-2.5 py-1 rounded-lg shadow-xs font-mono">
+                  {settings.model || "未设置"}
+                </span>
+              </div>
+
               {/* API Type Select Toggle */}
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
@@ -1654,7 +1686,6 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                             <button
                               onClick={() => {
                                 applyPresetToCard(p, 'main');
-                                alert(`已应用预设: ${p.name}`);
                               }}
                               className="px-2 py-1 bg-white hover:bg-black hover:text-white rounded border border-neutral-200 font-bold text-[9px] text-neutral-600 transition-all"
                             >
@@ -1872,7 +1903,6 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                             <button
                               onClick={() => {
                                 applyPresetToCard(p, 'sub');
-                                alert(`已应用预设: ${p.name}`);
                               }}
                               className="px-2 py-1 bg-white hover:bg-black hover:text-white rounded border border-neutral-200 font-bold text-[9px] text-neutral-600 transition-all"
                             >
@@ -2066,7 +2096,6 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                             <button
                               onClick={() => {
                                 applyPresetToCard(p, 'vector');
-                                alert(`已应用预设: ${p.name}`);
                               }}
                               className="px-2 py-1 bg-white hover:bg-black hover:text-white rounded border border-neutral-200 font-bold text-[9px] text-neutral-600 transition-all"
                             >
