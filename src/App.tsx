@@ -23,6 +23,7 @@ import { CharacterAvatar } from "./components/CharacterAvatar";
 import { Character, UserPersona, LoreEntry, AppSettings, ChatSession, Message, FontOption, ThemeOption } from "./types";
 import { Sparkles, HelpCircle } from "lucide-react";
 import { apiChat, apiGenerateNote, performVectorRetrieval } from "./lib/api";
+import { storeMemory, retrieveMemories } from "./lib/vectorMemory";
 
 const getThemeClass = (theme?: ThemeOption) => {
   switch (theme) {
@@ -774,7 +775,7 @@ export default function App() {
         addEssayNotification(newNote.id);
       }
     } catch (e: any) {
-      console.error("Background note generation failed", e);
+      console.warn("Background note generation failed", e);
       addEssayNotification("", `⚠️ 随笔生成失败: ${e.message || "请检查 API 设置"}`);
     } finally {
       setIsGeneratingMap(prev => ({ ...prev, [character.id]: false }));
@@ -865,7 +866,7 @@ export default function App() {
           }
         }
       } catch (err) {
-        console.error("Group chat generation failed", err);
+        console.warn("Group chat generation failed", err);
       } finally {
         setIsGeneratingMap(prev => ({ ...prev, [characterId]: false }));
         localStorage.removeItem(`mobile_ai_bg_generating_${characterId}`);
@@ -1084,15 +1085,28 @@ export default function App() {
       if (vectorEnabled && lastUserMsg && lastUserMsg.content) {
         try {
           const vectorResults = await performVectorRetrieval(characterId, lastUserMsg.content, settings);
-          if (vectorResults && vectorResults.length > 0) {
+          const retrievedMemories = await retrieveMemories(characterId, lastUserMsg.content, 5);
+
+          let combinedDocs = [...(vectorResults || [])];
+          retrievedMemories.forEach((rm: any) => {
+             combinedDocs.push({ text: rm.text, source: rm.source || "持续记忆", timestamp: rm.timestamp, score: rm.score });
+          });
+          // Sort by score descending
+          combinedDocs.sort((a, b) => {
+            const scoreA = a.rerankScore !== undefined ? a.rerankScore : a.score;
+            const scoreB = b.rerankScore !== undefined ? b.rerankScore : b.score;
+            return scoreB - scoreA;
+          });
+
+          if (combinedDocs && combinedDocs.length > 0) {
             // Map the top 10 most relevant memories to the memories list passed to the AI
-            activeMemories = vectorResults.slice(0, 10).map(doc => {
+            activeMemories = combinedDocs.slice(0, 10).map(doc => {
               const scorePercent = Math.round((doc.rerankScore !== undefined ? doc.rerankScore : doc.score) * 100);
               return `[高维向量记忆 / 相关性: ${scorePercent}%] ${doc.text} (${doc.source})`;
             });
           }
         } catch (err) {
-          console.error("Failed to fetch vector memories for chat generation:", err);
+          console.warn("Failed to fetch vector memories for chat generation:", err);
         }
       }
 
@@ -1289,6 +1303,19 @@ export default function App() {
       // Mark as completed
       localStorage.setItem(`mobile_ai_bg_generating_${characterId}`, "completed");
 
+      // Extract and Store Vector Memory
+      try {
+        const lastUserMsg = [...targetMessages].reverse().find(m => m.role === 'user');
+        const newBotMessages = finalMessages.slice(targetMessages.length).filter(m => m.role === 'assistant');
+        if (lastUserMsg && newBotMessages.length > 0) {
+          const aiText = newBotMessages.map(m => m.content).join("\n");
+          const memoryText = `用户：${lastUserMsg.content}\nAI：${aiText}`;
+          storeMemory(characterId, memoryText, 'chat');
+        }
+      } catch (memErr) {
+        console.warn("Failed to store memory", memErr);
+      }
+
       // WeChat Notification logic
       const isCurrentlyViewingChat = currentScreen === "chat" && activeChatCharId === characterId;
       if (!isCurrentlyViewingChat) {
@@ -1312,7 +1339,7 @@ export default function App() {
         addNotification(characterId, activeChar.name, activeChar.avatar, cleanPreview);
       }
     } catch (err: any) {
-      console.error("Background AI generation error", err);
+      console.warn("Background AI generation error", err);
       // Show error in chat
       const errorMsg: Message = {
         id: `msg-${Date.now()}-error`,
@@ -1361,7 +1388,7 @@ export default function App() {
                 window.dispatchEvent(new Event('notes_updated'));
               }
             } catch (e) {
-              console.error("Auto note generation failed", e);
+              console.warn("Auto note generation failed", e);
             }
           }
         }

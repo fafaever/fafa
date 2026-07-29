@@ -1316,7 +1316,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                 </label>
                 <input 
                   type="text" 
-                  value={settings.vectorApiUrl || ""} 
+                  value={settings.vectorApiUrl ?? "https://api.siliconflow.cn/v1"} 
                   onChange={e => handleUpdate({ vectorApiUrl: e.target.value })}
                   className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
                   placeholder="https://api.siliconflow.cn/v1"
@@ -1370,7 +1370,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
 
                 {fetchedVectorModels.length > 0 ? (
                   <select
-                    value={settings.vectorModel || ""}
+                    value={settings.vectorModel ?? "BAAI/bge-m3"}
                     onChange={e => handleUpdate({ vectorModel: e.target.value })}
                     className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all appearance-none font-sans"
                   >
@@ -1383,10 +1383,10 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
 
                 <input
                   type="text"
-                  value={settings.vectorModel || ""}
+                  value={settings.vectorModel ?? "BAAI/bge-m3"}
                   onChange={e => handleUpdate({ vectorModel: e.target.value })}
                   className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
-                  placeholder="推荐: BAAI/bge-m3"
+                  placeholder="BAAI/bge-m3"
                 />
               </div>
 
@@ -1397,10 +1397,10 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                 </label>
                 <input 
                   type="text" 
-                  value={settings.rerankModel || ""} 
+                  value={settings.rerankModel ?? "bge-reranker-v2-m3"} 
                   onChange={e => handleUpdate({ rerankModel: e.target.value })}
                   className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
-                  placeholder="推荐: bge-reranker-v2-m3"
+                  placeholder="bge-reranker-v2-m3"
                 />
               </div>
 
@@ -1916,10 +1916,10 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                 </label>
                 <input 
                   type="text" 
-                  value={settings.vectorApiUrl || ""} 
+                  value={settings.vectorApiUrl ?? "https://api.siliconflow.cn/v1"} 
                   onChange={e => handleUpdate({ vectorApiUrl: e.target.value })}
                   className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
-                  placeholder="https://api.openai.com/v1"
+                  placeholder="https://api.siliconflow.cn/v1"
                 />
               </div>
 
@@ -1971,7 +1971,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
 
                 {fetchedVectorModels.length > 0 ? (
                   <select
-                    value={settings.vectorModel || ""}
+                    value={settings.vectorModel ?? "BAAI/bge-m3"}
                     onChange={e => handleUpdate({ vectorModel: e.target.value })}
                     className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all appearance-none font-sans"
                   >
@@ -1983,12 +1983,26 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                 ) : (
                   <input
                     type="text"
-                    value={settings.vectorModel || ""}
+                    value={settings.vectorModel ?? "BAAI/bge-m3"}
                     onChange={e => handleUpdate({ vectorModel: e.target.value })}
                     className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
-                    placeholder="e.g. text-embedding-ada-002"
+                    placeholder="BAAI/bge-m3"
                   />
                 )}
+              </div>
+
+              {/* Rerank Model Input */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-neutral-400 uppercase tracking-widest ml-1 font-sans">
+                  Rerank 模型 <span className="text-neutral-400 text-[9px]">(可选)</span>
+                </label>
+                <input
+                  type="text"
+                  value={settings.rerankModel ?? "bge-reranker-v2-m3"}
+                  onChange={e => handleUpdate({ rerankModel: e.target.value })}
+                  className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
+                  placeholder="bge-reranker-v2-m3"
+                />
               </div>
 
               {/* Dimension Input */}
@@ -1998,10 +2012,10 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                 </label>
                 <input 
                   type="number" 
-                  value={settings.vectorDimension ?? 1536} 
-                  onChange={e => handleUpdate({ vectorDimension: parseInt(e.target.value) || 1536 })}
+                  value={settings.vectorDimension ?? 1024} 
+                  onChange={e => handleUpdate({ vectorDimension: parseInt(e.target.value) || 1024 })}
                   className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
-                  placeholder="1536"
+                  placeholder="1024"
                 />
               </div>
 

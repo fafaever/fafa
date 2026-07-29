@@ -5,6 +5,8 @@ function getVectorApiConfig() {
     baseUrl: settings.vectorApiUrl || 'https://api.siliconflow.cn/v1',
     apiKey: settings.vectorApiKey || '',
     model: settings.vectorModel || 'BAAI/bge-m3',
+    rerankModel: settings.rerankModel || 'bge-reranker-v2-m3',
+    dimension: settings.vectorDimension || 1024,
   };
 }
 

@@ -450,6 +450,7 @@ export default function CharacterCreatorApp({
         let parsedNickname = "";
         let parsedChatStyle = "";
         let extractedNpcs: BoundNPC[] = [];
+        
 
         if (settings && (settings.apiKey || settings.apiUrl)) {
           try {
@@ -461,11 +462,14 @@ export default function CharacterCreatorApp({
 
             if (aiResult.success && aiResult.data) {
               const data = aiResult.data;
-              if (data.name) parsedName = data.name;
+              if (data.name) {
+                parsedName = data.name;
+              }
               if (data.nickname && data.nickname !== "无") parsedNickname = data.nickname;
-              // AI is instructed in prompt to copy personality and background verbatim.
               if (data.personality || data.background) {
-                parsedPersonality = [data.personality, data.background].filter(Boolean).join("\n\n").trim();
+                // Not merging them into one field, keeping background separated to display in input box
+                parsedPersonality = data.personality || "";
+                setBackground(data.background || "");
               }
               if (data.chatStyle) parsedChatStyle = data.chatStyle;
               if (data.avatar) setAvatarPrompt(data.avatar);
@@ -479,23 +483,17 @@ export default function CharacterCreatorApp({
 
         // Fallback for Name if AI failed
         if (!parsedName) {
-          const firstLine = decodedText.split(/\r?\n/)[0]?.trim();
-          if (firstLine && firstLine.length < 15 && !firstLine.includes("设定") && !firstLine.includes("背景")) {
-            parsedName = firstLine;
-          } else {
-            parsedName = fileName.replace(/\.[^/.]+$/, "");
-          }
-        }
-
-        if (!parsedChatStyle) {
-          parsedChatStyle = `作为${parsedName}，说话时字里行间流露出独特的个人特质与语气，语气真实生动，带有沉浸式动作与心理描写。`;
+           setName("");
+           setTimeout(() => {
+             alert("姓名提取失败，请手动输入角色的姓名。");
+           }, 500);
+        } else {
+           setName(parsedName);
         }
 
         // Update form fields
-        setName(parsedName);
-        setPersonality(parsedPersonality);
-        setChatStyle(parsedChatStyle);
-        setBackground(""); // We merge background into personality now per user preference for "one field" logic
+        if (parsedPersonality) setPersonality(parsedPersonality);
+        if (parsedChatStyle) setChatStyle(parsedChatStyle);
 
         // Automatically generate NPCs based on uploaded character file content
         if (settings && (settings.apiKey || settings.apiUrl)) {
@@ -683,14 +681,22 @@ export default function CharacterCreatorApp({
       if (response?.success && response?.data) {
         const { name: aiName, nickname: aiNick, personality: aiPers, chatStyle: aiChat, background: aiBg, avatar: aiAvatar } = response.data;
         
-        if (aiName) setName(aiName);
+        if (aiName) {
+          setName(aiName);
+        } else {
+          setName("");
+        }
         if (aiNick && aiNick !== "无") setNickname(aiNick);
         if (aiPers) setPersonality(aiPers);
         if (aiBg) setBackground(aiBg);
         if (aiChat) setChatStyle(aiChat);
         if (aiAvatar) setAvatar(aiAvatar);
         
-        setSuccessMsg("✨ AI 智能一键提炼成功！关键信息已填充至对应字段，您可以继续微调设定。");
+        if (!aiName) {
+          setSuccessMsg("✨ AI 提炼完成，但未能提取到明确姓名，请手动填写姓名！其他信息已填充。");
+        } else {
+          setSuccessMsg("✨ AI 智能一键提炼成功！关键信息已填充至对应字段，您可以继续微调设定。");
+        }
       } else {
         throw new Error("AI 返回的数据为空或格式不正确。");
       }
