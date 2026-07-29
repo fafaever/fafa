@@ -31,9 +31,13 @@ import {
   User,
   Users,
   Heart,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Character, AppSettings, Message } from "../types";
 import { apiChat } from "../lib/api";
+import { storeMemory } from "../lib/vectorMemory";
+import { getPrioritizedMemories } from "../lib/memoryPriority";
 
 export interface OfflineStoryMessage {
   id: string;
@@ -125,9 +129,81 @@ interface OfflineMeetViewProps {
   allCharacters?: Character[];
   settings: AppSettings;
   onlineMessages?: Message[];
+  loreList?: any[];
   onSyncToOnlineChat?: (storySummary: string, cardInfo?: OfflineMeetCardInfo) => void;
   onClose: () => void;
   forcedMode?: "shared" | "isolated";
+}
+
+// Helper to parse narrative paragraphs vs dialogue lines cleanly
+function parseStoryParagraphs(content: string): { text: string; isDialogue: boolean }[] {
+  if (!content) return [];
+
+  const rawBlocks = content.split(/\n\s*\n/);
+  const result: { text: string; isDialogue: boolean }[] = [];
+
+  rawBlocks.forEach((block) => {
+    const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+    let currentNarrativeBuffer: string[] = [];
+
+    lines.forEach((line) => {
+      const isDialogue = (line.includes("“") && line.includes("”")) || 
+                         (line.includes('"') && line.includes('"')) || 
+                         (line.includes("*“") && line.includes("”*"));
+
+      if (isDialogue) {
+        if (currentNarrativeBuffer.length > 0) {
+          result.push({
+            text: currentNarrativeBuffer.join(""),
+            isDialogue: false,
+          });
+          currentNarrativeBuffer = [];
+        }
+        result.push({
+          text: line,
+          isDialogue: true,
+        });
+      } else {
+        currentNarrativeBuffer.push(line);
+      }
+    });
+
+    if (currentNarrativeBuffer.length > 0) {
+      result.push({
+        text: currentNarrativeBuffer.join(""),
+        isDialogue: false,
+      });
+      currentNarrativeBuffer = [];
+    }
+  });
+
+  return result;
+}
+
+export interface InteractiveKeyPoint {
+  conflictType: string;
+  description: string;
+  options: string[];
+}
+
+export function parseInteractiveKeyPoint(rawText: string): {
+  cleanStoryText: string;
+  keyPoint: null;
+} {
+  if (!rawText) return { cleanStoryText: "", keyPoint: null };
+
+  let cleanStoryText = rawText;
+  const blockHeaderRegex = /【(?:互动)?(?:关键点|抉择焦点|焦点|分支选项|选项)】/i;
+  const blockIndex = cleanStoryText.search(blockHeaderRegex);
+
+  if (blockIndex !== -1) {
+    cleanStoryText = cleanStoryText.substring(0, blockIndex).trim();
+  }
+
+  return {
+    cleanStoryText: cleanStoryText || rawText,
+    keyPoint: null,
+  };
 }
 
 export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
@@ -135,6 +211,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   allCharacters = [],
   settings,
   onlineMessages = [],
+  loreList = [],
   onSyncToOnlineChat,
   onClose,
   forcedMode,
@@ -144,6 +221,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [isInputZoomed, setIsInputZoomed] = useState<boolean>(false);
+  const [isOptionsExpanded, setIsOptionsExpanded] = useState<boolean>(false);
 
   // View Mode: 'chat' | 'settings_view' | 'history_replay'
   const [viewMode, setViewMode] = useState<"chat" | "settings_view" | "history_replay">("chat");
@@ -376,62 +454,301 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     }
   };
 
+  // Helper to validate and retrieve all mandatory data sources and settings
+  const validateAndGetMandatoryDataSources = (currentMsgs: OfflineStoryMessage[]) => {
+    // 1. 角色人设（性格、说话风格、背景）
+    const charName = character?.name || "";
+    const charPersonaParts = [
+      character?.description ? `【概要/背景】: ${character.description}` : "",
+      character?.personality ? `【性格特征】: ${character.personality}` : "",
+      character?.background ? `【生平背景】: ${character.background}` : "",
+      character?.systemInstruction ? `【人设/系统指令】: ${character.systemInstruction}` : "",
+      character?.persona ? `【详细人设】: ${character.persona}` : "",
+    ].filter((p) => p && typeof p === "string" && p.trim().length > 0);
+
+    let multiPersonaStr = "";
+    if (plotMode === "multi") {
+      const assocList = getAssociatedCharacters();
+      const selectedMultiChars = assocList.filter((c) => selectedMultiCharIds.includes(c.id));
+      if (selectedMultiChars.length > 0) {
+        multiPersonaStr = selectedMultiChars.map((sc) => {
+          const parts = [
+            sc.description ? `概要: ${sc.description}` : "",
+            sc.personality ? `性格: ${sc.personality}` : "",
+            sc.background ? `背景: ${sc.background}` : "",
+          ].filter(Boolean).join("；");
+          return `· 配角 [${sc.name}]: ${parts || "已出场配合互动"}`;
+        }).join("\n");
+      }
+    }
+
+    const charPersonaText = charPersonaParts.join("\n") + (multiPersonaStr ? `\n\n【出场配角人设】:\n${multiPersonaStr}` : "");
+    const isCharValid = Boolean(charName.trim() && charPersonaParts.length > 0);
+
+    // 2. 用户绑定的用户设定（用户人设）
+    let userPersonaName = settings?.userPersonaName || "";
+    let userPersonaDesc = settings?.userPersonaDescription || "";
+
+    if (character?.userPersonaId) {
+      try {
+        const stored = localStorage.getItem("mobile_ai_user_personas");
+        if (stored) {
+          const personas = JSON.parse(stored);
+          const bound = personas.find((p: any) => p.id === character.userPersonaId);
+          if (bound) {
+            userPersonaName = bound.name || userPersonaName;
+            userPersonaDesc = bound.description || userPersonaDesc;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!userPersonaName || !userPersonaDesc) {
+      try {
+        const activePersonaStr = localStorage.getItem("mobile_ai_active_user_persona");
+        if (activePersonaStr) {
+          const activePersona = JSON.parse(activePersonaStr);
+          if (activePersona) {
+            userPersonaName = userPersonaName || activePersona.name;
+            userPersonaDesc = userPersonaDesc || activePersona.description;
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!userPersonaName && !userPersonaDesc) {
+      userPersonaName = "用户";
+      userPersonaDesc = "在现实中与角色相遇并交互的对话主角。";
+    }
+
+    const isUserValid = Boolean(userPersonaName.trim() && userPersonaDesc.trim());
+
+    // 3. 剧场世界设定（用户自定义的世界背景 / 世界书）
+    let worldBookText = "";
+    try {
+      let rawLores: any[] = (loreList && loreList.length > 0) ? loreList : (character?.lores || []);
+      if (!rawLores || rawLores.length === 0) {
+        const storedLoreStr = localStorage.getItem("mobile_ai_lore");
+        if (storedLoreStr) {
+          rawLores = JSON.parse(storedLoreStr);
+        }
+      }
+
+      if (rawLores && Array.isArray(rawLores) && rawLores.length > 0) {
+        const activeLores = rawLores.filter((l: any) => {
+          if (l.enabled === false) return false;
+          if (l.characterIds && Array.isArray(l.characterIds) && l.characterIds.length > 0) {
+            if (!l.characterIds.includes(character.id)) return false;
+          }
+          return true;
+        });
+
+        if (activeLores.length > 0) {
+          worldBookText = activeLores
+            .map((l: any) => `- 【${l.title || "设定条目"}】: ${l.content || ""}`)
+            .join("\n");
+        }
+      }
+    } catch (e) {}
+
+    if (!worldBookText) {
+      if (meetMode === "isolated" && isolatedBackground.trim()) {
+        worldBookText = `- 【架空剧场世界背景】: ${isolatedBackground.trim()}`;
+      } else if (timeSetting.trim() || locationSetting.trim() || reasonSetting.trim() || atmosphereSetting.trim()) {
+        worldBookText = `- 【共享剧场世界情境】: 时间「${timeSetting || "未设定"}」，地点「${locationSetting || "未设定"}」，缘由「${reasonSetting || "未设定"}」，氛围「${atmosphereSetting || "未设定"}」`;
+      } else {
+        worldBookText = "（剧场世界设定：暂未挂载特殊的专属世界观设定条目）";
+      }
+    }
+    const isWorldBookValid = Boolean(worldBookText.trim());
+
+    // 4. 字数范围（用户设定的最小值和最大值）
+    const minWords = Math.max(150, Math.floor((wordLimit || 600) * 0.75));
+    const maxWords = Math.min(2500, Math.floor((wordLimit || 600) * 1.25));
+    const isWordCountValid = Boolean(wordLimit && wordLimit > 0 && minWords > 0 && maxWords >= minWords);
+
+    // 5. 叙述视角（第一人称/第二人称/第三人称）
+    const isPerspectiveValid = Boolean(perspective && ["first", "second", "third"].includes(perspective));
+
+    // 6. 文风偏好（日常白描/文艺细腻/冷淡克制/温暖柔和）
+    const isToneValid = Boolean(writingTone && ["daily_plain", "literary", "cold_restrained", "warm_soft"].includes(writingTone));
+
+    // 7. 记忆库（剧情记忆 + 核心记忆 - 严格遵循核心记忆优先级规则）
+    let memoryText = "";
+    let isMemoryValid = false;
+    try {
+      const prioResult = getPrioritizedMemories(character.id);
+      memoryText = prioResult.formattedPromptText;
+      isMemoryValid = Boolean(memoryText && memoryText.trim().length > 0);
+    } catch (e) {
+      memoryText = "（角色记忆库：读取异常）";
+      isMemoryValid = true;
+    }
+
+    // 8. 当前上下文（最近 5 轮对话）
+    let contextText = "";
+    if (currentMsgs && currentMsgs.length > 0) {
+      const recent = currentMsgs.slice(-10); // 10 messages = 5 rounds
+      contextText = recent
+        .map((m) => `${m.role === "user" ? userPersonaName : (m.role === "assistant" ? charName : "旁白")}: ${m.content}`)
+        .join("\n");
+    } else if (onlineMessages && onlineMessages.length > 0) {
+      const recent = onlineMessages.slice(-10);
+      contextText = recent
+        .map((m) => `${m.role === "user" ? userPersonaName : charName}: ${m.content}`)
+        .join("\n");
+    } else {
+      contextText = "（线下见面：第一段初始场景沟通）";
+    }
+    const isContextValid = Boolean(contextText.trim());
+
+    const isValid =
+      isCharValid &&
+      isUserValid &&
+      isWorldBookValid &&
+      isWordCountValid &&
+      isPerspectiveValid &&
+      isToneValid &&
+      isMemoryValid &&
+      isContextValid;
+
+    return {
+      isValid,
+      charName,
+      charPersonaText,
+      userPersonaName,
+      userPersonaDesc,
+      worldBookText,
+      minWords,
+      maxWords,
+      wordLimit,
+      perspective,
+      writingTone,
+      memoryText,
+      contextText,
+    };
+  };
+
   // Helper to generate dynamic style prompt instructions based on user settings
-  const getPromptStyleInstructions = () => {
-    const currentUserName = settings.userPersonaName || "用户";
+  const getPromptStyleInstructions = (currentMsgs: OfflineStoryMessage[] = messages) => {
+    const ds = validateAndGetMandatoryDataSources(currentMsgs);
+    const currentUserName = ds.userPersonaName;
     const assocList = getAssociatedCharacters();
     const selectedMultiChars = plotMode === "multi" ? assocList.filter((c) => selectedMultiCharIds.includes(c.id)) : [];
-    const allNames = [character.name, ...selectedMultiChars.map((c) => c.name)];
+
+    const persLabel =
+      perspective === "first"
+        ? "第一人称（“我”）"
+        : perspective === "second"
+        ? "第二人称（“你”）"
+        : "第三人称（“他/她”及角色姓名）";
+
+    let toneLabel = "";
+    if (writingTone === "literary") {
+      toneLabel = "文艺细腻";
+    } else if (writingTone === "cold_restrained") {
+      toneLabel = "冷淡克制";
+    } else if (writingTone === "warm_soft") {
+      toneLabel = "温暖柔和";
+    } else {
+      toneLabel = "日常白描";
+    }
+
+    const mandatoryDataSourcesBlock = `
+【线下见面 8 大强制读取数据源（剧情生成绝对依凭）】：
+1. 剧场世界设定（用户自定义的世界背景/世界书）：
+${ds.worldBookText}
+
+2. 字数范围（用户设定的最小值和最大值）：
+   - 目标字数: 约 ${ds.wordLimit} 字（严格限制范围: ${ds.minWords} ~ ${ds.maxWords} 字）
+
+3. 叙述视角（第一人称/第二人称/第三人称）：
+   - 设定视角: ${persLabel}
+
+4. 文风偏好（日常白描/文艺细腻/冷淡克制/温暖柔和）：
+   - 设定文风: ${toneLabel}
+
+5. 角色人设（性格、说话风格、背景）：
+   - 主角姓名: ${ds.charName}
+   - 人设细节:
+${ds.charPersonaText}
+
+6. 用户绑定的用户设定（用户人设）：
+   - 身份/昵称: ${ds.userPersonaName}
+   - 人设描述: ${ds.userPersonaDesc}
+
+7. 记忆库（剧情记忆 + 核心记忆 - 遵守核心记忆优先级规则）：
+${ds.memoryText}
+
+8. 当前上下文（最近 5 轮对话）：
+${ds.contextText}
+
+【剧情描写自然生成绝对法则】：
+- 你的剧情描写与角色台词必须全面融合上述 8 大数据源，以极其自然流畅、有画面感且符合角色性格的沉浸式笔触展开。
+- 【绝对严禁】：严禁输出任何互动选项、分支菜单、选项 Tag 或【互动关键点】区块！完全不要生成选项。
+- 剧情结尾自然停留在当下的互动场景，由用户在输入框中自定义输入对话或动作来推进后续剧情。
+`;
 
     let perspectiveInstruction = "";
     if (plotMode === "multi") {
       if (perspective === "second") {
-        perspectiveInstruction = `【叙述视角强制性约束 - 第二人称】：
-- 你必须严格以第二人称（“你”和角色姓名）进行叙述。
+        perspectiveInstruction = `【叙述视角绝对强制约束 - 第二人称】：
+- 你必须严格以第二人称（“你”和角色姓名）进行全篇叙述。
 - 角色必须直接称呼用户为“你”，角色自称使用姓名。
-- 【绝对禁令】：严禁受用户输入影响！即便用户在对话中自称“我”或称呼你为“你”，你的描写叙述部分必须始终坚持使用角色姓名和“你”，绝不妥协！`;
+- 【绝对铁律】：视角必须严格保持一致，绝对不受用户输入内容影响！即便用户在对话中自称“我”或称呼你为“你”，你的描写叙述部分必须始终坚持使用角色姓名和“你”，绝不妥协！`;
       } else {
-        perspectiveInstruction = `【叙述视角强制性约束 - 第三人称】：
-- 你必须严格以第三人称（“他/她”和各自姓名）进行叙述。
+        perspectiveInstruction = `【叙述视角绝对强制约束 - 第三人称】：
+- 你必须严格以第三人称（“他/她”和各自姓名）进行全篇叙述。
 - 场景中所有角色（包括用户 ${currentUserName}）的所有动作、神态、心理描写必须统一使用各自的姓名或“他/她”。
-- 【绝对禁令】：严禁受用户输入影响！即便用户在消息中使用了“我”、“你”或第一人称，你的剧情描写文字仍必须严格按照第三人称叙述，绝对不准切换视角或称呼！`;
+- 【绝对铁律】：视角必须严格保持一致，绝对不受用户输入内容影响！即便用户在消息中使用了“我”、“你”或第一人称，你的剧情描写文字仍必须严格按照第三人称叙述，绝对不准切换视角或称呼！`;
       }
     } else {
       if (perspective === "first") {
-        perspectiveInstruction = `【叙述视角强制性约束 - 第一人称】：从角色 ${character.name} 的自身视角出发，使用第一人称（“我”）进行心理活动与动作描写。`;
+        perspectiveInstruction = `【叙述视角绝对强制约束 - 第一人称】：
+- 从角色 ${character.name} 的自身视角出发，使用第一人称（“我”）进行心理活动与动作描写。
+- 【绝对铁律】：视角必须严格保持一致，绝对不受用户输入内容影响！全程维持第一人称“我”视角！`;
       } else if (perspective === "second") {
-        perspectiveInstruction = `【叙述视角强制性约束 - 第二人称】：
-- 你必须严格以第二人称进行叙述。角色使用角色名，直接称呼用户为“你”。
-- 【绝对禁令】：严禁受用户输入影响！即使用户在输入中自称“我”，你在描写叙述中也必须且只能称呼用户为“你”，严格保持视角高度一致！`;
+        perspectiveInstruction = `【叙述视角绝对强制约束 - 第二人称】：
+- 你必须严格以第二人称（“你”）进行全篇叙述。角色使用角色名，直接称呼用户为“你”。
+- 【绝对铁律】：视角必须严格保持一致，绝对不受用户输入内容影响！即使用户在输入中自称“我”，你在描写叙述中也必须且只能称呼用户为“你”，严格保持视角高度一致！`;
       } else {
-        perspectiveInstruction = `【叙述视角强制性约束 - 第三人称】：
+        perspectiveInstruction = `【叙述视角绝对强制约束 - 第三人称】：
 - 你必须严格以第三人称（“他/她”及角色名）来叙述角色的姿态、动作与心理。
 - 严禁出现“我”、“你”等第一或第二人称的描述性文字。
-- 【绝对禁令】：严禁受用户输入影响！即使当前用户在输入中使用了“我”或“你”，你也必须严格坚持第三人称叙述，绝不妥协，不切换视角！`;
+- 【绝对铁律】：视角必须严格保持一致，绝对不受用户输入内容影响！即使当前用户在输入中使用了“我”或“你”，你也必须严格坚持第三人称叙述，绝不妥协，不切换视角！`;
       }
     }
 
-    const formattingInstruction = `
-【文本格式排版规则 (绝对强制)】：
-1. 所有的“对话内容”必须单独成行，并使用 *斜体* 显示（例如：*“你来了。”*）。
-2. 动作描写、环境描写、心理描写等叙述性内容按自然段落排列，严禁刻意换行，严禁在一段完整的动作描写中插入换行符。
-3. 对话与描写交替进行时，请确保对话内容始终是独立的段落。
+    const wordCountInstruction = `
+【字数严格控制规则 (绝对强制执行)】：
+- 本段剧情描写的输出总字数必须【严格符合设定的字数要求】：最小 ${ds.minWords} 字，最大 ${ds.maxWords} 字（目标约 ${ds.wordLimit} 字）。
+- 【绝对铁律】：必须严格符合字数要求，绝对不得低于下限 ${ds.minWords} 字，也绝对不得超过上限 ${ds.maxWords} 字！
 `;
 
     let toneInstruction = "";
     if (writingTone === "literary") {
-      toneInstruction = "【文风基调 - 文艺细腻】：句子稍长，极其注重氛围感与感官描写（光线、温度、雨声、微风），文笔优雅有呼吸感。";
+      toneInstruction = "【文风偏好绝对要求 - 文艺细腻】：句子稍长，极其注重氛围感与感官描写（光线、温度、雨声、微风），文笔优雅有呼吸感。绝对纯粹，不混用其他风格！";
     } else if (writingTone === "cold_restrained") {
-      toneInstruction = "【文风基调 - 冷淡克制】：用词极少，语气收敛克制，不滥用修辞，依靠极少的眼神微动作与微小停顿传递情感。";
+      toneInstruction = "【文风偏好绝对要求 - 冷淡克制】：用词极少，语气收敛克制，不滥用修辞，依靠极少的眼神微动作与微小停顿传递情感。绝对纯粹，不混用其他风格！";
     } else if (writingTone === "warm_soft") {
-      toneInstruction = "【文风基调 - 温暖柔和】：语气非常软，细节温馨细腻，充满关怀与陪伴感，让人感觉被包容。";
+      toneInstruction = "【文风偏好绝对要求 - 温暖柔和】：语气非常软，细节温馨细腻，充满关照与陪伴感，让人感觉被包容。绝对纯粹，不混用其他风格！";
     } else {
-      toneInstruction = "【文风基调 - 日常白描】：句子短，动作具体，干净自然，呈现生活原本的节奏（日本电影台词本风格）。";
+      toneInstruction = "【文风偏好绝对要求 - 日常白描】：句子短，动作具体，干净自然，呈现生活原本的节奏（日本电影台词本风格）。绝对纯粹，不混用其他风格！";
     }
 
     const customKwStr = customToneKeywords.trim()
       ? `\n【用户自定义文风要求】：${customToneKeywords.trim()}`
       : "";
+
+    const formattingInstruction = `
+【文本换行与格式排版规则 (绝对强制执行)】：
+1. 叙述性内容（动作描写、环境烘托、肢体细节、心理活动、眼神交汇等）必须按自然饱满的段落排列，绝对禁止因句号、逗号、问号、感叹号等任何标点符号而强制换行或随手回车！
+2. 只有在以下 3 种情况才允许换行/分段：
+   ① 对话内容单独成行（例如：*“你来了。”* 必须独立成行，前后换行）。
+   ② 一段完整的叙述段落自然结束后的分段（不准把一句话切碎）。
+   ③ 场景切换或时间跳跃。
+3. 所有的“对话内容”必须单独成行，并使用 *斜体* 显示（例如：*“你来了。”*）。
+`;
 
     let multiRules = "";
     if (plotMode === "multi" && selectedMultiChars.length > 0) {
@@ -443,7 +760,98 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
 `;
     }
 
-    return `${perspectiveInstruction}\n${formattingInstruction}\n${toneInstruction}${customKwStr}${multiRules}`;
+    return `${mandatoryDataSourcesBlock}\n${perspectiveInstruction}\n${wordCountInstruction}\n${toneInstruction}${customKwStr}\n${formattingInstruction}${multiRules}`;
+  };
+
+  // Helper to build progression prompt logic reading recent 5 online messages and current user input
+  const getProgressionInstructions = (lastUserContent: string = "") => {
+    let onlineContextStr = "";
+    if (meetMode === "shared" && onlineMessages && onlineMessages.length > 0) {
+      const recentOnline5 = onlineMessages
+        .slice(-5)
+        .map((m) => `${m.role === "user" ? "用户" : character.name}: ${m.content}`)
+        .join("\n");
+
+      onlineContextStr = `
+【互通模式 - 线上记忆提取与线下剧情推进规则 (最高优先级)】：
+以下是最近 5 条线上聊天记录：
+${recentOnline5}
+
+你在生成本段线下剧情时，必须严格遵守以下推进逻辑：
+1. **提取信息点**：结合当前用户的输入/动作（“${lastUserContent || "无特殊动作"}”）和上述最近 5 条线上聊天记录，提炼出 1-2 个可以作为线下事件的信息点（如：用户提过喜欢猫、在找工作、爱喝某种饮料、提到的近况或共同承诺等）。
+2. **引入环境/随机事件**：在当前线下场景中引入一个突发的环境变化或随机事件（如：天气变阴/下雨、店员送错餐品、路边偶遇小动物、旁边桌有动静、播放某首乐曲、物件意外掉落等）作为剧情推进支点。
+3. **结合推演与事件优先级**：将【线上记忆/信息点】与【环境变化/随机事件】有机融合推演新剧情。事件优先级判定：【线上记忆 > 环境变化 > 随机事件】，确保剧情与角色和用户深厚关联。
+4. **必须包含互动新元素**：本段剧情结尾必须至少包含 1 个【可以互动的新元素/新情境】（如：递过来的某种物品、发出的邀请、面对突发状况的选择题、呈现眼前的画面等），让用户不仅仅是接话，而是面对真实情境做出应对和行动！
+`;
+    } else {
+      onlineContextStr = `
+【架空模式 - 线下剧情推进规则】：
+1. 在当前线下场景中加入一个环境变化或突发随机事件（如：环境细节变动、外部声音、突发插曲等）作为剧情推进支点。
+2. 本段剧情结尾必须至少包含 1 个【可以互动的新元素/新情境】（如递出的物品、需要决策的选择、突发情境等），让用户能够针对真实情境做出响应和行动！
+`;
+    }
+    return onlineContextStr;
+  };
+
+  // Helper to call apiChat with word count check & duplicate prevention
+  const generateAiWithQuality = async (
+    requestParams: any,
+    minWords: number,
+    maxWords: number,
+    oldContentToAvoid?: string
+  ): Promise<string> => {
+    let response = await apiChat(requestParams);
+    let aiText = response.text || "";
+
+    // 1. Check if identical to old content (for reroll) -> Auto regenerate once
+    if (oldContentToAvoid && aiText.trim() === oldContentToAvoid.trim()) {
+      console.warn("Reroll content identical to original, auto regenerating...");
+      const retryParams = {
+        ...requestParams,
+        messages: [
+          ...(requestParams.messages || []),
+          {
+            id: `sys-retry-diff-${Date.now()}`,
+            role: "user" as const,
+            content: `【重新生成特别指令】：你刚才重roll输出的内容与上一个版本完全一致（原文字数为 ${oldContentToAvoid.trim().length}）。请重新构思全新的切入视角、环境细节、动作语气，【绝对不得与原版本重合】！`,
+            timestamp: Date.now(),
+          },
+        ],
+      };
+      const secondRes = await apiChat(retryParams);
+      if (secondRes.text && secondRes.text.trim() !== oldContentToAvoid.trim()) {
+        aiText = secondRes.text;
+      }
+    }
+
+    // 2. Check if word count is below minWords -> Auto expand / retry once
+    if (aiText.trim().length < minWords) {
+      console.warn(`Generated content too short (${aiText.trim().length} words < min ${minWords}), auto expanding...`);
+      const expandParams = {
+        ...requestParams,
+        messages: [
+          ...(requestParams.messages || []),
+          {
+            id: `asst-short-${Date.now()}`,
+            role: "assistant" as const,
+            content: aiText,
+            timestamp: Date.now(),
+          },
+          {
+            id: `sys-expand-${Date.now()}`,
+            role: "user" as const,
+            content: `【字数控制严格指令】：你刚才输出的内容字数不足（仅 ${aiText.trim().length} 字），低于用户设定的最少字数下限（${minWords} 字）。请大幅丰富肢体微动作、感官画面、眼神细节、心理活动与环境烘托，重新输出一篇至少 ${minWords} 字（在 ${minWords}~${maxWords} 字范围）的充实剧情描写！`,
+            timestamp: Date.now(),
+          },
+        ],
+      };
+      const expandRes = await apiChat(expandParams);
+      if (expandRes.text && expandRes.text.trim().length > aiText.trim().length) {
+        aiText = expandRes.text;
+      }
+    }
+
+    return aiText;
   };
 
   // Generate the AI's first opening scene (开场描写 - 不包含任何对话)
@@ -456,6 +864,13 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     atmoStr: string,
     isoBg: string
   ) => {
+    const dataSources = validateAndGetMandatoryDataSources([]);
+    if (!dataSources.isValid) {
+      setApiError("设定缺失，请检查剧场配置");
+      setIsGenerating(false);
+      return;
+    }
+
     setIsGenerating(true);
     setApiError(null);
 
@@ -466,32 +881,32 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
         let recentOnlineStr = "";
         if (onlineMessages && onlineMessages.length > 0) {
           recentOnlineStr = onlineMessages
-            .slice(-15)
+            .slice(-5)
             .map((m) => `${m.role === "user" ? "用户" : character.name}: ${m.content}`)
             .join("\n");
         }
 
-        const hasUserSetup = timeStr.trim() || locStr.trim() || reasonStr.trim() || atmoStr.trim();
-
-        if (hasUserSetup) {
-          contextPrompt = `【开场设定依据（用户自定义）】：
+        contextPrompt = `【开场设定与信息点提取依据】：
 - 时间：${timeStr.trim() || "（AI根据线上聊天推断合适时间）"}
 - 地点：${locStr.trim() || "（AI根据线上聊天推断合适地点）"}
 - 见面原因：${reasonStr.trim() || "（AI根据线上聊天推断合适原因）"}
 - 氛围关键词：${atmoStr.trim() || "（自然流畅）"}
 
-请结合以上设定，以及你与用户过去的线上聊天历史与角色人设，撰写见面第一段开场描写。
-【过去的线上聊天历史背景】：
-${recentOnlineStr || "（此前在线上已有熟悉互动与交谈）"}`;
-        } else {
-          contextPrompt = `【开场设定依据（系统自动推断）】：
-用户未填写特定设定。请你根据你与用户此前在线上的聊天历史，以及你的角色人设，自动推断并呈现一个非常自然、呼应线上聊天的见面场景（例如线上聊过的咖啡馆、旧书店、公园、大雨后的街道或双方约好的地点与时间）。
-【过去的线上聊天历史背景】：
-${recentOnlineStr || "（此前在线上已有熟悉互动与交谈）"}`;
-        }
+【最近 5 条线上聊天记录（重点提取 1-2 个信息点）】：
+${recentOnlineStr || "（此前在线上已有熟悉互动与交谈）"}
+
+【开场剧情推进与互动元素要求】：
+1. 从最近 5 条线上聊天记录中提取 1-2 个能够作为见面线索的信息点（如聊过的爱喝甜饮、喜欢猫、提到的习惯等）。
+2. 在开场描写中加入一个环境变化或突发随机事件（天气变化、店员递餐、环境音效、小道具等）。
+3. 事件优先级：线上记忆 > 环境变化 > 随机事件。
+4. 开场结尾必须留下 1 个【可以互动的新元素/新情境】（如推到面前的茶杯、呈现眼前的画面或突发状况），方便用户开始第一步互动！`;
       } else {
         contextPrompt = `【开场设定依据（架空剧本背景设定）】：
-${isoBg.trim() || "用户未指定架空背景。请依据你的角色性格（" + (character.description || "") + "）与世界观，完全自由地随机构思一个极具新意、悬念与吸引力的平行时空/独立剧本开场描写。忽略所有线上聊天记录。"}`;
+${isoBg.trim() || "用户未指定架空背景。请依据你的角色性格（" + (character.description || "") + "）与世界观，完全自由地随机构思一个极具新意、悬念与吸引力的平行时空/独立剧本开场描写。忽略所有线上聊天记录。"}
+
+【开场剧情推进与互动元素要求】：
+1. 在开场描写中加入一个环境变化或突发随机事件作为剧情推进支点。
+2. 结尾必须包含 1 个【可以互动的新元素/新情境】，方便用户回应或行动。`;
       }
 
       const minWords = Math.max(150, Math.floor(currentLimit * 0.75));
@@ -537,24 +952,39 @@ ${contextPrompt}`;
         replyCount: 1,
       };
 
-      const response = await apiChat(requestParams);
-      const aiText = response.text || "（环境静谧，阳光斜斜照在地面上。你与对方在约定地点相遇，静静地凝视着彼此...）";
+      const aiText = await generateAiWithQuality(requestParams, minWords, maxWords);
+      const aiTextFinal = aiText || "（环境静谧，阳光斜斜照在地面上。你与对方在约定地点相遇，静静地凝视着彼此...）";
 
       const aiOpeningMsg: OfflineStoryMessage = {
         id: `ai-open-${Date.now()}`,
         role: "assistant",
-        content: aiText,
+        content: aiTextFinal,
         timestamp: Date.now(),
       };
 
       saveStory([aiOpeningMsg]);
+      
+      try {
+        storeMemory(character.id, `线下见面开场：${aiTextFinal}`, "线下见面");
+      } catch(e) {}
 
       if (currentMode === "shared" && onSyncToOnlineChat) {
-        onSyncToOnlineChat(aiText);
+        onSyncToOnlineChat(aiTextFinal);
       }
     } catch (err: any) {
       console.error("Failed to generate opening scene:", err);
-      setApiError(err.message || "生成开场失败，请重试");
+      setApiError(err.message || "生成开场失败，已自动载入基础预设开场");
+
+      const defaultOpening = `（环境静谧，阳光斜斜照在地面上。你与${character.name}在约定地点相遇，静静地凝视着对方...）\n\n【互动关键点】：直面 vs 回避 （面对眼前的见面与氛围，你决定以怎样的态度回应？）\n【分支选项1】：“抱歉，久等了。今天天气真不错。”\n【分支选项2】：“你今天看起来有些不一样。”\n【分支选项3】：静静凝视对方，等待对方先开口。\n【分支选项4】：故作轻松地挥了挥手，打破当下的沉寂。`;
+
+      const fallbackOpeningMsg: OfflineStoryMessage = {
+        id: `ai-open-fallback-${Date.now()}`,
+        role: "assistant",
+        content: defaultOpening,
+        timestamp: Date.now(),
+      };
+
+      saveStory([fallbackOpeningMsg]);
     } finally {
       setIsGenerating(false);
     }
@@ -661,111 +1091,158 @@ ${contextPrompt}`;
     const targetIdx = messages.findIndex((m) => m.id === targetMsgId);
     if (targetIdx === -1) return;
 
+    const oldMsg = messages[targetIdx];
+    const oldContent = oldMsg ? oldMsg.content : "";
+    const priorMsgs = messages.slice(0, targetIdx);
+
+    const dataSources = validateAndGetMandatoryDataSources(priorMsgs);
+    if (!dataSources.isValid) {
+      setApiError("设定缺失，请检查剧场配置");
+      return;
+    }
+
     setIsGenerating(true);
     setApiError(null);
 
     try {
-      const priorMsgs = messages.slice(0, targetIdx);
-
-      if (priorMsgs.length === 0) {
-        // If re-rolling the opening scene
-        await generateOpeningScene(
-          meetMode,
-          wordLimit,
-          timeSetting,
-          locationSetting,
-          reasonSetting,
-          atmosphereSetting,
-          isolatedBackground
-        );
-        return;
-      }
-
-      let onlineContextStr = "";
-      if (meetMode === "shared" && onlineMessages && onlineMessages.length > 0) {
-        const recentOnline = onlineMessages
-          .slice(-15)
-          .map((m) => `${m.role === "user" ? "用户" : character.name}: ${m.content}`)
-          .join("\n");
-        onlineContextStr = `\n【互通模式 - 线上聊天记忆与背景（必须连贯）】：\n以下是你与用户此前在线上聊天的最近记录，请保持记忆连贯：\n${recentOnline}\n`;
-      } else {
-        onlineContextStr = `\n【架空模式 - 完全独立平行时空】：\n忽略所有线上聊天历史，这是一个独立的平行时空剧本。`;
-      }
-
       const minWords = Math.max(150, Math.floor(wordLimit * 0.75));
       const maxWords = Math.min(2500, Math.floor(wordLimit * 1.25));
-      const styleRules = getPromptStyleInstructions();
 
-      const systemInstruction = `【线下见面剧情模式特别指令】：
-你正在与用户进行“线下见面”互动。这是一个纯剧情小说/剧本模式，以环境白描、肢体动作、感官细节与微小停顿为主，对话为辅。
-${onlineContextStr}
+      let requestParams: any;
+
+      if (targetIdx === 0) {
+        // Re-rolling opening scene
+        let contextPrompt = "";
+        if (meetMode === "shared") {
+          let recentOnlineStr = "";
+          if (onlineMessages && onlineMessages.length > 0) {
+            recentOnlineStr = onlineMessages
+              .slice(-5)
+              .map((m) => `${m.role === "user" ? "用户" : character.name}: ${m.content}`)
+              .join("\n");
+          }
+          contextPrompt = `【开场设定与信息点提取依据】：
+- 时间：${timeSetting.trim() || "（AI根据线上聊天推断合适时间）"}
+- 地点：${locationSetting.trim() || "（AI根据线上聊天推断合适地点）"}
+- 见面原因：${reasonSetting.trim() || "（AI根据线上聊天推断合适原因）"}
+- 氛围关键词：${atmosphereSetting.trim() || "（自然流畅）"}
+
+【最近 5 条线上聊天记录（重点提取 1-2 个信息点）】：
+${recentOnlineStr || "（此前在线上已有熟悉互动与交谈）"}
+
+【开场剧情推进与互动元素要求】：
+1. 从最近 5 条线上聊天记录中提取 1-2 个能够作为见面线索的信息点。
+2. 在开场描写中加入一个环境变化或突发随机事件。
+3. 开场结尾必须留下 1 个【可以互动的新元素/新情境】。`;
+        } else {
+          contextPrompt = `【开场设定依据（架空剧本背景设定）】：
+${isolatedBackground.trim() || "自由构思独立剧本开场描写。"}
+
+【开场剧情推进与互动元素要求】：
+1. 加入环境变化或突发随机事件。
+2. 结尾包含 1 个【可以互动的新元素/新情境】。`;
+        }
+
+        const styleRules = getPromptStyleInstructions([]);
+        const rerollOpeningInstruction = `【线下见面 - 开场描写重roll重新生成特别指令】：
+你正在重新生成线下见面的【第一段开场描写】。
+
+【重roll差异化与字数要求】：
+1. 之前的开场描述为：「${oldContent.slice(0, 100)}...」。本次重新生成【绝对不能与旧开场重复】，请更换全新的环境细节、光影氛围或肢体感官着手描写。
+2. 【绝对严禁包含任何话语或对话内容】：第一段开场描写必须完全是环境渲染、动作细节、氛围布置、心理与眼神等叙述性画面文字！
+3. 【字数范围】：绝对严格要求在 ${minWords}~${maxWords} 字（目标约 ${wordLimit} 字），严禁生成低于 ${minWords} 字的短段落。
+${styleRules}
+
+${contextPrompt}`;
+
+        const cleanCharacter = {
+          name: character.name,
+          description: character.description,
+          systemInstruction: character.systemInstruction + "\n" + rerollOpeningInstruction,
+        };
+
+        requestParams = {
+          messages: [{ id: `sys-open-reroll-${Date.now()}`, role: "user" as const, content: rerollOpeningInstruction, timestamp: Date.now() }],
+          character: cleanCharacter,
+          settings: settings,
+          chatMode: "offline" as const,
+          replyLength: "long",
+          replyCount: 1,
+        };
+      } else {
+        const lastUserObj = priorMsgs.filter((m) => m.role === "user").pop();
+        const lastUserContent = lastUserObj ? lastUserObj.content : "";
+        const progressionRules = getProgressionInstructions(lastUserContent);
+        const styleRules = getPromptStyleInstructions(priorMsgs);
+
+        const systemInstruction = `【线下见面剧情模式 - 重新生成重roll特别指令】：
+你正在与用户进行“线下见面”互动。
+${progressionRules}
 
 ${styleRules}
 
-【线下见面与动作心理描写规则（极其重要）】：
-1. 用户发送的【未加双引号】的内容（如：好想走啊、叹了口气、心神不定），视为动作、神态、心理活动或外部表现。角色无法直接“听到”或读取用户的内心原话或想法，只能通过观察用户的外部表现、动作、表情、语气来推测（例如：观察到用户可能有些心神不定或不耐烦，推测她可能想走了）。
-2. 用户发送的【加双引号】的内容（如：“我想走了”），视为用户明确说出来的话，角色可以直接听到并回应（例如回应“怎么就要走了？”）。
-3. 角色在回应时，必须严格区分“听到的话”和“观察到的动作/心理”，绝对不能把用户的心理描写或未说出口的动作用作直接听到的对话进行回应。
-
-【字数控制要求】：
-请务必将你的每一轮描写控制在约 ${wordLimit} 字左右（范围：${minWords}~${maxWords} 字）。
+【重roll重新生成差异化要求】：
+- 之前的旧描述为：「${oldContent.slice(0, 100)}...」。
+- 本次重新生成【绝对不能与旧描述重复】，必须更换切入视角、肢体习惯或眼神描写，重新描写一段全新的剧情！
+- 【字数控制】：字数必须严格在 ${minWords}~${maxWords} 字（目标约 ${wordLimit} 字），绝对严禁低于 ${minWords} 字！
 `;
 
-      const apiMessages = [
-        {
-          id: "sys-instruct",
-          role: "user" as const,
-          content: systemInstruction,
-          timestamp: Date.now() - 10000,
-        },
-        ...priorMsgs
-          .filter((m) => m.role !== "system")
-          .map((m) => {
-            if (m.role === "user") {
-              const isQuoted = (m.content.startsWith("“") && m.content.endsWith("”")) || (m.content.startsWith('"') && m.content.endsWith('"'));
-              const typeLabel = isQuoted ? "用户说出的台词（角色可直接听到并回应）" : "用户的动作、神态或心理描写（未加双引号，角色无法直接听到内心或原文，只能通过观察外部表现推测）";
+        const apiMessages = [
+          {
+            id: "sys-instruct",
+            role: "user" as const,
+            content: systemInstruction,
+            timestamp: Date.now() - 10000,
+          },
+          ...priorMsgs
+            .filter((m) => m.role !== "system")
+            .map((m) => {
+              if (m.role === "user") {
+                const isQuoted = (m.content.startsWith("“") && m.content.endsWith("”")) || (m.content.startsWith('"') && m.content.endsWith('"'));
+                const typeLabel = isQuoted ? "用户说出的台词（角色可直接听到并回应）" : "用户的动作、神态或心理描写";
+                return {
+                  id: m.id,
+                  role: "user" as const,
+                  content: `[${typeLabel}]: ${m.content}`,
+                  timestamp: m.timestamp,
+                };
+              }
               return {
                 id: m.id,
-                role: "user" as const,
-                content: `[${typeLabel}]: ${m.content}`,
+                role: m.role as "assistant",
+                content: m.content,
                 timestamp: m.timestamp,
               };
-            }
-            return {
-              id: m.id,
-              role: m.role as "assistant",
-              content: m.content,
-              timestamp: m.timestamp,
-            };
-          }),
-      ];
+            }),
+        ];
 
-      const cleanCharacter = {
-        name: character.name,
-        description: character.description,
-        systemInstruction: character.systemInstruction + "\n" + systemInstruction,
-      };
+        const cleanCharacter = {
+          name: character.name,
+          description: character.description,
+          systemInstruction: character.systemInstruction + "\n" + systemInstruction,
+        };
 
-      const requestParams = {
-        messages: apiMessages,
-        character: cleanCharacter,
-        settings: settings,
-        chatMode: "offline" as const,
-        replyLength: "long",
-        replyCount: 1,
-      };
+        requestParams = {
+          messages: apiMessages,
+          character: cleanCharacter,
+          settings: settings,
+          chatMode: "offline" as const,
+          replyLength: "long",
+          replyCount: 1,
+        };
+      }
 
-      const response = await apiChat(requestParams);
-      const aiText = response.text || "（对方没有说话，抬眼看了你一下，微微笑了笑。）";
+      const aiText = await generateAiWithQuality(requestParams, minWords, maxWords, oldContent);
+      const aiTextFinal = aiText || "（对方微笑着看着你，没有说话。）";
 
       const updatedMsgs = messages.map((m, idx) =>
-        idx === targetIdx ? { ...m, content: aiText, timestamp: Date.now() } : m
+        idx === targetIdx ? { ...m, content: aiTextFinal, timestamp: Date.now() } : m
       );
 
       saveStory(updatedMsgs);
 
       if (meetMode === "shared" && onSyncToOnlineChat) {
-        onSyncToOnlineChat(aiText);
+        onSyncToOnlineChat(aiTextFinal);
       }
     } catch (err: any) {
       console.error("Failed to reroll message:", err);
@@ -780,34 +1257,33 @@ ${styleRules}
     const msgsToUse = customMsgs || messages;
     if (isGenerating || msgsToUse.length === 0) return;
 
+    const dataSources = validateAndGetMandatoryDataSources(msgsToUse);
+    if (!dataSources.isValid) {
+      setApiError("设定缺失，请检查剧场配置");
+      return;
+    }
+
     setIsGenerating(true);
     setApiError(null);
 
     try {
-      let onlineContextStr = "";
-      if (meetMode === "shared" && onlineMessages && onlineMessages.length > 0) {
-        const recentOnline = onlineMessages
-          .slice(-15)
-          .map((m) => `${m.role === "user" ? "用户" : character.name}: ${m.content}`)
-          .join("\n");
-        onlineContextStr = `\n【互通模式 - 线上聊天记忆与背景（必须连贯）】：\n以下是你与用户此前在线上聊天的最近记录，请保持记忆连贯：\n${recentOnline}\n`;
-      } else {
-        onlineContextStr = `\n【架空模式 - 完全独立平行时空】：\n忽略所有线上聊天历史，这是一个独立的平行时空剧本。`;
-      }
+      const lastUserObj = msgsToUse.filter((m) => m.role === "user").pop();
+      const lastUserContent = lastUserObj ? lastUserObj.content : "";
+      const progressionRules = getProgressionInstructions(lastUserContent);
 
       const minWords = Math.max(150, Math.floor(wordLimit * 0.75));
       const maxWords = Math.min(2500, Math.floor(wordLimit * 1.25));
-      const styleRules = getPromptStyleInstructions();
+      const styleRules = getPromptStyleInstructions(msgsToUse);
 
       const systemInstruction = `【线下见面剧情模式特别指令】：
 你正在与用户进行“线下见面”互动。这是一个纯剧情小说/剧本模式，以环境白描、肢体动作、感官细节与微小停顿为主，对话为辅。
-${onlineContextStr}
+${progressionRules}
 
 ${styleRules}
 
 【线下见面与动作心理描写规则（极其重要）】：
-1. 用户发送的【未加双引号】的内容（如：好想走啊、叹了口气、心神不定），视为动作、神态、心理活动或外部表现。角色无法直接“听到”或读取用户的内心原话或想法，只能通过观察用户的外部表现、动作、表情、语气来推测（例如：观察到用户可能有些心神不定或不耐烦，推测她可能想走了）。
-2. 用户发送的【加双引号】的内容（如：“我想走了”），视为用户明确说出来的话，角色可以直接听到并回应（例如回应“怎么就要走了？”）。
+1. 用户发送的【未加双引号】的内容（如：好想走啊、叹了口气、心神不定），视为动作、神态、心理活动或外部表现。角色无法直接“听到”或读取用户的内心原话或想法，只能通过观察用户的外部表现、动作、表情、语气来推测。
+2. 用户发送的【加双引号】的内容（如：“我想走了”），视为用户明确说出来的话，角色可以直接听到并回应。
 3. 角色在回应时，必须严格区分“听到的话”和“观察到的动作/心理”，绝对不能把用户的心理描写或未说出口的动作用作直接听到的对话进行回应。
 
 【字数控制要求】：
@@ -858,102 +1334,32 @@ ${styleRules}
         replyCount: 1,
       };
 
-      const response = await apiChat(requestParams);
-      const aiText = response.text || "（对方微笑着看着你，没有说话。）";
+      const aiText = await generateAiWithQuality(requestParams, minWords, maxWords);
+      const aiTextFinal = aiText || "（对方微笑着看着你，没有说话。）";
 
       const aiMsg: OfflineStoryMessage = {
         id: `ai-${Date.now()}`,
         role: "assistant",
-        content: aiText,
+        content: aiTextFinal,
         timestamp: Date.now(),
       };
 
       const finalStoryList = [...msgsToUse, aiMsg];
       saveStory(finalStoryList);
+      
+      try {
+        const lastUser = msgsToUse.filter(m => m.role === 'user').pop();
+        if (lastUser) {
+           storeMemory(character.id, `线下见面：\n用户：${lastUser.content}\nAI：${aiTextFinal}`, "线下见面");
+        }
+      } catch(e) {}
 
       if (meetMode === "shared" && onSyncToOnlineChat) {
-        onSyncToOnlineChat(aiText);
+        onSyncToOnlineChat(aiTextFinal);
       }
     } catch (err: any) {
       console.error("Offline meet AI continue error:", err);
       setApiError(err.message || "推进失败，请重试");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleRerollAssistant = async (msgId: string) => {
-    if (isGenerating) return;
-    const idx = messages.findIndex((m) => m.id === msgId);
-    if (idx === -1) return;
-    const priorMessages = messages.slice(0, idx);
-    saveStory(priorMessages);
-
-    setIsGenerating(true);
-    setApiError(null);
-    try {
-      let systemInstruction = `
---- 线下见面（Offline Meet）剧情演绎规则 ---
-- 你正在与用户进行面对面的沉浸式剧情互动（线下见面模式）。
-- 写作风格：${writingTone === 'literary' ? '细腻文学风，注重环境烘托与心理描写。' : writingTone === 'cold_restrained' ? '冷淡克制风，用词少，情绪收着。' : writingTone === 'warm_soft' ? '温暖柔和风，语气软，细节暖。' : '日常自然风。'}
-- 视角：${perspective === 'first' ? '第一视角（我）。' : perspective === 'third' ? '第三视角（他/她/名字）。' : '第二视角（你）。'}
-- 目标字数限制：请输出约 ${wordLimit} 字左右的细腻剧情与互动描写。
-`;
-
-      if (meetMode === "isolated") {
-        systemInstruction += `\n- 架空剧情背景设定：${isolatedBackground || "无特定背景，自由发挥"}`;
-      } else {
-        systemInstruction += `\n- 共享模式开场情境：时间「${timeSetting || "未知"}」，地点「${locationSetting || "未知"}」，缘由「${reasonSetting || "未知"}」，氛围「${atmosphereSetting || "未知"}」。`;
-      }
-
-      if (customToneKeywords.trim()) {
-        systemInstruction += `\n- 自定义文风/词汇要求：${customToneKeywords}`;
-      }
-
-      const formattedHistory = priorMessages.map((m) => {
-        const isQuoted = m.role === "user" && (m.content.startsWith("“") || m.content.startsWith("\""));
-        const typeLabel = isQuoted ? "用户说出的台词（角色可直接听到并回应）" : "用户的动作、神态或心理描写";
-        return {
-          id: m.id,
-          role: m.role as any,
-          content: m.role === "user" ? `[${typeLabel}]: ${m.content}` : m.content,
-          timestamp: m.timestamp,
-        };
-      });
-
-      const cleanCharacter = {
-        name: character.name,
-        description: character.description,
-        systemInstruction: character.systemInstruction + "\n" + systemInstruction,
-      };
-
-      const requestParams = {
-        character: cleanCharacter,
-        messages: formattedHistory,
-        settings,
-        chatMode: "offline" as const,
-        replyLength: "long",
-        replyCount: 1,
-      };
-
-      const response = await apiChat(requestParams);
-      const aiText = response.text || "（对方微笑着看着你，没有说话。）";
-      const aiMsg: OfflineStoryMessage = {
-        id: `ai-${Date.now()}`,
-        role: "assistant",
-        content: aiText,
-        timestamp: Date.now(),
-      };
-
-      const finalStoryList = [...priorMessages, aiMsg];
-      saveStory(finalStoryList);
-
-      if (meetMode === "shared" && onSyncToOnlineChat) {
-        onSyncToOnlineChat(aiText);
-      }
-    } catch (err: any) {
-      console.error("Offline meet AI reroll error:", err);
-      setApiError(err.message || "重新生成失败，请重试");
     } finally {
       setIsGenerating(false);
     }
@@ -1021,13 +1427,15 @@ ${styleRules}
 
   // Delete message
   const handleDeleteMsg = (msgId: string) => {
-    const updated = messages.filter((m) => m.id !== msgId);
-    saveStory(updated);
-    setSelectedMsgForMenu(null);
+    if (window.confirm("确定要删除这段剧情吗？")) {
+      const updated = messages.filter((m) => m.id !== msgId);
+      saveStory(updated);
+      setSelectedMsgForMenu(null);
+    }
   };
 
   // Helper to render narrative paragraphs and dialogue in unified card blocks
-  const renderStoryContent = (msg: OfflineStoryMessage) => {
+  const renderStoryContent = (msg: OfflineStoryMessage, isReadOnly = false) => {
     const { id, content, role, timestamp } = msg;
 
     if (role === "system") {
@@ -1046,14 +1454,15 @@ ${styleRules}
         nameLabel = `剧情卡片 · ${[character.name, ...selectedMultiChars.map((c) => c.name)].join(" & ")}`;
       }
     }
-    const rawParagraphs = content.split("\n").filter((p) => p.trim());
+    const { cleanStoryText, keyPoint } = parseInteractiveKeyPoint(content);
+    const parsedParagraphs = parseStoryParagraphs(cleanStoryText);
     const timeFormatted = new Date(timestamp).toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     });
     const d = new Date(timestamp);
     const timeFormattedFull = `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}.${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    const wordCount = content.length;
+    const wordCount = cleanStoryText.length;
 
     return (
       <div
@@ -1061,7 +1470,9 @@ ${styleRules}
         className="meet-card mb-3 group relative text-left select-text animate-fade-in"
         onContextMenu={(e) => {
           e.preventDefault();
-          setSelectedMsgForMenu(msg);
+          if (!isReadOnly) {
+            setSelectedMsgForMenu(msg);
+          }
         }}
       >
         <div className="meet-card-separator" />
@@ -1074,17 +1485,14 @@ ${styleRules}
         </div>
 
         <div className="meet-body text-sm leading-relaxed space-y-2">
-          {rawParagraphs.map((para, pIdx) => {
-            const isDialogue = (para.includes("“") && para.includes("”")) || (para.includes("*“") && para.includes("”*"));
-            return (
-              <p 
-                key={pIdx} 
-                className={`whitespace-pre-wrap ${isDialogue ? 'italic' : ''}`}
-              >
-                {para.replace(/\*(.*?)\*/g, "$1")}
-              </p>
-            );
-          })}
+          {parsedParagraphs.map((paraObj, pIdx) => (
+            <p 
+              key={pIdx} 
+              className={`whitespace-pre-wrap ${paraObj.isDialogue ? 'italic font-medium' : ''}`}
+            >
+              {paraObj.text.replace(/\*(.*?)\*/g, "$1")}
+            </p>
+          ))}
         </div>
 
         {/* Card Action Bar */}
@@ -1093,48 +1501,55 @@ ${styleRules}
             <span>{timeFormattedFull}</span>
             <span>共 {wordCount} 字</span>
           </div>
-          <div className="flex items-center gap-2">
-            {role === "assistant" && (
+          {!isReadOnly && (
+            <div className="flex items-center gap-2">
+              {role === "assistant" && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    handleRerollMessage(id);
+                  }}
+                  disabled={isGenerating}
+                  className="flex items-center gap-1 hover:text-[#1A1A1A] transition-colors cursor-pointer disabled:opacity-50"
+                  title="重新生成该段剧情"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>重roll</span>
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => handleRerollAssistant(id)}
-                disabled={isGenerating}
-                className="flex items-center gap-1 hover:text-[#1A1A1A] transition-colors cursor-pointer disabled:opacity-50"
-                title="重新生成该段剧情"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  handleDeleteMsg(id);
+                }}
+                className="flex items-center gap-1 hover:text-red-600 transition-colors cursor-pointer"
+                title="删除卡片"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>重roll</span>
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>删除</span>
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                if (window.confirm("确定要删除这条剧情卡片吗？")) {
-                  const updated = messages.filter((m) => m.id !== id);
-                  saveStory(updated);
-                }
-              }}
-              className="flex items-center gap-1 hover:text-red-600 transition-colors cursor-pointer"
-              title="删除卡片"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>删除</span>
-            </button>
-          </div>
+            </div>
+          )}
         </div>
         
-        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedMsgForMenu(msg);
-            }}
-            className="p-1 text-[#A8A39A] hover:text-[#1A1A1A] rounded cursor-pointer"
-          >
-            <MoreHorizontal className="w-4 h-4" />
-          </button>
-        </div>
+        {!isReadOnly && (
+          <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedMsgForMenu(msg);
+              }}
+              className="p-1 text-[#A8A39A] hover:text-[#1A1A1A] rounded cursor-pointer"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
     );
   };
@@ -1332,7 +1747,7 @@ ${styleRules}
             ? "模式设置"
             : viewMode === "history_replay"
             ? "历史见面回放"
-            : "线下界面"}
+            : "线下见面"}
         </span>
 
         <div className="flex items-center gap-1">
@@ -1729,7 +2144,7 @@ ${styleRules}
 
           <div className="space-y-[12px]">
             {replayingRecord.messages.map((msg) => (
-              <React.Fragment key={msg.id}>{renderStoryContent(msg)}</React.Fragment>
+              <React.Fragment key={msg.id}>{renderStoryContent(msg, true)}</React.Fragment>
             ))}
           </div>
         </div>
@@ -1902,7 +2317,7 @@ ${styleRules}
               </div>
             ) : (
               <div className="space-y-1">
-                {/* 角色描写菜单选项: 仅保留 重roll */}
+                {/* 角色描写菜单选项 */}
                 <button
                   type="button"
                   onClick={() => {
@@ -1919,6 +2334,24 @@ ${styleRules}
                       替换当前这一段描述，重新构思AI反应
                     </div>
                   </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleCopyMsg(selectedMsgForMenu.content)}
+                  className="w-full flex items-center gap-3 p-3 text-xs font-bold text-stone-700 hover:bg-stone-50 rounded-2xl transition-all text-left cursor-pointer"
+                >
+                  <Copy className="w-4 h-4 text-stone-800" />
+                  <span>复制内容</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleDeleteMsg(selectedMsgForMenu.id)}
+                  className="w-full flex items-center gap-3 p-3 text-xs font-bold text-stone-800 hover:bg-stone-50 rounded-2xl transition-all text-left cursor-pointer"
+                >
+                  <Trash2 className="w-4 h-4 text-stone-600" />
+                  <span>删除本条描写</span>
                 </button>
               </div>
             )}

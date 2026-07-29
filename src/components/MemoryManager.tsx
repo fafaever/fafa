@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Trash2, Share2, ChevronDown, ChevronRight, Check, Wand2, Loader2, X, Zap, Settings } from "lucide-react";
+import { Trash2, Share2, ChevronDown, ChevronRight, Check, Wand2, Loader2, X, Zap, Settings, Download } from "lucide-react";
 import { Character, Memory, AppSettings, ChatSession, ExtractionSettings } from "../types";
 import { apiChat, performVectorRetrieval, VectorRetrievedDoc } from "../lib/api";
+import { storeMemory } from "../lib/vectorMemory";
 
 interface MemoryManagerProps {
   character: Character;
@@ -28,6 +29,87 @@ export function MemoryManager({ character, settings, sessions, vectorMemoryEnabl
   const [vectorResults, setVectorResults] = useState<VectorRetrievedDoc[]>([]);
   const [isSearchingVector, setIsSearchingVector] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isExtractingVector, setIsExtractingVector] = useState(false);
+
+  const handleExtractAllVectorMemories = async () => {
+    setIsExtractingVector(true);
+    try {
+      const itemsToStore: { text: string; source: string }[] = [];
+
+      // 1. Existing memory cards
+      const savedMemories = localStorage.getItem(`mobile_ai_memories_${character.id}`);
+      const parsedMemories: Memory[] = savedMemories ? JSON.parse(savedMemories) : [];
+      parsedMemories.forEach(m => {
+        if (m && m.text) {
+          itemsToStore.push({ text: m.text, source: m.source || "核心记忆" });
+        }
+      });
+
+      // 2. Chat sessions history
+      const charSession = sessions.find(s => s.characterId === character.id);
+      if (charSession && charSession.messages.length > 0) {
+        const msgs = charSession.messages.filter(m => m.content && !m.content.startsWith("【系统"));
+        for (let i = 0; i < msgs.length; i += 4) {
+          const chunk = msgs.slice(i, i + 4);
+          const chunkText = chunk.map(m => `${m.role === 'user' ? '用户' : character.name}: ${m.content}`).join("\n");
+          itemsToStore.push({ text: `[聊天历史] ${chunkText}`, source: "主聊天记录" });
+        }
+      }
+
+      // 3. Offline meet stories
+      const offlineStoryRaw = localStorage.getItem(`offline_story_${character.id}`);
+      if (offlineStoryRaw) {
+        try {
+          const storyMsgs = JSON.parse(offlineStoryRaw);
+          if (Array.isArray(storyMsgs) && storyMsgs.length > 0) {
+            const storyText = storyMsgs.map((m: any) => `${m.role === 'user' ? '用户' : character.name}: ${m.content}`).join("\n");
+            itemsToStore.push({ text: `[线下见面剧本] ${storyText}`, source: "线下见面" });
+          }
+        } catch (e) {}
+      }
+
+      // 4. Phone check records
+      const memosRaw = localStorage.getItem(`mobile_ai_phone_memos_${character.id}`);
+      if (memosRaw) {
+        try {
+          const memos = JSON.parse(memosRaw);
+          if (Array.isArray(memos) && memos.length > 0) {
+            itemsToStore.push({ text: `[查手机-备忘录] ${memos.map((m: any) => m.content).join("\n")}`, source: "查手机" });
+          }
+        } catch (e) {}
+      }
+
+      const searchesRaw = localStorage.getItem(`mobile_ai_phone_searches_${character.id}`);
+      if (searchesRaw) {
+        try {
+          const searches = JSON.parse(searchesRaw);
+          if (Array.isArray(searches) && searches.length > 0) {
+            itemsToStore.push({ text: `[查手机-搜索记录] ${searches.map((s: any) => s.query).join("\n")}`, source: "查手机" });
+          }
+        } catch (e) {}
+      }
+
+      if (itemsToStore.length === 0) {
+        alert("暂无可提取的记忆或对话历史。请先与角色进行互动对话！");
+        return;
+      }
+
+      let storedCount = 0;
+      for (const item of itemsToStore) {
+        await storeMemory(character.id, item.text, item.source);
+        storedCount++;
+      }
+
+      localStorage.setItem(`vector_memory_enabled_${character.id}`, "true");
+      alert(`✅ 成功提炼并向量化 ${storedCount} 条已有记忆存入向量库！`);
+      handleVectorSearch("");
+    } catch (e: any) {
+      console.error("Vector extraction error:", e);
+      alert("提取失败，请检查 API Key 配置：" + (e.message || e));
+    } finally {
+      setIsExtractingVector(false);
+    }
+  };
 
   // Trigger vector search
   const handleVectorSearch = async (queryToSearch = searchQuery) => {
@@ -301,6 +383,17 @@ ${combinedText}`;
             className="bg-black hover:bg-neutral-800 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-1.5 shrink-0"
           >
             {isSearchingVector ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "检索"}
+          </button>
+        </div>
+        
+        <div className="bg-white px-3 pb-3 border-b border-neutral-100 flex shrink-0">
+           <button
+            onClick={handleExtractAllVectorMemories}
+            disabled={isExtractingVector}
+            className="w-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200 font-bold text-xs py-2.5 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {isExtractingVector ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            开始提取并储存记忆
           </button>
         </div>
 

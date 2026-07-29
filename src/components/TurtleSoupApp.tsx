@@ -22,6 +22,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { apiChat, apiGenerateTurtlesoupBatch } from "../lib/api";
+import { storeMemory } from "../lib/vectorMemory";
 
 import { Character, AppSettings } from "../types";
 import { TURTLE_SOUP_PRESETS, TurtleSoupPuzzle } from "../data/turtleSoupPuzzles";
@@ -770,6 +771,9 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
 
       setTimeout(() => {
         saveCurrentGame("completed", true);
+        try {
+           storeMemory("turtlesoup", `海龟汤游戏【${currentPuzzleRef.current?.title || ''}】成功猜出真相！`, "海龟汤");
+        } catch(e) {}
       }, 100);
       return;
     }
@@ -862,6 +866,9 @@ export default function TurtleSoupApp({ characters, settings, onClose }: TurtleS
     setIsPaused(false);
     setTimeout(() => {
       saveCurrentGame("completed", false);
+      try {
+         storeMemory("turtlesoup", `海龟汤游戏【${currentPuzzleRef.current?.title || ''}】放弃推理，看了答案。`, "海龟汤");
+      } catch(e) {}
     }, 100);
   };
 

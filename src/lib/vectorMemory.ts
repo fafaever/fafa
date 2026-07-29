@@ -3,7 +3,8 @@ function getVectorApiConfig() {
   const settings = JSON.parse(localStorage.getItem('mobile_ai_settings') || '{}');
   return {
     baseUrl: settings.vectorApiUrl || 'https://api.siliconflow.cn/v1',
-    apiKey: settings.vectorApiKey || '',
+    apiKey: settings.vectorApiKey || (settings.vectorApiUrl ? settings.apiKey : ''),
+    hasExplicitKey: Boolean(settings.vectorApiKey),
     model: settings.vectorModel || 'BAAI/bge-m3',
     rerankModel: settings.rerankModel || 'bge-reranker-v2-m3',
     dimension: settings.vectorDimension || 1024,
@@ -22,9 +23,36 @@ function cosineSimilarity(a: number[], b: number[]): number {
 }
 
 export async function storeMemory(characterId: string, text: string, source: string) {
+  if (!text || !text.trim()) return;
+  const trimmedText = text.trim();
+
+  // Save to standard text memory storage so non-vector memory works seamlessly
+  try {
+    const textMemKey = `mobile_ai_memories_${characterId}`;
+    const savedTextMems = JSON.parse(localStorage.getItem(textMemKey) || '[]');
+    if (!savedTextMems.some((m: any) => m.text === trimmedText)) {
+      savedTextMems.push({
+        id: `mem_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        characterId,
+        text: trimmedText,
+        timestamp: Date.now(),
+        layer: 2,
+        source: source || '系统自动提取',
+      });
+      localStorage.setItem(textMemKey, JSON.stringify(savedTextMems));
+    }
+  } catch (e) {
+    console.error("Error saving text memory:", e);
+  }
+
   const config = getVectorApiConfig();
   if (!config.apiKey) {
-    console.warn("Vector API key not configured, skipping memory storage.");
+    // Skip vector embedding gracefully if no API key is set for vector API
+    return;
+  }
+
+  const memories = JSON.parse(localStorage.getItem('vector_memories') || '[]');
+  if (memories.some((m: any) => m.characterId === characterId && m.text === trimmedText)) {
     return;
   }
 
@@ -37,11 +65,15 @@ export async function storeMemory(characterId: string, text: string, source: str
       },
       body: JSON.stringify({
         model: config.model || 'BAAI/bge-m3',
-        input: text,
+        input: trimmedText,
       }),
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        console.warn("Vector API key unauthorized (401). Text memory saved locally.");
+        return;
+      }
       throw new Error(`Embedding API error: ${response.status}`);
     }
 
@@ -49,28 +81,27 @@ export async function storeMemory(characterId: string, text: string, source: str
     const vector = data.data?.[0]?.embedding || data.embeddings?.[0];
 
     if (!vector) {
-      throw new Error("No vector returned from API");
+      return;
     }
 
-    const memories = JSON.parse(localStorage.getItem('vector_memories') || '[]');
     memories.push({
-      id: `mem_${Date.now()}`,
+      id: `mem_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       characterId,
-      text,
+      text: trimmedText,
       vector,
       timestamp: Date.now(),
       source,
     });
     localStorage.setItem('vector_memories', JSON.stringify(memories));
   } catch (err) {
-    console.error("storeMemory error:", err);
+    console.warn("Vector storeMemory skipped:", err);
   }
 }
 
-export async function retrieveMemories(characterId: string, query: string, topK: number = 3) {
+export async function retrieveMemories(characterId: string, query: string, topK: number = 5) {
+  if (!query || !query.trim()) return [];
   const config = getVectorApiConfig();
   if (!config.apiKey) {
-    console.warn("Vector API key not configured, skipping memory retrieval.");
     return [];
   }
 
@@ -83,27 +114,26 @@ export async function retrieveMemories(characterId: string, query: string, topK:
       },
       body: JSON.stringify({
         model: config.model || 'BAAI/bge-m3',
-        input: query,
+        input: query.trim(),
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`Embedding API error: ${response.status}`);
+      return [];
     }
 
     const data = await response.json();
     const queryVector = data.data?.[0]?.embedding || data.embeddings?.[0];
 
     if (!queryVector) {
-      throw new Error("No query vector returned from API");
+      return [];
     }
 
     const memories = JSON.parse(localStorage.getItem('vector_memories') || '[]')
-      .filter((m: any) => m.characterId === characterId);
+      .filter((m: any) => m.characterId === characterId || m.characterId === 'all' || m.characterId === 'universe' || m.characterId === 'uno' || m.characterId === 'turtlesoup');
 
     if (memories.length === 0) return [];
 
-    // 计算余弦相似度并排序取 Top-K
     const scored = memories.map((m: any) => ({
       ...m,
       score: cosineSimilarity(queryVector, m.vector),
@@ -112,7 +142,7 @@ export async function retrieveMemories(characterId: string, query: string, topK:
     scored.sort((a: any, b: any) => b.score - a.score);
     return scored.slice(0, topK);
   } catch (err) {
-    console.error("retrieveMemories error:", err);
+    console.warn("Vector retrieveMemories skipped:", err);
     return [];
   }
 }

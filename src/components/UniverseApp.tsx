@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { Character, AppSettings } from "../types";
 import { callLLM } from "../lib/api";
+import { storeMemory } from "../lib/vectorMemory";
 import { CharacterAvatar } from "./CharacterAvatar";
 
 interface UniverseAppProps {
@@ -1314,6 +1315,12 @@ ${endingDesc}
       setActiveWorld(finalWorld);
       const newWorlds = worlds.map((w) => (w.id === finalWorld.id ? finalWorld : w));
       persistWorlds(newWorlds);
+      
+      try {
+        if (gameEnding) {
+           storeMemory("universe", `【快穿世界】在世界“${finalWorld.name}”中，达成结局：${gameEnding}`, "宇宙");
+        }
+      } catch(e) {}
     } catch (e: any) {
       alert("AI 推进剧情失败: " + (e.message || "请检查网络"));
     } finally {
@@ -1551,6 +1558,12 @@ ${chatHistory}
 
       setActiveWorld(finalWorld);
       persistWorlds(worlds.map(w => w.id === finalWorld.id ? finalWorld : w));
+      
+      try {
+        if (endingType === "failed") {
+          storeMemory("universe", `【快穿世界】在世界“${finalWorld.name}”中，达成结局：${endingType} (指证失败导致身份暴露)`, "宇宙");
+        }
+      } catch(e) {}
     } catch (e: any) {
       alert("对质指控判定失败: " + (e.message || "请检查网络"));
     } finally {
@@ -2032,6 +2045,12 @@ ${activeInstance.rules.map((r) => `${r.id}. ${r.text}`).join("\n")}
       const updatedInstances = instances.map((i) => (i.id === finalInstance.id ? finalInstance : i));
       setInstances(updatedInstances);
       persistInstances(updatedInstances);
+      
+      try {
+        if (endingDetected) {
+          storeMemory("universe", `【规则怪谈】世界“${finalInstance.name}”中，达成结局：${endingDetected}`, "宇宙");
+        }
+      } catch(e) {}
     } catch (e: any) {
       alert("AI 生成失败: " + (e.message || "请检查网络"));
     } finally {

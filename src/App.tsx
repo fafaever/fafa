@@ -1079,35 +1079,60 @@ export default function App() {
         }
       }
 
-      // Check if Vector Memory is enabled
+      // Check if Vector Memory is explicitly enabled for this character
       const vectorEnabled = localStorage.getItem(`vector_memory_enabled_${characterId}`) === "true";
-      let activeMemories = [...memories];
-      if (vectorEnabled && lastUserMsg && lastUserMsg.content) {
-        try {
-          const vectorResults = await performVectorRetrieval(characterId, lastUserMsg.content, settings);
-          const retrievedMemories = await retrieveMemories(characterId, lastUserMsg.content, 5);
+      let activeMemories: string[] = [];
 
-          let combinedDocs = [...(vectorResults || [])];
-          retrievedMemories.forEach((rm: any) => {
-             combinedDocs.push({ text: rm.text, source: rm.source || "持续记忆", timestamp: rm.timestamp, score: rm.score });
-          });
-          // Sort by score descending
-          combinedDocs.sort((a, b) => {
-            const scoreA = a.rerankScore !== undefined ? a.rerankScore : a.score;
-            const scoreB = b.rerankScore !== undefined ? b.rerankScore : b.score;
-            return scoreB - scoreA;
-          });
-
-          if (combinedDocs && combinedDocs.length > 0) {
-            // Map the top 10 most relevant memories to the memories list passed to the AI
-            activeMemories = combinedDocs.slice(0, 10).map(doc => {
-              const scorePercent = Math.round((doc.rerankScore !== undefined ? doc.rerankScore : doc.score) * 100);
-              return `[高维向量记忆 / 相关性: ${scorePercent}%] ${doc.text} (${doc.source})`;
-            });
-          }
-        } catch (err) {
-          console.warn("Failed to fetch vector memories for chat generation:", err);
+      if (vectorEnabled) {
+        // --- 向量记忆模式开启（普通记忆功能已自动关闭） ---
+        // Auto-generate retrieval keywords based on current dialogue context
+        let autoQueryKey = "";
+        if (lastUserMsg && lastUserMsg.content) {
+          const recentContext = targetMessages.slice(-3).map(m => m.content).join(" ");
+          autoQueryKey = (recentContext || lastUserMsg.content).slice(0, 300);
+        } else if (userDidNotReply || targetMessages.length > 0) {
+          const recentContext = targetMessages.slice(-3).map(m => m.content).join(" ");
+          autoQueryKey = (recentContext || activeChar.name || "记忆").slice(0, 300);
         }
+
+        if (autoQueryKey) {
+          try {
+            const vectorResults = await performVectorRetrieval(characterId, autoQueryKey, settings);
+            const retrievedMemories = await retrieveMemories(characterId, autoQueryKey, 5);
+
+            let combinedDocs = [...(vectorResults || [])];
+            retrievedMemories.forEach((rm: any) => {
+               combinedDocs.push({ text: rm.text, source: rm.source || "向量记忆", timestamp: rm.timestamp, score: rm.score });
+            });
+            // Sort by score descending
+            combinedDocs.sort((a, b) => {
+              const scoreA = a.rerankScore !== undefined ? a.rerankScore : a.score;
+              const scoreB = b.rerankScore !== undefined ? b.rerankScore : b.score;
+              return scoreB - scoreA;
+            });
+
+            if (combinedDocs && combinedDocs.length > 0) {
+              // Deduplicate by text content
+              const uniqueMemMap = new Map<string, typeof combinedDocs[0]>();
+              combinedDocs.forEach(d => {
+                if (d && d.text && !uniqueMemMap.has(d.text)) {
+                  uniqueMemMap.set(d.text, d);
+                }
+              });
+
+              // Map the top 10 most relevant vector memories to activeMemories
+              activeMemories = Array.from(uniqueMemMap.values()).slice(0, 10).map(doc => {
+                const scorePercent = Math.round((doc.rerankScore !== undefined ? doc.rerankScore : doc.score) * 100);
+                return `[高维向量记忆 / 相关性: ${scorePercent}%] ${doc.text} (${doc.source})`;
+              });
+            }
+          } catch (err) {
+            console.warn("Failed to fetch vector memories for chat generation:", err);
+          }
+        }
+      } else {
+        // --- 普通记忆模式开启（向量记忆检索不运行） ---
+        activeMemories = [...memories];
       }
 
       const requestParams = {

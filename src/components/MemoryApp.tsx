@@ -31,6 +31,10 @@ export default function MemoryApp({ characters, settings, sessions, onClose, onU
 
   const handleToggleVectorMemory = () => {
     if (!selectedCharacterId) return;
+
+    const confirmSwitch = window.confirm("切换记忆模式将重新加载记忆系统，确定继续吗？");
+    if (!confirmSwitch) return;
+
     const nextVal = !vectorMemoryEnabled;
     
     if (nextVal) {

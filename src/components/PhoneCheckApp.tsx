@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Character, AppSettings } from "../types";
 import { callLLM, getThreeDataSourcesPrompt } from "../lib/api";
+import { storeMemory } from "../lib/vectorMemory";
 import { CharacterAvatar } from "./CharacterAvatar";
 import NotesApp from "./NotesApp";
 import { ConfirmModal } from "./ConfirmModal";
@@ -316,6 +317,7 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     const updatedMemories = [...otherMemories, newEntry];
     
     onUpdateCharacter(selectedChar.id, { memories: updatedMemories });
+    storeMemory(selectedChar.id, newEntry, "查手机");
   };
 
   // Cooldown countdown tick for Memos
@@ -419,6 +421,10 @@ ${phoneContext}
         localStorage.setItem(`mobile_ai_phone_memos_${selectedChar.id}`, JSON.stringify(combined));
         localStorage.setItem(`mobile_ai_phone_memo_last_gen_${selectedChar.id}`, Date.now().toString());
         showToast("备忘录更新成功");
+        
+        try {
+           storeMemory(selectedChar.id, `查手机-备忘录：\n${newMemoList.map(m => m.content).join('\n')}`, "查手机");
+        } catch(e) {}
       } else {
         throw new Error("格式解析失败");
       }
@@ -489,6 +495,9 @@ ${getPhoneModulesContext()}
           localStorage.setItem(`mobile_ai_phone_searches_${selectedChar.id}`, JSON.stringify(combined));
           localStorage.setItem(`mobile_ai_phone_search_last_gen_${selectedChar.id}`, Date.now().toString());
           showToast("搜索历史已更新");
+          try {
+             storeMemory(selectedChar.id, `查手机-搜索记录：\n${newBatch.map(s => s.query).join('\n')}`, "查手机");
+          } catch(e) {}
         }
       }
     } catch (e) {
@@ -798,6 +807,10 @@ ${phoneContext}
         setShoppingList(trimmed);
         localStorage.setItem(`mobile_ai_phone_shopping_${selectedChar.id}`, JSON.stringify(trimmed));
         showToast("购物清单更新成功");
+        
+        try {
+           storeMemory(selectedChar.id, `查手机-购物清单：\n${newBatch.map(s => s.name).join('\n')}`, "查手机");
+        } catch(e) {}
       } else {
         throw new Error("解析失败");
       }
@@ -863,6 +876,10 @@ ${phoneContext}
         setReadingList(trimmed);
         localStorage.setItem(`mobile_ai_phone_reading_${selectedChar.id}`, JSON.stringify(trimmed));
         showToast("阅读物更新成功");
+        
+        try {
+           storeMemory(selectedChar.id, `查手机-阅读书影音：\n${newBatch.map(s => s.title).join('\n')}`, "查手机");
+        } catch(e) {}
       } else {
         throw new Error("解析失败");
       }

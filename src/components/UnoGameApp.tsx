@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ChevronLeft, Volume2, VolumeX, RotateCw, RotateCcw, AlertCircle, Sparkles, Check, HelpCircle, Pause, Play, History, Save, Trash2, Clock, Trophy, Award, FolderOpen, X } from "lucide-react";
 import { apiUnoDialogue, apiUnoMove } from "../lib/api";
+import { storeMemory } from "../lib/vectorMemory";
 
 import { Character, AppSettings } from "../types";
 import { CharacterAvatar } from "./CharacterAvatar";
@@ -861,6 +862,9 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
         }
         setTimeout(() => {
           saveCurrentGame("completed");
+          try {
+             storeMemory("uno", `与${playersRef.current.filter(p => p.isAi).map(p => p.name).join('、')}打了一局UNO，获胜者是：${activePlayer.name}`, "UNO");
+          } catch(e) {}
         }, 100);
         return;
       }
