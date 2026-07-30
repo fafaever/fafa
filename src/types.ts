@@ -28,6 +28,7 @@ export interface Character {
   isPreset?: boolean;
   realImage?: string;  // Base64 or Image URL for real appearance
   chatAvatar?: string; // Base64 or Image URL for chat avatar
+  realAvatar?: string; // Explicitly requested by user
   group?: string; // Grouping for contacts
   notes?: string; // Personal notes for this character
   isBlocked?: boolean; // Block status

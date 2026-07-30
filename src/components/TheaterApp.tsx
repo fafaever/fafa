@@ -622,52 +622,76 @@ ${sliceText}`;
 
   // End and archive current session
   const archiveTheater = async () => {
-    if (!selectedChar || messages.length === 0) {
-      // Clear session if empty
+    // 决定使用哪些消息和设置。如果当前状态 messages 为空且存在 activeSession，则使用 session 中的数据
+    // 这种情况通常发生在用户在主菜单点击“归档”按钮时
+    const targetMessages = messages && messages.length > 0 
+      ? messages 
+      : (activeSession?.messages || []);
+      
+    const targetChar = selectedChar || characters.find(c => c.id === (selectedCharId || activeSession?.charId));
+    const targetWorldSetting = worldSetting || activeSession?.worldSetting || "自由演绎背景";
+    const targetSummaries = summaries && summaries.length > 0
+      ? summaries
+      : (activeSession?.summaries || []);
+
+    if (!targetChar || targetMessages.length === 0) {
+      // 如果没有角色或消息，直接清除 session
       setActiveSession(null);
       localStorage.removeItem("active_theater_session");
+      setMessages([]);
+      setSummaries([]);
       setView('menu');
       return;
     }
 
-    const mountedLores = (loreList || []).filter(l => mountedLoreIds.includes(l.id));
+    const targetMountedLoreIds = mountedLoreIds && mountedLoreIds.length > 0
+      ? mountedLoreIds
+      : (activeSession?.mountedLoreIds || []);
+
+    const mountedLores = (loreList || []).filter(l => targetMountedLoreIds.includes(l.id));
     const mountedLoreTitles = mountedLores.map(l => l.title);
 
-    // Get narrative summary snippet
-    const firstAssistantMsg = messages.find(m => m.role === 'assistant')?.content || "";
-    const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant')?.content || "";
-    let summaryText = firstAssistantMsg.slice(0, 100);
-    if (lastAssistantMsg && lastAssistantMsg !== firstAssistantMsg) {
-      summaryText += " ... " + lastAssistantMsg.slice(-80);
+    // 生成剧情摘要：优先使用第一句和最后一句 assistant 消息，如果没有则使用 user 消息
+    const assistantMsgs = targetMessages.filter(m => m.role === 'assistant');
+    const firstMsg = assistantMsgs.length > 0 ? assistantMsgs[0].content : targetMessages[0].content;
+    const lastMsg = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1].content : targetMessages[targetMessages.length - 1].content;
+    
+    let summaryText = firstMsg.slice(0, 100);
+    if (lastMsg && lastMsg !== firstMsg) {
+      summaryText += " ... " + lastMsg.slice(-80);
     }
-    if (!summaryText) {
-      summaryText = worldSetting || "自由演练小剧场";
+    if (!summaryText || summaryText.trim() === "...") {
+      summaryText = targetWorldSetting || "自由演练小剧场";
     }
 
     const newCard: TheaterHistoryCard = {
       id: `history-${Date.now()}`,
-      charId: selectedChar.id,
-      charName: selectedChar.name,
-      worldSetting: worldSetting || "自由演绎背景",
-      startTime: messages[0]?.timestamp || Date.now(),
+      charId: targetChar.id,
+      charName: targetChar.name,
+      worldSetting: targetWorldSetting,
+      startTime: targetMessages[0]?.timestamp || Date.now(),
       endTime: Date.now(),
-      messageCount: messages.length,
+      messageCount: targetMessages.length,
       summary: summaryText,
       mountedLoreTitles,
-      messages: [...messages]
+      messages: [...targetMessages],
+      summaries: [...targetSummaries]
     };
 
     const newHistory = [newCard, ...theaterHistory];
     setTheaterHistory(newHistory);
     localStorage.setItem("theater_history", JSON.stringify(newHistory));
 
-    // Clear current active session
+    // 清除当前活动会话
     setActiveSession(null);
     localStorage.removeItem("active_theater_session");
     setMessages([]);
+    setSummaries([]);
+    setWorldSetting("");
+    setMountedLoreIds([]);
     setInputText("");
     setView('menu');
-    showToast("剧场已结束，已生成卡片归档至历史剧场");
+    showToast("剧场已结束，已生成剧情卡片归档");
   };
 
   // Delete history card

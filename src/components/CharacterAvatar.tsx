@@ -19,8 +19,8 @@ export const CharacterAvatar: React.FC<CharacterAvatarProps> = ({
   size = 40 
 }) => {
   const avatar = rawAvatar || (mode === 'chat' 
-    ? (character?.chatAvatar || character?.realImage || character?.avatar)
-    : (character?.realImage || character?.avatar));
+    ? (character?.chatAvatar || character?.realAvatar || character?.realImage || character?.avatar)
+    : (character?.realAvatar || character?.realImage || character?.avatar));
 
   const name = rawName || character?.name || "Avatar";
 

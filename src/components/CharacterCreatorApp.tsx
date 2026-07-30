@@ -4,6 +4,7 @@ import { ChevronLeft, UserPlus, Sparkles, AlertCircle, Smile, HelpCircle, Edit3,
 import { Character, AppSettings, UserPersona, BoundNPC } from "../types";
 import { apiAnalyzeCharacterFile, callLLM } from "../lib/api";
 import { CharacterAvatar } from "./CharacterAvatar";
+import { compressImage } from "../utils/imageCompressor";
 import JSZip from "jszip";
 
 export function generateDefaultNpcsForCharacter(charName: string, charPersona: string = "", charBg: string = ""): BoundNPC[] {
@@ -52,19 +53,8 @@ interface CharacterCreatorAppProps {
   onNavigateToChat: (characterId: string) => void;
 }
 
-const compressAndResizeImage = (file: File, _maxDimension = 300, _quality = 0.8): Promise<string> => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("读取图片文件失败"));
-    reader.onload = (e) => {
-      if (e.target?.result) {
-        resolve(e.target.result as string);
-      } else {
-        reject(new Error("读取图片文件失败"));
-      }
-    };
-    reader.readAsDataURL(file);
-  });
+const compressAndResizeImage = (file: File, maxDimension = 512, quality = 0.7): Promise<string> => {
+  return compressImage(file, maxDimension, quality);
 };
 
 const getNicknameFromInstruction = (inst: string): string => {
@@ -133,7 +123,7 @@ export default function CharacterCreatorApp({
   const [fileContent, setFileContent] = useState<string>("");
   
   // Custom uploaded images
-  const [realImage, setRealImage] = useState<string>("");
+  const [realAvatar, setRealAvatar] = useState<string>("");
   const [chatAvatar, setChatAvatar] = useState<string>("");
   const [forceSave, setForceSave] = useState<boolean>(false);
   const [deleteConfirmChar, setDeleteConfirmChar] = useState<Character | null>(null);
@@ -236,7 +226,7 @@ export default function CharacterCreatorApp({
         setChatAvatar(base64);
         setAvatar(base64);
       } else {
-        setRealImage(base64);
+        setRealAvatar(base64);
         setAvatar(base64);
       }
     } catch (err) {
@@ -308,7 +298,7 @@ export default function CharacterCreatorApp({
     setBackground(getBackgroundFromInstruction(char.systemInstruction));
     setChatStyle(getChatStyleFromInstruction(char.systemInstruction));
     setSelectedPersonaId(char.userPersonaId || "");
-    setRealImage(char.realImage || "");
+    setRealAvatar(char.realAvatar || char.realImage || "");
     setChatAvatar(char.chatAvatar || "");
 
     // Load bound NPCs if exists
@@ -329,7 +319,7 @@ export default function CharacterCreatorApp({
     setPersonality("");
     setBackground("");
     setChatStyle("");
-    setRealImage("");
+    setRealAvatar("");
     setChatAvatar("");
     setBoundNpcs([]);
     setAssociatedCharacterIds([]);
@@ -769,11 +759,12 @@ ${background.trim() || "暂无背景故事"}
       const payload = {
         name: finalName,
         nickname: nickname.trim(),
-        avatar: chatAvatar || realImage || avatar,
+        avatar: chatAvatar || realAvatar || avatar,
         description: finalPersonality.length > 40 ? finalPersonality.substring(0, 40) + "..." : finalPersonality,
         systemInstruction,
         model: settings?.model, // Default to current global model
-        realImage: realImage || undefined,
+        realAvatar: realAvatar || undefined,
+        realImage: realAvatar || undefined, // Keep for backward compatibility
         chatAvatar: chatAvatar || undefined,
         userPersonaId: selectedPersonaId || undefined,
         boundNpcs: boundNpcs,
@@ -784,9 +775,9 @@ ${background.trim() || "暂无背景故事"}
       console.log("[Character Save Payload]", {
         editingId,
         name: payload.name,
-        avatar: payload.avatar,
-        hasRealImage: !!payload.realImage,
-        realImageLength: payload.realImage?.length || 0,
+        avatar: payload.avatar?.substring(0, 50),
+        hasRealAvatar: !!payload.realAvatar,
+        realAvatarLength: payload.realAvatar?.length || 0,
         hasChatAvatar: !!payload.chatAvatar,
         chatAvatarLength: payload.chatAvatar?.length || 0,
         boundNpcsCount: payload.boundNpcs?.length || 0,
@@ -961,12 +952,12 @@ ${background.trim() || "暂无背景故事"}
             <div className="space-y-1.5">
               <span className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">真实面貌/立绘 (Optional)</span>
               <div className="relative h-24 border border-neutral-200/80 rounded-xl bg-white flex flex-col items-center justify-center overflow-hidden group shadow-sm">
-                {realImage ? (
+                {realAvatar ? (
                   <>
-                    <img src={realImage} className="w-full h-full object-cover" alt="Real Appearance Preview" referrerPolicy="no-referrer" />
+                    <img src={realAvatar} className="w-full h-full object-cover" alt="Real Appearance Preview" referrerPolicy="no-referrer" />
                     <button
                       type="button"
-                      onClick={() => setRealImage("")}
+                      onClick={() => setRealAvatar("")}
                       className="absolute top-1.5 right-1.5 bg-black/80 text-white w-5 h-5 rounded-full flex items-center justify-center text-[10px] hover:bg-black transition-all"
                     >
                       ✕
