@@ -567,10 +567,10 @@ ${combinedText}`;
 
         {activeLayer === 2 && (
           <div className="space-y-3">
-             {memories.filter(m => m.layer === 2).length === 0 && (
+             {memories.filter(m => m.layer === 2 || m.source?.includes("剧情") || m.source?.includes("线下")).length === 0 && (
                <div className="text-center py-12 text-neutral-400 text-sm">暂无剧情记忆</div>
              )}
-             {memories.filter(m => m.layer === 2).map(m => (
+             {memories.filter(m => m.layer === 2 || m.source?.includes("剧情") || m.source?.includes("线下")).map(m => (
                <div key={m.id} className="bg-white p-4 rounded-xl border border-neutral-100 shadow-sm flex justify-between items-start group">
                   <div className="flex-1">
                     <p className="text-[15px] leading-relaxed text-[#1A1A1A] font-light">{m.text}</p>

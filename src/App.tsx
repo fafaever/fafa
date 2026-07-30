@@ -911,6 +911,23 @@ export default function App() {
       }
     }
 
+    try {
+      const storedMemsRaw = localStorage.getItem(`mobile_ai_memories_${characterId}`);
+      if (storedMemsRaw) {
+        const parsedMems = JSON.parse(storedMemsRaw);
+        if (Array.isArray(parsedMems)) {
+          parsedMems.forEach((m: any) => {
+            const text = typeof m === "string" ? m : (m.text || m.content);
+            if (text && !memories.includes(text)) {
+              memories.push(text);
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.error("Error loading Memory App memories in App.tsx:", e);
+    }
+
     if (isBlocked) return;
 
     // Find session messages

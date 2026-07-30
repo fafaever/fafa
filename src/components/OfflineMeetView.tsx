@@ -153,6 +153,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   const [selectedMsgForMenu, setSelectedMsgForMenu] = useState<OfflineStoryMessage | null>(null);
   const [editingMsg, setEditingMsg] = useState<{ id: string; content: string } | null>(null);
   const [copyToast, setCopyToast] = useState<boolean>(false);
+  const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
+  const [summaryToastMsg, setSummaryToastMsg] = useState<string | null>(null);
 
   // Core settings states
   const [wordLimit, setWordLimit] = useState<number>(600);
@@ -374,6 +376,117 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
       localStorage.setItem(historyKey, JSON.stringify(updatedList));
     } catch (e) {
       console.error("Failed to save history:", e);
+    }
+  };
+
+  // Summarize current offline meet session and inject into memory app & chat box
+  const handleSummarizeMemory = async (andClose = false) => {
+    if (messages.length === 0) {
+      alert("当前尚无线下见面剧情内容，请先进行一些互动后再总结记忆。");
+      return;
+    }
+
+    setIsSummarizing(true);
+    try {
+      const rawContent = messages
+        .map((m) => `${m.role === "user" ? "用户" : character.name}: ${m.content}`)
+        .join("\n");
+
+      const prompt = `请将以下与${character.name}的“线下见面”互动过程总结为一段精练生动的“剧情记忆卡片”摘要（100-200字以内），包含见面主要过程、情感互动与关键细节。请直接输出总结正文，切勿附带多余开头或解释说明。\n\n【见面记录】：\n${rawContent}`;
+
+      let summaryText = "";
+      try {
+        const res = await apiChat({
+          apiKey: settings.apiKey,
+          model: settings.model,
+          messages: [{ role: "user", content: prompt }],
+          systemInstruction: "你是一个剧情总结助手，负责提取剧情核心脉络并生成精练摘要。"
+        });
+        summaryText = res.text ? res.text.trim() : "";
+      } catch (e) {
+        console.warn("AI 总结接口调用失败，降级采用剧情抓取提炼:", e);
+      }
+
+      if (!summaryText) {
+        summaryText = messages.map(m => m.content.replace(/\*(.*?)\*/g, "$1")).join(" ").slice(0, 200) + "...";
+      }
+
+      const now = new Date();
+      const defaultTime = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const finalTime = timeSetting.trim() || defaultTime;
+      const finalLocation = locationSetting.trim() || "咖啡馆 · 窗边";
+      const memoryId = `meet-mem-${Date.now()}`;
+
+      const cardInfo: OfflineMeetCardInfo = {
+        time: finalTime,
+        location: finalLocation,
+        memoryId: memoryId,
+      };
+
+      // 1. 同步发送至在线聊天框
+      if (onSyncToOnlineChat) {
+        onSyncToOnlineChat(summaryText, cardInfo);
+      }
+
+      // 2. 同步写入记忆 App (mobile_ai_memories_${character.id})
+      const memKey = `mobile_ai_memories_${character.id}`;
+      const existingMemsRaw = localStorage.getItem(memKey);
+      let existingMems = existingMemsRaw ? JSON.parse(existingMemsRaw) : [];
+      if (!Array.isArray(existingMems)) existingMems = [];
+
+      const formattedMemoryText = `【线下见面】时间：${finalTime} | 地点：${finalLocation}\n过程：${summaryText}`;
+
+      const newMemoryItem = {
+        id: memoryId,
+        characterId: character.id,
+        text: formattedMemoryText,
+        timestamp: Date.now(),
+        layer: 1 as const,
+        source: "线下见面剧情",
+        isShared: true,
+      };
+
+      const updatedMems = [newMemoryItem, ...existingMems.filter((m: any) => m.id !== memoryId)];
+      localStorage.setItem(memKey, JSON.stringify(updatedMems));
+
+      // 3. 写入向量/长期记忆库
+      try {
+        storeMemory(character.id, formattedMemoryText, "线下见面剧情");
+      } catch (e) {
+        console.error("Error storing into vector memory:", e);
+      }
+
+      // 4. 写入 char_settings_v1
+      try {
+        const charSettingsKey = `char_settings_v1_${character.id}`;
+        const charSettingsRaw = localStorage.getItem(charSettingsKey);
+        const parsedCharSettings = charSettingsRaw ? JSON.parse(charSettingsRaw) : {};
+        const currentMemories: string[] = parsedCharSettings.memories || [];
+        if (!currentMemories.includes(formattedMemoryText)) {
+          parsedCharSettings.memories = [formattedMemoryText, ...currentMemories];
+          localStorage.setItem(charSettingsKey, JSON.stringify(parsedCharSettings));
+        }
+      } catch (e) {
+        console.error("Error updating character settings memories:", e);
+      }
+
+      // 5. 存档会话历史
+      archiveCurrentSession(messages, meetMode);
+
+      setSummaryToastMsg("✨ 已成功总结记忆，摘要卡片已同步至聊天框与记忆 App！");
+      setTimeout(() => setSummaryToastMsg(null), 3000);
+
+      if (andClose) {
+        localStorage.removeItem(storageKey);
+        setMessages([]);
+        setShowExitModal(false);
+        onClose();
+      }
+    } catch (err: any) {
+      console.error("总结记忆失败:", err);
+      alert("总结记忆失败：" + (err?.message || "未知错误"));
+    } finally {
+      setIsSummarizing(false);
     }
   };
 
@@ -1269,35 +1382,12 @@ ${styleRules}
                 暂停并退出
               </button>
               <button 
-                onClick={() => { 
-                  const now = new Date();
-                  const defaultTime = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-                  const finalTime = timeSetting.trim() || defaultTime;
-                  const finalLocation = locationSetting.trim() || "咖啡馆 · 窗边";
-
-                  const summaryText = messages.length > 0
-                    ? messages.map(m => m.content).join(" ")
-                    : "与角色的线下见面过程。";
-
-                  const memoryId = `meet-mem-${Date.now()}`;
-
-                  if (onSyncToOnlineChat) {
-                    onSyncToOnlineChat(summaryText, {
-                      time: finalTime,
-                      location: finalLocation,
-                      memoryId: memoryId,
-                    });
-                  }
-
-                  archiveCurrentSession(messages, meetMode); 
-                  localStorage.removeItem(storageKey);
-                  setMessages([]);
-                  setShowExitModal(false); 
-                  onClose(); 
-                }} 
-                className="w-full py-3 bg-black hover:bg-stone-900 text-white text-xs font-bold rounded-[10px] transition-all cursor-pointer shadow-sm active:scale-[0.99]"
+                onClick={() => handleSummarizeMemory(true)} 
+                disabled={isSummarizing}
+                className="w-full py-3 bg-black hover:bg-stone-900 text-white text-xs font-bold rounded-[10px] transition-all cursor-pointer shadow-sm active:scale-[0.99] disabled:opacity-50 flex items-center justify-center gap-1.5"
               >
-                结束
+                <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${isSummarizing ? "animate-spin" : ""}`} />
+                <span>{isSummarizing ? "生成总结中..." : "总结记忆并结束"}</span>
               </button>
             </div>
             <button 
@@ -1315,6 +1405,13 @@ ${styleRules}
         <div className="fixed top-16 left-1/2 -translate-x-1/2 z-70 bg-[#1A1A1A] text-white text-xs px-4 py-2 rounded-full shadow-lg animate-fade-in flex items-center gap-1.5">
           <Check className="w-3.5 h-3.5 text-emerald-400" />
           <span>已复制到剪贴板</span>
+        </div>
+      )}
+
+      {summaryToastMsg && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[120] bg-[#1A1A1A] text-white text-xs px-4 py-2.5 rounded-full shadow-xl animate-fade-in flex items-center gap-2 border border-stone-700">
+          <Sparkles className="w-4 h-4 text-amber-300 animate-pulse shrink-0" />
+          <span>{summaryToastMsg}</span>
         </div>
       )}
 
@@ -1354,9 +1451,21 @@ ${styleRules}
             : "线下见面"}
         </span>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           {viewMode === "chat" && (
             <>
+              {/* 总结记忆按钮 */}
+              <button
+                type="button"
+                onClick={() => handleSummarizeMemory(false)}
+                disabled={isGenerating || isSummarizing || messages.length === 0}
+                className="px-2.5 py-1 rounded-full bg-stone-900 hover:bg-black text-white text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
+                title="总结见面剧情并生成剧情记忆卡片"
+              >
+                <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${isSummarizing ? "animate-spin" : ""}`} />
+                <span>{isSummarizing ? "总结中..." : "总结记忆"}</span>
+              </button>
+
               {/* 整合设置入口 */}
               <button
                 type="button"

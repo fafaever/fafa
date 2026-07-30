@@ -336,12 +336,45 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollContainerRef = useRef<HTMLDivElement>(null);
   const selectedChar = characters.find(c => c.id === (selectedCharId || activeSession?.charId));
 
-  // Auto-scroll when messages update
+  // Calculate assistant message rounds
+  let assistantCounter = 0;
+  const messageRounds = new Map<string, number>();
+  messages.forEach(m => {
+    if (m.role === 'assistant') {
+      assistantCounter++;
+      messageRounds.set(m.id, assistantCounter);
+    }
+  });
+  const totalRounds = assistantCounter;
+
+  const maxSummarizedRound = summaries.length > 0
+    ? Math.max(...summaries.map(s => s.endRound || 0))
+    : 0;
+
+  const unsummarizedRounds = Math.max(0, totalRounds - maxSummarizedRound);
+  const summarizedRounds = Math.min(totalRounds, maxSummarizedRound);
+
+  // Instant scroll on entering 'theater' view without smooth animation
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isGenerating]);
+    if (view === 'theater' && chatScrollContainerRef.current) {
+      chatScrollContainerRef.current.scrollTop = chatScrollContainerRef.current.scrollHeight;
+      requestAnimationFrame(() => {
+        if (chatScrollContainerRef.current) {
+          chatScrollContainerRef.current.scrollTop = chatScrollContainerRef.current.scrollHeight;
+        }
+      });
+    }
+  }, [view]);
+
+  // Auto-scroll when messages update (without smooth scroll)
+  useEffect(() => {
+    if (view === 'theater' && messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'auto' });
+    }
+  }, [messages.length, isGenerating]);
 
   // Load active session and history on mount
   useEffect(() => {
@@ -525,30 +558,99 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
     showToast("已继续上次剧场");
   };
 
-  // Handler: Summarize 10 rounds
-  const handleSummarizeTheater = async () => {
-    if (!selectedChar) return;
-    if (isGenerating) return;
+  // Continue a history archive card
+  const continueHistoryCard = (card: TheaterHistoryCard) => {
+    const targetChar = characters.find(c => c.id === card.charId);
+    if (!targetChar) {
+      showToast("无法找不到参演角色人设");
+      return;
+    }
+    setSelectedCharId(card.charId);
+    setWorldSetting(card.worldSetting || "");
+    const matchedLoreIds = (loreList || []).filter(l => card.mountedLoreTitles?.includes(l.title)).map(l => l.id);
+    setMountedLoreIds(matchedLoreIds);
+    setMessages(card.messages || []);
+    setSummaries(card.summaries || []);
 
-    const rangeInfo = getUnsummarizedRange(messages, summaries);
-    if (!rangeInfo) {
-      showToast("暂无未总结的新剧情内容");
+    const sessionObj: ActiveTheaterSession = {
+      id: card.id,
+      charId: card.charId,
+      charName: card.charName,
+      worldSetting: card.worldSetting || "",
+      mountedLoreIds: matchedLoreIds,
+      minWord: 500,
+      maxWord: 1500,
+      perspective: 'first',
+      writingTone: 'daily_plain',
+      keywords: '',
+      messages: card.messages || [],
+      summaries: card.summaries || [],
+      lastUpdated: Date.now()
+    };
+    setActiveSession(sessionObj);
+    localStorage.setItem("active_theater_session", JSON.stringify(sessionObj));
+
+    setView('theater');
+    showToast(`已加载《${card.charName}》剧场历史存档`);
+  };
+
+  // Handler: Summarize 10 or 20 rounds
+  const handleSummarizeByRounds = async (targetRounds: 10 | 20 = 10) => {
+    if (!selectedChar || isGenerating) return;
+
+    if (unsummarizedRounds === 0) {
+      showToast("当前没有未总结的新剧情轮次");
       return;
     }
 
+    const startRound = maxSummarizedRound + 1;
+
+    let currentAssistantRound = 0;
+    let targetEndRound = startRound;
+    let startMsgIndex = -1;
+    let endMsgIndex = -1;
+
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      if (m.role === 'assistant') {
+        currentAssistantRound++;
+        if (currentAssistantRound === startRound) {
+          startMsgIndex = (i > 0 && messages[i - 1].role === 'user') ? i - 1 : i;
+        }
+        if (currentAssistantRound >= startRound && currentAssistantRound <= startRound + targetRounds - 1) {
+          targetEndRound = currentAssistantRound;
+          endMsgIndex = i + 1;
+        }
+      }
+    }
+
+    if (startMsgIndex === -1 || endMsgIndex === -1) {
+      showToast("无法获取未总结的轮次数据");
+      return;
+    }
+
+    const actualRoundsCount = targetEndRound - startRound + 1;
+    const rangeText = `第 ${startRound} - ${targetEndRound} 轮`;
+
     setIsGenerating(true);
-    showToast(`正在生成 ${rangeInfo.rangeText} 剧情总结卡片...`);
+    showToast(`正在对 ${rangeText} 剧情（共 ${actualRoundsCount} 轮）进行精炼总结...`);
 
     try {
-      const sliceText = rangeInfo.messageSlice
-        .map(m => `${m.role === 'user' ? '【用户描述】' : `【${selectedChar.name}】`}: ${m.content}`)
+      const sliceMsgs = messages.slice(startMsgIndex, endMsgIndex);
+      const sliceText = sliceMsgs
+        .map(m => `${m.role === 'user' ? '【用户描写】' : `【${selectedChar.name}】`}: ${m.content}`)
         .join('\n\n');
 
-      const prompt = `请将以下小剧场剧情（${rangeInfo.rangeText}）总结为一段精练生动的“剧情记忆卡片”。
-【总结要求】：
-1. 概括核心情节走向、重大事件发展、角色情感与动机变化、关键概念/设定变动。
-2. 字数控制在 150 - 300 字左右，表达生动流畅、要点清晰。
-3. 请直接输出总结正文，不要有任何多余的开场白或解释说明。
+      const originalLength = sliceText.length;
+      const minWords = Math.max(40, Math.round(originalLength * 0.1));
+      const maxWords = Math.min(500, Math.round(originalLength * 0.2));
+
+      const prompt = `请将以下小剧场（${rangeText}）的剧情内容压缩总结为一段精练生动的“剧情记忆卡片”。
+【严格约束规则】：
+1. 提炼核心情节走向、重大事件、角色情感与动机变化、关键要素变动。
+2. 字数严格控制在原文总字数的 10% - 20% 之间（原文约 ${originalLength} 字，总结字数需控制在 ${minWords} - ${maxWords} 字左右）。
+3. 表达要点清晰、文笔流畅生动。
+4. 请直接输出总结正文，切勿附带任何多余的开头或解释说明。
 
 【待总结剧情内容】：
 ${sliceText}`;
@@ -560,13 +662,14 @@ ${sliceText}`;
 
       if (!apiUrl || !apiKey) {
         showToast('请先在设置页配置 API');
+        setIsGenerating(false);
         return;
       }
 
       const cleanApiUrl = apiUrl.replace(/\/+$/, '');
       let endpoint = cleanApiUrl;
       if (endpoint.endsWith('/chat/completions')) {
-        // already complete
+        // ok
       } else if (endpoint.endsWith('/v1')) {
         endpoint = endpoint + '/chat/completions';
       } else if (endpoint.includes('/v1/')) {
@@ -598,11 +701,11 @@ ${sliceText}`;
 
       const newCard: TheaterSummaryCard = {
         id: `summary-${Date.now()}`,
-        rangeText: rangeInfo.rangeText,
-        startIndex: rangeInfo.startIndex,
-        endIndex: rangeInfo.endIndex,
-        startRound: rangeInfo.startRound,
-        endRound: rangeInfo.endRound,
+        rangeText,
+        startIndex: startMsgIndex,
+        endIndex: endMsgIndex,
+        startRound,
+        endRound: targetEndRound,
         summary: summaryText,
         timestamp: Date.now()
       };
@@ -610,11 +713,11 @@ ${sliceText}`;
       const updatedSummaries = [...summaries, newCard];
       setSummaries(updatedSummaries);
       saveCurrentSession(messages, { summaries: updatedSummaries });
-
-      showToast(`已生成 ${rangeInfo.rangeText} 剧情记忆卡片！`);
+      setShowSummaryModal(false); // 总结完成后弹窗自动关闭
+      showToast(`已成功将 ${rangeText} 压缩总结为剧情记忆卡片！`);
     } catch (err: any) {
       console.error("[Summarize Error]:", err);
-      showToast("剧情总结卡片生成失败：" + (err?.message || "网络错误"));
+      showToast("剧情总结生成失败：" + (err?.message || "网络错误"));
     } finally {
       setIsGenerating(false);
     }
@@ -746,7 +849,7 @@ ${sliceText}`;
     if (messages.length === 0) {
       handleGenerateTheater("请开始第一段小剧场演绎。");
     } else {
-      handleGenerateTheater("请继续推进当前剧情。");
+      handleGenerateTheater();
     }
   };
 
@@ -1698,6 +1801,28 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
                   </div>
                 )}
 
+                {/* Card Actions: Continue and Delete */}
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => continueHistoryCard(card)}
+                    className="flex-1 py-2 bg-neutral-900 hover:bg-black text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 active:scale-98 transition-all shadow-2xs"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current text-white" />
+                    <span>继续</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => confirmDeleteHistoryCard(card.id, e)}
+                    className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-bold flex items-center justify-center gap-1 active:scale-95 transition-all border border-red-200/60"
+                    title="删除记录"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>删除</span>
+                  </button>
+                </div>
+
                 <button
                   onClick={() => setSelectedHistoryCard(selectedHistoryCard?.id === card.id ? null : card)}
                   className="w-full py-1.5 text-[11px] font-bold text-neutral-600 hover:text-black border-t border-neutral-100 flex items-center justify-center gap-1 transition-colors"
@@ -1765,7 +1890,7 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       </div>
 
       {/* Messages Feed */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 relative">
+      <div ref={chatScrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-4 relative">
         {summaries.length > 0 && (
           <div className="bg-amber-50/90 border border-amber-200/80 rounded-2xl p-3 shadow-2xs space-y-1.5 mb-2">
             <div className="flex items-center justify-between text-xs font-bold text-amber-950">
@@ -1804,6 +1929,20 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
                 ? 'bg-neutral-900 text-white rounded-tr-none' 
                 : 'bg-white border border-neutral-200/80 text-neutral-800 rounded-tl-none font-sans'
             }`}>
+              {msg.role === 'assistant' && (
+                <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-neutral-100 text-[10px] text-stone-400 select-none">
+                  <span className="font-medium">第 {messageRounds.get(msg.id) || 1} 轮</span>
+                  {summaries.some(s => {
+                    const r = messageRounds.get(msg.id) || 0;
+                    return r >= (s.startRound || 0) && r <= (s.endRound || 0);
+                  }) && (
+                    <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-bold border border-amber-200/50">
+                      已总结
+                    </span>
+                  )}
+                </div>
+              )}
+
               <div className="whitespace-pre-wrap">
                 {msg.content.split('\n').map((line, i) => {
                   if (!line) return <div key={i} className="h-2"></div>;
@@ -1887,6 +2026,22 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
           </div>
         ))}
 
+        {unsummarizedRounds >= 10 && (
+          <div className="flex items-center justify-between gap-2 py-2 px-3 text-stone-600 text-[10px] font-medium bg-amber-50/90 rounded-xl my-2 border border-amber-200/80 shadow-2xs animate-fade-in">
+            <div className="flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>已满 {unsummarizedRounds} 轮未总结剧情，可进行总结</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSummaryModal(true)}
+              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[10px] font-bold transition-all active:scale-95 shadow-2xs shrink-0"
+            >
+              去总结
+            </button>
+          </div>
+        )}
+
         {isGenerating && (
           <div className="flex justify-start animate-fade-in">
             <div className="py-2.5 px-4 rounded-2xl bg-white border border-neutral-200 text-xs text-neutral-800 rounded-tl-none flex items-center gap-1.5 shadow-2xs font-medium">
@@ -1963,12 +2118,12 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
               </p>
             </button>
 
-            {/* 选项 2：总结 */}
+            {/* 选项 3：总结 */}
             <button
               type="button"
               onClick={() => {
                 setShowActionPanel(false);
-                handleSummarizeTheater();
+                setShowSummaryModal(true);
               }}
               disabled={isGenerating}
               className="p-3 bg-amber-50/80 hover:bg-amber-100 border border-amber-200/80 rounded-xl text-left flex flex-col gap-1 transition-all active:scale-98 disabled:opacity-50 group"
@@ -1980,9 +2135,9 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
                 <span className="font-bold text-xs text-amber-950 group-hover:text-black">剧情总结</span>
               </div>
               <p className="text-[10px] text-amber-700/80 leading-tight">
-                {summaries.length > 0 
-                  ? `自动总结下 10 段 (已有 ${summaries.length} 张卡片)` 
-                  : "自动总结前 10 段并生成记忆卡片"}
+                {unsummarizedRounds > 0 
+                  ? `目前共有 ${unsummarizedRounds} 轮未总结剧情` 
+                  : "查看剧情总结记忆卡片列表"}
               </p>
             </button>
           </div>
@@ -1992,6 +2147,23 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       {/* Control Bar & Input Section */}
       <div className="p-3 bg-white border-t border-neutral-200/80 shrink-0 space-y-2">
         <div className="flex items-end gap-2">
+          {/* 输入框左侧“总结”图标按钮 */}
+          <button 
+            type="button"
+            onClick={() => setShowSummaryModal(true)}
+            className={`p-2.5 rounded-xl transition-all active:scale-95 flex items-center justify-center shrink-0 mb-0.5 border relative ${
+              showSummaryModal 
+                ? 'bg-amber-600 text-white border-amber-700' 
+                : 'text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border-amber-200/80'
+            }`}
+            title="剧情总结"
+          >
+            <FileText className="w-4 h-4" />
+            {unsummarizedRounds >= 10 && (
+              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 rounded-full animate-ping" />
+            )}
+          </button>
+
           {/* 输入框左侧“+”号按钮 */}
           <button 
             type="button"
@@ -2150,13 +2322,13 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       {/* Memory Summary Cards Modal */}
       {showSummaryModal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl border border-neutral-200 flex flex-col max-h-[80vh]">
-            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 mb-3">
+          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-xl border border-neutral-200 flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100">
               <div className="flex items-center gap-2">
                 <div className="p-1.5 rounded-lg bg-amber-100 text-amber-700">
                   <Sparkles className="w-4 h-4" />
                 </div>
-                <h3 className="font-bold text-sm text-neutral-900">剧情记忆卡片 ({summaries.length})</h3>
+                <h3 className="font-bold text-sm text-neutral-900">剧情总结与记忆卡片</h3>
               </div>
               <button 
                 type="button" 
@@ -2167,10 +2339,58 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
               </button>
             </div>
 
+            {/* Rounds Overview Bar */}
+            <div className="bg-stone-50 border border-stone-200/80 rounded-xl p-3 my-3 grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="bg-white p-2 rounded-lg border border-stone-100 shadow-2xs">
+                <div className="text-[10px] text-stone-400 font-medium">总轮数</div>
+                <div className="text-sm font-bold text-stone-800 mt-0.5">{totalRounds}</div>
+              </div>
+              <div className="bg-amber-50/80 p-2 rounded-lg border border-amber-200/60 shadow-2xs">
+                <div className="text-[10px] text-amber-700 font-medium">未总结轮数</div>
+                <div className="text-sm font-bold text-amber-900 mt-0.5">{unsummarizedRounds}</div>
+              </div>
+              <div className="bg-emerald-50/80 p-2 rounded-lg border border-emerald-200/60 shadow-2xs">
+                <div className="text-[10px] text-emerald-700 font-medium">已总结轮数</div>
+                <div className="text-sm font-bold text-emerald-900 mt-0.5">{summarizedRounds}</div>
+              </div>
+            </div>
+
+            {/* Summarize Action Buttons */}
+            <div className="mb-3 space-y-1.5">
+              <div className="text-[11px] font-bold text-stone-600">选择总结轮数：</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSummarizeByRounds(10)}
+                  disabled={isGenerating || unsummarizedRounds === 0}
+                  className="py-2.5 px-3 bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:bg-stone-200 disabled:text-stone-400 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-2xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>总结 10 轮</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSummarizeByRounds(20)}
+                  disabled={isGenerating || unsummarizedRounds === 0}
+                  className="py-2.5 px-3 bg-amber-700 hover:bg-amber-800 disabled:opacity-40 disabled:bg-stone-200 disabled:text-stone-400 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow-2xs"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>总结 20 轮</span>
+                </button>
+              </div>
+              {unsummarizedRounds === 0 && (
+                <div className="text-[10px] text-stone-400 text-center pt-0.5">目前无新推进的未总结剧情轮次</div>
+              )}
+            </div>
+
+            <div className="text-[11px] font-bold text-stone-600 mb-1.5 pt-2 border-t border-stone-100 flex items-center justify-between">
+              <span>已归档总结卡片 ({summaries.length})</span>
+            </div>
+
             <div className="flex-1 overflow-y-auto space-y-3 pr-1">
               {summaries.length === 0 ? (
-                <div className="text-center py-8 text-neutral-400 text-xs">
-                  暂无剧情总结记忆卡片，可在输入框左侧“+”号面板中点击“剧情总结”生成。
+                <div className="text-center py-6 text-neutral-400 text-xs">
+                  暂无剧情总结卡片，点击上方按钮可将未总结的剧情压缩生成记忆卡片。
                 </div>
               ) : (
                 summaries.map((card, idx) => (

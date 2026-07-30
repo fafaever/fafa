@@ -923,6 +923,20 @@ export default function ChatApp({
             memories = parsed.memories || [];
           } catch (e) {}
         }
+        try {
+          const storedMemsRaw = localStorage.getItem(`mobile_ai_memories_${respondingCharId}`);
+          if (storedMemsRaw) {
+            const parsedMems = JSON.parse(storedMemsRaw);
+            if (Array.isArray(parsedMems)) {
+              parsedMems.forEach((m: any) => {
+                const text = typeof m === "string" ? m : (m.text || m.content);
+                if (text && !memories.includes(text)) {
+                  memories.push(text);
+                }
+              });
+            }
+          }
+        } catch (e) {}
 
         let systemInstruction = `你正在参与群聊「${activeSession.groupName}」。同群成员有：${characters.filter(c => memberIds.includes(c.id)).map(c => c.name).join('、')}。`;
         systemInstruction += getPhoneContent(respondingCharId);
@@ -7410,17 +7424,31 @@ ${existingCommentsText || "暂无评论"}
               const memKey = `mobile_ai_memories_${activeCharId}`;
               const savedMems = localStorage.getItem(memKey);
               const parsedMems = savedMems ? JSON.parse(savedMems) : [];
+              const formattedText = `【线下见面】时间：${cardInfo.time} | 地点：${cardInfo.location}\n过程：${storySummary.slice(0, 300)}`;
               const newMemoryItem = {
                 id: cardInfo.memoryId,
                 characterId: activeCharId,
-                text: `【线下见面】时间：${cardInfo.time} | 地点：${cardInfo.location}\n过程：${storySummary.slice(0, 300)}`,
+                text: formattedText,
                 timestamp: Date.now(),
                 layer: 1 as const,
                 source: "线下见面剧情",
                 isShared: true,
               };
-              const updatedMemoryList = [newMemoryItem, ...parsedMems];
+              const updatedMemoryList = [newMemoryItem, ...parsedMems.filter((m: any) => m.id !== cardInfo.memoryId)];
               localStorage.setItem(memKey, JSON.stringify(updatedMemoryList));
+
+              // Store in vector store
+              storeMemory(activeCharId, formattedText, "线下见面剧情");
+
+              // Sync to character settings
+              const charSettingsKey = `char_settings_v1_${activeCharId}`;
+              const charSettingsRaw = localStorage.getItem(charSettingsKey);
+              const parsedCharSettings = charSettingsRaw ? JSON.parse(charSettingsRaw) : {};
+              const currentMemories: string[] = parsedCharSettings.memories || [];
+              if (!currentMemories.includes(formattedText)) {
+                parsedCharSettings.memories = [formattedText, ...currentMemories];
+                localStorage.setItem(charSettingsKey, JSON.stringify(parsedCharSettings));
+              }
             } catch (e) {
               console.error("Error inserting offline meet memory into Memory App:", e);
             }

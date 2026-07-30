@@ -81,7 +81,13 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
   const [activeModule, setActiveModule] = useState<string | null>(null);
   
   // Confirm Modal state
-  const [showClearConfirm, setShowClearConfirm] = useState<{show: boolean, type: string | null}>({show: false, type: null});
+  const [showClearConfirm, setShowClearConfirm] = useState<{
+    show: boolean;
+    type: string | null;
+    targetId?: string | null;
+    title?: string;
+    message?: string;
+  }>({ show: false, type: null });
 
   // Search history state
   const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
@@ -113,6 +119,8 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    setSelectedCharId(null);
+    setActiveModule(null);
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
@@ -274,34 +282,86 @@ export default function PhoneCheckApp({ characters, settings, onClose, onGenerat
     return "暂无最近聊天记录。";
   };
 
-  const handleClearData = (type: string) => {
+  const handleClearData = (type: string, targetId?: string | null) => {
     if (!selectedCharId) return;
 
-    switch (type) {
-      case 'memos':
-        setMemos([]);
-        localStorage.removeItem(`mobile_ai_phone_memos_${selectedCharId}`);
-        break;
-      case 'browser':
-        setSearchHistory([]);
-        localStorage.removeItem(`mobile_ai_phone_searches_${selectedCharId}`);
-        break;
-      case 'contacts':
-        setContacts([]);
-        localStorage.removeItem(`mobile_ai_phone_contacts_${selectedCharId}`);
-        break;
-      case 'shopping':
-        setShoppingList([]);
-        localStorage.removeItem(`mobile_ai_phone_shopping_${selectedCharId}`);
-        break;
-      case 'reading':
-        setReadingList([]);
-        localStorage.removeItem(`mobile_ai_phone_reading_${selectedCharId}`);
-        break;
+    if (targetId) {
+      switch (type) {
+        case 'memos': {
+          const updated = memos.filter(m => m.id !== targetId);
+          setMemos(updated);
+          localStorage.setItem(`mobile_ai_phone_memos_${selectedCharId}`, JSON.stringify(updated));
+          break;
+        }
+        case 'browser': {
+          const updated = searchHistory.filter(s => s.id !== targetId);
+          setSearchHistory(updated);
+          localStorage.setItem(`mobile_ai_phone_searches_${selectedCharId}`, JSON.stringify(updated));
+          break;
+        }
+        case 'contacts': {
+          const updated = contacts.filter(c => c.id !== targetId);
+          setContacts(updated);
+          localStorage.setItem(`mobile_ai_phone_contacts_${selectedCharId}`, JSON.stringify(updated));
+          if (selectedNpcId === targetId) setSelectedNpcId(null);
+          break;
+        }
+        case 'shopping': {
+          const updated = shoppingList.filter(s => s.id !== targetId);
+          setShoppingList(updated);
+          localStorage.setItem(`mobile_ai_phone_shopping_${selectedCharId}`, JSON.stringify(updated));
+          break;
+        }
+        case 'reading': {
+          const updated = readingList.filter(r => r.id !== targetId);
+          setReadingList(updated);
+          localStorage.setItem(`mobile_ai_phone_reading_${selectedCharId}`, JSON.stringify(updated));
+          break;
+        }
+      }
+      showToast("已被删除");
+    } else {
+      switch (type) {
+        case 'memos':
+          setMemos([]);
+          localStorage.removeItem(`mobile_ai_phone_memos_${selectedCharId}`);
+          break;
+        case 'browser':
+          setSearchHistory([]);
+          localStorage.removeItem(`mobile_ai_phone_searches_${selectedCharId}`);
+          break;
+        case 'contacts':
+          setContacts([]);
+          localStorage.removeItem(`mobile_ai_phone_contacts_${selectedCharId}`);
+          setSelectedNpcId(null);
+          break;
+        case 'shopping':
+          setShoppingList([]);
+          localStorage.removeItem(`mobile_ai_phone_shopping_${selectedCharId}`);
+          break;
+        case 'reading':
+          setReadingList([]);
+          localStorage.removeItem(`mobile_ai_phone_reading_${selectedCharId}`);
+          break;
+      }
+      showToast("内容已清空");
     }
-    showToast("内容已清空");
-    setShowClearConfirm({ show: false, type: null });
+    setShowClearConfirm({ show: false, type: null, targetId: null });
   };
+
+  const renderConfirmModal = () => (
+    <ConfirmModal
+      isOpen={showClearConfirm.show}
+      title={showClearConfirm.title || "确认删除"}
+      message={showClearConfirm.message || "确定要删除吗？此操作不可撤销。"}
+      onConfirm={() => {
+        if (showClearConfirm.type) {
+          handleClearData(showClearConfirm.type, showClearConfirm.targetId);
+        }
+      }}
+      onCancel={() => setShowClearConfirm({ show: false, type: null, targetId: null })}
+    />
+  );
 
   const injectNpcChatToMemory = (npcName: string, relation: string, newMessages: NpcMessage[]) => {
     if (!selectedChar || !onUpdateCharacter) return;
@@ -978,6 +1038,7 @@ ${phoneContext}
             所有内容均由 AI 结合人设与对话历史实时生成。
           </p>
         </div>
+        {renderConfirmModal()}
       </div>
     );
   }
@@ -998,7 +1059,7 @@ ${phoneContext}
               <ChevronLeft className="w-5 h-5" />
             </button>
             <button 
-              onClick={() => setShowClearConfirm({ show: true, type: 'memos' })}
+              onClick={() => setShowClearConfirm({ show: true, type: 'memos', title: '确认删除', message: '确定要删除吗？此操作不可撤销。' })}
               className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
               title="清空备忘录"
             >
@@ -1041,20 +1102,28 @@ ${phoneContext}
               {todoMemos.map(memo => (
                 <div 
                   key={memo.id} 
-                  className="bg-white p-3.5 rounded-2xl border border-neutral-200/70 shadow-xs transition-all"
+                  className="bg-white p-3.5 rounded-2xl border border-neutral-200/70 shadow-xs transition-all flex items-start gap-3"
                 >
-                  <div className="flex items-start gap-3">
-                    <div className="w-4 h-4 rounded border-2 border-neutral-300 mt-0.5 flex items-center justify-center shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-neutral-900 font-medium leading-relaxed">
-                        {memo.content}
-                      </p>
-                      {/* 角色感想 (小字，暖灰色) */}
-                      <p className="text-[11px] text-[#A8A39A] italic mt-1.5  border-t border-neutral-100 pt-1">
-                        💭 感想：{memo.reflection}
-                      </p>
-                    </div>
+                  <div className="w-4 h-4 rounded border-2 border-neutral-300 mt-0.5 flex items-center justify-center shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-neutral-900 font-medium leading-relaxed">
+                      {memo.content}
+                    </p>
+                    {/* 角色感想 (小字，暖灰色) */}
+                    <p className="text-[11px] text-[#A8A39A] italic mt-1.5  border-t border-neutral-100 pt-1">
+                      💭 感想：{memo.reflection}
+                    </p>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowClearConfirm({ show: true, type: 'memos', targetId: memo.id, title: '确认删除', message: '确定要删除吗？此操作不可撤销。' });
+                    }}
+                    className="p-1 text-neutral-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition active:scale-95 shrink-0"
+                    title="删除此条"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               ))}
               {todoMemos.length === 0 && (
@@ -1077,23 +1146,31 @@ ${phoneContext}
               {doneMemos.map(memo => (
                 <div 
                   key={memo.id} 
-                  className="bg-white/60 p-3.5 rounded-2xl border border-neutral-200/50 shadow-xs transition-all opacity-80"
+                  className="bg-white/60 p-3.5 rounded-2xl border border-neutral-200/50 shadow-xs transition-all opacity-80 flex items-start gap-3"
                 >
-                  <div className="flex items-start gap-3">
-                    <div className="w-4 h-4 rounded bg-neutral-900 text-white mt-0.5 flex items-center justify-center shrink-0">
-                      <Check className="w-3 h-3 stroke-[3]" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      {/* Strikethrough for Completed Tasks */}
-                      <p className="text-xs text-neutral-400 font-medium leading-relaxed line-through decoration-neutral-400 decoration-1">
-                        {memo.content}
-                      </p>
-                      {/* 角色感想 (小字，暖灰色) */}
-                      <p className="text-[11px] text-[#A8A39A] italic mt-1.5  border-t border-neutral-100 pt-1">
-                        💭 感想：{memo.reflection}
-                      </p>
-                    </div>
+                  <div className="w-4 h-4 rounded bg-neutral-900 text-white mt-0.5 flex items-center justify-center shrink-0">
+                    <Check className="w-3 h-3 stroke-[3]" />
                   </div>
+                  <div className="flex-1 min-w-0">
+                    {/* Strikethrough for Completed Tasks */}
+                    <p className="text-xs text-neutral-400 font-medium leading-relaxed line-through decoration-neutral-400 decoration-1">
+                      {memo.content}
+                    </p>
+                    {/* 角色感想 (小字，暖灰色) */}
+                    <p className="text-[11px] text-[#A8A39A] italic mt-1.5  border-t border-neutral-100 pt-1">
+                      💭 感想：{memo.reflection}
+                    </p>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowClearConfirm({ show: true, type: 'memos', targetId: memo.id, title: '确认删除', message: '确定要删除吗？此操作不可撤销。' });
+                    }}
+                    className="p-1 text-neutral-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition active:scale-95 shrink-0"
+                    title="删除此条"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               ))}
               {doneMemos.length === 0 && (
@@ -1104,6 +1181,7 @@ ${phoneContext}
             </div>
           </div>
         </div>
+        {renderConfirmModal()}
       </div>
     );
   }
@@ -1121,7 +1199,7 @@ ${phoneContext}
               <ChevronLeft className="w-5 h-5" />
             </button>
             <button 
-              onClick={() => setShowClearConfirm({ show: true, type: 'browser' })}
+              onClick={() => setShowClearConfirm({ show: true, type: 'browser', title: '确认删除', message: '确定要删除吗？此操作不可撤销。' })}
               className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
               title="清空搜索记录"
             >
@@ -1167,6 +1245,16 @@ ${phoneContext}
                     )}
                     <span className="text-xs font-bold text-neutral-900">{item.query}</span>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowClearConfirm({ show: true, type: 'browser', targetId: item.id, title: '确认删除', message: '确定要删除吗？此操作不可撤销。' });
+                    }}
+                    className="p-1 text-neutral-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition active:scale-95 shrink-0"
+                    title="删除此条"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
                 {/* 角色对搜索词条的内心想法 (小字，暖灰色) */}
@@ -1183,6 +1271,7 @@ ${phoneContext}
             )}
           </div>
         </div>
+        {renderConfirmModal()}
       </div>
     );
   }
@@ -1199,7 +1288,7 @@ ${phoneContext}
               <ChevronLeft className="w-5 h-5" />
             </button>
             <button 
-              onClick={() => setShowClearConfirm({ show: true, type: 'shopping' })}
+              onClick={() => setShowClearConfirm({ show: true, type: 'shopping', title: '确认删除', message: '确定要删除吗？此操作不可撤销。' })}
               className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
               title="清空购物清单"
             >
@@ -1238,7 +1327,19 @@ ${phoneContext}
                     </div>
                     <span className={`text-xs font-bold ${item.isBought ? 'text-neutral-400 line-through' : 'text-neutral-900'}`}>{item.name}</span>
                   </div>
-                  <span className="text-[10px] text-neutral-400">{item.quantity}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-neutral-400">{item.quantity}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowClearConfirm({ show: true, type: 'shopping', targetId: item.id, title: '确认删除', message: '确定要删除吗？此操作不可撤销。' });
+                      }}
+                      className="p-1 text-neutral-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition active:scale-95 shrink-0"
+                      title="删除此项"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -1250,6 +1351,7 @@ ${phoneContext}
             )}
           </div>
         </div>
+        {renderConfirmModal()}
       </div>
     );
   }
@@ -1266,7 +1368,7 @@ ${phoneContext}
               <ChevronLeft className="w-5 h-5" />
             </button>
             <button 
-              onClick={() => setShowClearConfirm({ show: true, type: 'reading' })}
+              onClick={() => setShowClearConfirm({ show: true, type: 'reading', title: '确认删除', message: '确定要删除吗？此操作不可撤销。' })}
               className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
               title="清空阅读物"
             >
@@ -1318,6 +1420,16 @@ ${phoneContext}
                     "{item.thoughts}"
                   </p>
                 </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowClearConfirm({ show: true, type: 'reading', targetId: item.id, title: '确认删除', message: '确定要删除吗？此操作不可撤销。' });
+                  }}
+                  className="p-1 text-neutral-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition active:scale-95 shrink-0"
+                  title="删除此记录"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
               </div>
             ))}
 
@@ -1328,6 +1440,7 @@ ${phoneContext}
             )}
           </div>
         </div>
+        {renderConfirmModal()}
       </div>
     );
   }
@@ -1366,9 +1479,18 @@ ${phoneContext}
         <div className="flex-1 flex flex-col h-full bg-[#F5F3F0]  text-[#1A1A1A] relative overflow-hidden animate-fade-in">
           {/* NPC Chat Header */}
           <div className="h-14 bg-white/80 backdrop-blur-md border-b border-neutral-200/60 flex items-center justify-between px-3 shrink-0 sticky top-0 z-10">
-            <button onClick={() => setSelectedNpcId(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
-              <ChevronLeft className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setSelectedNpcId(null)} className="p-1.5 hover:bg-neutral-100 rounded-lg transition active:scale-95">
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button 
+                onClick={() => setShowClearConfirm({ show: true, type: 'contacts', targetId: npc.id, title: '确认删除', message: '确定要删除吗？此操作不可撤销。' })}
+                className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
+                title="删除此联系人对话"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
             <div className="flex flex-col items-center">
               <span className="font-bold text-xs text-neutral-900">{npc.name}</span>
               <span className="text-[10px] text-neutral-400">{npc.relation}</span>
@@ -1434,6 +1556,7 @@ ${phoneContext}
               续写 8-20 条对话
             </button>
           </div>
+          {renderConfirmModal()}
         </div>
       );
     }
@@ -1448,7 +1571,7 @@ ${phoneContext}
               <ChevronLeft className="w-5 h-5" />
             </button>
             <button 
-              onClick={() => setShowClearConfirm({ show: true, type: 'contacts' })}
+              onClick={() => setShowClearConfirm({ show: true, type: 'contacts', title: '确认删除', message: '确定要删除吗？此操作不可撤销。' })}
               className="p-1.5 hover:bg-red-50 text-red-400 hover:text-red-500 rounded-lg transition active:scale-95"
               title="清空联系人对话"
             >
@@ -1478,10 +1601,10 @@ ${phoneContext}
           {contacts.map((npc) => {
             const lastMsg = npc.messages.length > 0 ? npc.messages[npc.messages.length - 1].text : "暂无新消息";
             return (
-              <button
+              <div
                 key={npc.id}
                 onClick={() => setSelectedNpcId(npc.id)}
-                className="w-full bg-white p-3.5 rounded-2xl border border-neutral-200/70 shadow-2xs hover:border-neutral-300 flex items-center gap-3 text-left transition-all active:scale-[0.99]"
+                className="w-full bg-white p-3.5 rounded-2xl border border-neutral-200/70 shadow-2xs hover:border-neutral-300 flex items-center gap-3 text-left transition-all active:scale-[0.99] cursor-pointer"
               >
                 <div className="w-11 h-11 rounded-full bg-neutral-100 border border-neutral-200 flex items-center justify-center text-xl shrink-0">
                   {npc.avatar || "👤"}
@@ -1497,7 +1620,17 @@ ${phoneContext}
                     {lastMsg}
                   </p>
                 </div>
-              </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowClearConfirm({ show: true, type: 'contacts', targetId: npc.id, title: '确认删除', message: '确定要删除吗？此操作不可撤销。' });
+                  }}
+                  className="p-1 text-neutral-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition active:scale-95 shrink-0"
+                  title="删除此联系人"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             );
           })}
 
@@ -1507,6 +1640,7 @@ ${phoneContext}
             </div>
           )}
         </div>
+        {renderConfirmModal()}
       </div>
     );
   }
@@ -1592,13 +1726,7 @@ ${phoneContext}
         </div>
       </div>
 
-      <ConfirmModal
-        isOpen={showClearConfirm.show}
-        title="确认清空内容"
-        message="确定要清空所有内容吗？此操作不可撤销。"
-        onConfirm={() => showClearConfirm.type && handleClearData(showClearConfirm.type)}
-        onCancel={() => setShowClearConfirm({ show: false, type: null })}
-      />
+      {renderConfirmModal()}
 
       {/* 2. WEBSITE SEARCH MODAL (Triggered by Top Search Bar) */}
       {showSearchModal && (

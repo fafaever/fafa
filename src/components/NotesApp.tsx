@@ -83,8 +83,8 @@ export default function NotesApp({ characters, settings, onClose, onGenerateNote
 
   const handleDelete = (id: string) => {
     setConfirmDialog({
-      title: "删除随笔",
-      message: "确定要删除这篇随笔吗？此操作不可撤销。",
+      title: "确认删除",
+      message: "确定要删除吗？此操作不可撤销。",
       onConfirm: () => {
         saveNotes(notes.filter(n => n.id !== id));
         setConfirmDialog(null);
