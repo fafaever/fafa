@@ -382,33 +382,136 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   // Summarize current offline meet session and inject into memory app & chat box
   const handleSummarizeMemory = async (andClose = false) => {
     if (messages.length === 0) {
-      alert("当前尚无线下见面剧情内容，请先进行一些互动后再总结记忆。");
+      if (andClose) {
+        setShowExitModal(false);
+        onClose();
+      } else {
+        alert("当前尚无线下见面剧情内容，请先进行互动后再总结记忆。");
+      }
       return;
     }
 
     setIsSummarizing(true);
     try {
-      const rawContent = messages
-        .map((m) => `${m.role === "user" ? "用户" : character.name}: ${m.content}`)
-        .join("\n");
+      const storyMsgs = messages.filter((m) => m.role !== "system");
+      if (storyMsgs.length === 0) {
+        setIsSummarizing(false);
+        if (andClose) {
+          saveStory(messages);
+          onClose();
+        }
+        return;
+      }
 
-      const prompt = `请将以下与${character.name}的“线下见面”互动过程总结为一段精练生动的“剧情记忆卡片”摘要（100-200字以内），包含见面主要过程、情感互动与关键细节。请直接输出总结正文，切勿附带多余开头或解释说明。\n\n【见面记录】：\n${rawContent}`;
+      // Group into ~10-round chunks (1 round = user + assistant turn pair, ~2 messages)
+      const chunkSize = 20; 
+      const totalRounds = Math.max(1, Math.ceil(storyMsgs.length / 2));
+      const chunks: OfflineStoryMessage[][] = [];
+      for (let i = 0; i < storyMsgs.length; i += chunkSize) {
+        chunks.push(storyMsgs.slice(i, i + chunkSize));
+      }
+
+      const intermediateSummaries: string[] = [];
+
+      if (chunks.length === 1) {
+        // 10 rounds or less: directly summarize full story
+        const rawContent = storyMsgs
+          .map((m) => `${m.role === "user" ? "用户" : character.name}: ${m.content}`)
+          .join("\n");
+
+        const prompt = `请对以下与${character.name}的【线下见面第 1-${totalRounds} 轮】剧情内容进行深度总结提炼，生成一份“剧情记忆卡片”。
+
+【总结提取要求】：
+必须清晰提炼并包含以下关键维度的信息：
+1. 【关键事件】：简述本次线下见面的来龙去脉与核心经历（发生了什么）。
+2. 【关键对话】：提炼见面中最有代表性、具感情色彩或关键转折的对话与互动片段。
+3. 【角色状态变化】：描述${character.name}在见面过程中的心态、眼神、语气或情感态度变化。
+4. 【当前进展】：总结两人关系或剧情推进的最新进展。
+
+【输出规范】：直接输出 150-300 字的卡片正文，段落清爽，严禁包含前言或外部解释说明。
+
+【剧情记录】：
+${rawContent}`;
+
+        try {
+          const res = await apiChat({
+            apiKey: settings.apiKey,
+            model: settings.model,
+            messages: [{ role: "user", content: prompt }],
+            systemInstruction: "你是一个专业的剧情总结与记忆提取助手，负责提炼剧情的核心脉络、对话要点与角色状态变化并生成剧情记忆卡片。"
+          });
+          if (res.text) {
+            intermediateSummaries.push(res.text.trim());
+          }
+        } catch (e) {
+          console.warn("AI 总结接口调用失败:", e);
+        }
+      } else {
+        // More than 10 rounds: generate 10-round intermediate summaries first
+        for (let i = 0; i < chunks.length; i++) {
+          const startRound = i * 10 + 1;
+          const endRound = Math.min((i + 1) * 10, totalRounds);
+          const chunkRaw = chunks[i]
+            .map((m) => `${m.role === "user" ? "用户" : character.name}: ${m.content}`)
+            .join("\n");
+
+          const chunkPrompt = `请对与${character.name}的【线下见面第 ${startRound}-${endRound} 轮】片段剧情进行关键提取（每10轮中间摘要）：
+提取该阶段的关键事件、人物状态变动与剧情进展（100-200字，客观精炼）：
+
+${chunkRaw}`;
+
+          try {
+            const res = await apiChat({
+              apiKey: settings.apiKey,
+              model: settings.model,
+              messages: [{ role: "user", content: chunkPrompt }],
+              systemInstruction: "你是一个专业的剧情中间摘要提取助手。"
+            });
+            if (res.text) {
+              intermediateSummaries.push(`【第 ${startRound}-${endRound} 轮中间摘要】：\n${res.text.trim()}`);
+            }
+          } catch (e) {
+            console.warn(`Chunk ${i} summary failed:`, e);
+          }
+        }
+      }
 
       let summaryText = "";
-      try {
-        const res = await apiChat({
-          apiKey: settings.apiKey,
-          model: settings.model,
-          messages: [{ role: "user", content: prompt }],
-          systemInstruction: "你是一个剧情总结助手，负责提取剧情核心脉络并生成精练摘要。"
-        });
-        summaryText = res.text ? res.text.trim() : "";
-      } catch (e) {
-        console.warn("AI 总结接口调用失败，降级采用剧情抓取提炼:", e);
+
+      if (chunks.length > 1 && intermediateSummaries.length > 0) {
+        // Merge all 10-round intermediate summaries into final complete memory card
+        const mergePrompt = `请将以下按每10轮生成的【线下见面中间剧情摘要】合并重构为一张最终完整的“剧情记忆卡片”：
+
+【合并提炼要求】：
+必须清晰提炼并包含以下 4 个关键维度的信息：
+1. 【关键事件】：全景总结本次线下见面的来龙去脉与核心经历（发生了什么）。
+2. 【关键对话】：提炼见面中最具感情色彩、代表性或关键转折的互动片段。
+3. 【角色状态变化】：描述${character.name}在整个见面过程中的心态、眼神、语气或情感态度变化。
+4. 【当前进展】：总结两人关系、隐秘默契或剧情推进的最新进展。
+
+【输出规范】：控制在 200-350 字，段落条理清晰，直接输出正文，严禁附带前言或说明。
+
+【所有中间摘要】：
+${intermediateSummaries.join("\n\n")}`;
+
+        try {
+          const mergeRes = await apiChat({
+            apiKey: settings.apiKey,
+            model: settings.model,
+            messages: [{ role: "user", content: mergePrompt }],
+            systemInstruction: "你是一个专业的剧情总结与记忆合并重构助手。"
+          });
+          summaryText = mergeRes.text ? mergeRes.text.trim() : "";
+        } catch (e) {
+          console.warn("Merge summary failed, falling back to intermediate summaries join:", e);
+          summaryText = intermediateSummaries.join("\n\n");
+        }
+      } else if (intermediateSummaries.length > 0) {
+        summaryText = intermediateSummaries[0];
       }
 
       if (!summaryText) {
-        summaryText = messages.map(m => m.content.replace(/\*(.*?)\*/g, "$1")).join(" ").slice(0, 200) + "...";
+        summaryText = `【关键事件】本次与${character.name}进行了线下见面，共同度过了一段充实的剧情互动。\n【关键对话】互动中展开了深刻交流与默契互动。\n【角色状态变化】${character.name}的情感与态度有了进一步的提升与靠近。\n【当前进展】双方关系与当下剧情取得了积极的推进。`;
       }
 
       const now = new Date();
@@ -434,7 +537,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
       let existingMems = existingMemsRaw ? JSON.parse(existingMemsRaw) : [];
       if (!Array.isArray(existingMems)) existingMems = [];
 
-      const formattedMemoryText = `【线下见面】时间：${finalTime} | 地点：${finalLocation}\n过程：${summaryText}`;
+      const formattedMemoryText = `【线下见面】时间：${finalTime} | 地点：${finalLocation}\n${summaryText}`;
 
       const newMemoryItem = {
         id: memoryId,
@@ -477,7 +580,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
       setTimeout(() => setSummaryToastMsg(null), 3000);
 
       if (andClose) {
-        localStorage.removeItem(storageKey);
+        saveStory([]); // Clear active story session so fresh next time
         setMessages([]);
         setShowExitModal(false);
         onClose();
@@ -495,7 +598,6 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     const currentUserName = settings.userPersonaName || "用户";
     const assocList = getAssociatedCharacters();
     const selectedMultiChars = plotMode === "multi" ? assocList.filter((c) => selectedMultiCharIds.includes(c.id)) : [];
-    const allNames = [character.name, ...selectedMultiChars.map((c) => c.name)];
 
     let perspectiveInstruction = "";
     if (plotMode === "multi") {
@@ -525,22 +627,33 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
       }
     }
 
+    const narrativeQualityRules = `
+【线下见面剧情连贯性与文笔升级指令（绝对强制执行）】：
+1. 【动作与事件按逻辑顺序展开】：所有肢体动作、神态转变与事件演化必须严格遵循自然的时间与空间顺理，前后连贯自然，严禁剧情逻辑跳接或生硬转折。
+2. 【动作间因果逻辑与环境自然衔接】：动作之间必须具有清晰自然的因果关系（例如：因为注意到某事所以做出动作，做了动作后顺势引发后续反应）。将环境细节（天气、光影、声音、氛围）与人物动作、心理自然融为一体，严禁环境描写与人物动作硬生生割裂。
+3. 【句式简短流畅】：使用简短流畅的句式，避免句式过于复杂冗长，但同时【绝对严禁】机械割裂的极短句堆砌（❌严禁出现：“她站起来。她走到窗边。窗外下雨了。她转身。”，✅正确示例：“她站起来，走到窗边。窗外正在下雨，她看了一会儿才转身。”）。
+4. 【强制契合角色人设与剧场设定】：
+   - 核心角色人设：【${character.name}】—— ${character.description || "独特鲜明个人性格"}
+   - 场景与剧场设定：时间【${timeSetting || "自然时间"}】 | 地点【${locationSetting || "自然地点"}】 | 氛围【${atmosphereSetting || "自然氛围"}】
+   - 所有神态描写、动作习惯、心理反应与台词习惯，必须百分之百符合角色人设性格，严禁偏离或人设崩塌。
+`;
+
     const formattingInstruction = `
 【文本格式排版规则 (绝对强制)】：
 1. 所有的“对话内容”必须单独成行，并使用 *斜体* 显示（例如：*“你来了。”*）。
-2. 动作描写、环境描写、心理描写等叙述性内容按自然段落排列，严禁刻意换行，严禁在一段完整的动作描写中插入换行符。
+2. 动作描写、环境描写、心理描写等叙述性内容按自然段落排列，严禁刻意按标点符号强制换行，自然成段。
 3. 对话与描写交替进行时，请确保对话内容始终是独立的段落。
 `;
 
     let toneInstruction = "";
     if (writingTone === "literary") {
-      toneInstruction = "【文风基调 - 文艺细腻】：句子稍长，极其注重氛围感与感官描写（光线、温度、雨声、微风），文笔优雅有呼吸感。";
+      toneInstruction = "【文风基调 - 文艺细腻】：句子简练流畅，极其注重氛围感与感官细节（光线、温度、雨声、微风），文笔优雅有呼吸感。";
     } else if (writingTone === "cold_restrained") {
-      toneInstruction = "【文风基调 - 冷淡克制】：用词极少，语气收敛克制，不滥用修辞，依靠极少的眼神微动作与微小停顿传递情感。";
+      toneInstruction = "【文风基调 - 冷淡克制】：用词精炼，语气收敛克制，不滥用修辞，依靠眼神微动作与微小停顿传递情感，因果清晰。";
     } else if (writingTone === "warm_soft") {
-      toneInstruction = "【文风基调 - 温暖柔和】：语气非常软，细节温馨细腻，充满关怀与陪伴感，让人感觉被包容。";
+      toneInstruction = "【文风基调 - 温暖柔和】：语气非常软，细节温馨细腻，环境与动作融为一体，充满关怀与陪伴感。";
     } else {
-      toneInstruction = "【文风基调 - 日常白描】：句子短，动作具体，干净自然，呈现生活原本的节奏（日本电影台词本风格）。";
+      toneInstruction = "【文风基调 - 日常白描】：句子简短，动作具体，因果连贯，自然呈现生活原本的节奏。";
     }
 
     const customKwStr = customToneKeywords.trim()
@@ -557,7 +670,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
 `;
     }
 
-    return `${perspectiveInstruction}\n${formattingInstruction}\n${toneInstruction}${customKwStr}${multiRules}`;
+    return `${perspectiveInstruction}\n${narrativeQualityRules}\n${formattingInstruction}\n${toneInstruction}${customKwStr}${multiRules}`;
   };
 
   // Generate the AI's first opening scene (开场描写 - 不包含任何对话)
@@ -1158,6 +1271,56 @@ ${styleRules}
     setSelectedMsgForMenu(null);
   };
 
+  // Helper to parse story content into narrative paragraphs and standalone dialogue blocks
+  const parseStoryBlocks = (content: string) => {
+    if (!content) return [];
+
+    // Clean inline markdown asterisks for visual display
+    const cleanContent = content.replace(/\*(.*?)\*/g, "$1");
+
+    // Regex to extract dialogue wrapped in quotes (“...” or "..." or 『...』)
+    const dialogueRegex = /(“[^”]+”|"[^"]+"|『[^』]+』)/g;
+    const parts = cleanContent.split(dialogueRegex);
+
+    const blocks: { type: "dialogue" | "narrative"; text: string }[] = [];
+
+    const cleanNarrativeStr = (str: string) => {
+      return str
+        .replace(/([\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])[\r\n]+([\u4e00-\u9fa5\u3000-\u303f\uff00-\uffef])/g, "$1$2")
+        .replace(/[\r\n]+/g, " ")
+        .trim();
+    };
+
+    for (const part of parts) {
+      if (!part) continue;
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+
+      if (/^(“[^”]+”|"[^"]+"|『[^』]+』)$/.test(trimmed)) {
+        blocks.push({
+          type: "dialogue",
+          text: trimmed,
+        });
+      } else {
+        const narrativeText = cleanNarrativeStr(part);
+        if (narrativeText) {
+          if (blocks.length > 0 && blocks[blocks.length - 1].type === "narrative") {
+            const lastBlock = blocks[blocks.length - 1];
+            const needsSpace = /[a-zA-Z0-9]$/.test(lastBlock.text) && /^[a-zA-Z0-9]/.test(narrativeText);
+            lastBlock.text += (needsSpace ? " " : "") + narrativeText;
+          } else {
+            blocks.push({
+              type: "narrative",
+              text: narrativeText,
+            });
+          }
+        }
+      }
+    }
+
+    return blocks;
+  };
+
   // Helper to render narrative paragraphs and dialogue in unified card blocks
   const renderStoryContent = (msg: OfflineStoryMessage) => {
     const { id, content, role, timestamp } = msg;
@@ -1178,7 +1341,7 @@ ${styleRules}
         nameLabel = `剧情卡片 · ${[character.name, ...selectedMultiChars.map((c) => c.name)].join(" & ")}`;
       }
     }
-    const rawParagraphs = content.split("\n").filter((p) => p.trim());
+    const storyBlocks = parseStoryBlocks(content);
     const timeFormatted = new Date(timestamp).toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
@@ -1206,17 +1369,32 @@ ${styleRules}
         </div>
 
         <div className="meet-body text-sm leading-relaxed space-y-2">
-          {rawParagraphs.map((para, pIdx) => {
-            const isDialogue = (para.includes("“") && para.includes("”")) || (para.includes("*“") && para.includes("”*"));
-            return (
-              <p 
-                key={pIdx} 
-                className={`whitespace-pre-wrap ${isDialogue ? 'italic' : ''}`}
-              >
-                {para.replace(/\*(.*?)\*/g, "$1")}
-              </p>
-            );
-          })}
+          {storyBlocks.length > 0 ? (
+            storyBlocks.map((block, bIdx) => {
+              if (block.type === "dialogue") {
+                return (
+                  <p
+                    key={bIdx}
+                    className="italic font-medium my-1.5 text-[#1A1A1A] leading-relaxed select-text"
+                  >
+                    {block.text}
+                  </p>
+                );
+              }
+              return (
+                <p
+                  key={bIdx}
+                  className="text-[#2C2A29] leading-relaxed select-text font-normal"
+                >
+                  {block.text}
+                </p>
+              );
+            })
+          ) : (
+            <p className="text-[#2C2A29] leading-relaxed select-text font-normal">
+              {content.replace(/\*(.*?)\*/g, "$1")}
+            </p>
+          )}
         </div>
 
         {/* Card Action Bar */}
@@ -1415,6 +1593,23 @@ ${styleRules}
         </div>
       )}
 
+      {/* Loading Overlay when generating card */}
+      {isSummarizing && (
+        <div className="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center p-6 animate-fade-in select-none">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-xs shadow-2xl flex flex-col items-center text-center space-y-4 border border-stone-100 animate-scale-up">
+            <div className="relative flex items-center justify-center w-12 h-12 rounded-full bg-amber-50 text-amber-600 border border-amber-200/60">
+              <Sparkles className="w-6 h-6 animate-spin text-amber-500" />
+            </div>
+            <div className="space-y-1.5">
+              <h4 className="font-bold text-stone-900 text-sm tracking-wide">正在生成剧情卡片...</h4>
+              <p className="text-[11px] text-stone-500 leading-relaxed px-2">
+                正在智能提炼事件脉络、关键对话与角色状态变化，生成记忆卡片并同步中...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header Bar */}
       <div
         className="h-12 px-4 flex items-center justify-between shrink-0 z-10 border-b border-black/5 bg-white/40 backdrop-blur-md"
@@ -1454,16 +1649,15 @@ ${styleRules}
         <div className="flex items-center gap-1.5">
           {viewMode === "chat" && (
             <>
-              {/* 总结记忆按钮 */}
+              {/* 结束见面按钮 */}
               <button
                 type="button"
-                onClick={() => handleSummarizeMemory(false)}
-                disabled={isGenerating || isSummarizing || messages.length === 0}
+                onClick={() => setShowExitModal(true)}
+                disabled={isGenerating || isSummarizing}
                 className="px-2.5 py-1 rounded-full bg-stone-900 hover:bg-black text-white text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shadow-xs"
-                title="总结见面剧情并生成剧情记忆卡片"
+                title="结束本次见面"
               >
-                <Sparkles className={`w-3.5 h-3.5 text-amber-300 ${isSummarizing ? "animate-spin" : ""}`} />
-                <span>{isSummarizing ? "总结中..." : "总结记忆"}</span>
+                <span>结束</span>
               </button>
 
               {/* 整合设置入口 */}

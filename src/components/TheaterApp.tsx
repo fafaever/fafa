@@ -1589,7 +1589,11 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
                     <p className="text-xs text-neutral-600 line-clamp-2 leading-relaxed bg-neutral-50 p-2 rounded-lg italic">
                       “{card.summary}”
                     </p>
-                    <div className="text-[10px] text-neutral-400 text-right">共 {card.summary?.length || 0} 字</div>
+                    <div className="flex items-center gap-3 text-[10px] text-stone-500 font-normal pt-1 border-t border-neutral-100/80">
+                      <span>{new Date(card.endTime || card.startTime || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span>共 {card.summary?.length || 0} 字</span>
+                      <span>第 {card.messageCount || 0} 轮</span>
+                    </div>
 
                     {card.mountedLoreTitles && card.mountedLoreTitles.length > 0 && (
                       <div className="flex items-center gap-1 flex-wrap">
@@ -1788,7 +1792,11 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
                 <div className="text-xs text-neutral-600 leading-relaxed bg-neutral-50 p-2.5 rounded-xl border border-neutral-100 italic">
                   “{card.summary}”
                 </div>
-                <div className="text-[10px] text-neutral-400 text-right pt-1">共 {card.summary?.length || 0} 字</div>
+                <div className="flex items-center gap-3 text-[10px] text-stone-500 font-normal pt-1 border-t border-neutral-100/80">
+                  <span>{new Date(card.endTime || card.startTime || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span>共 {card.summary?.length || 0} 字</span>
+                  <span>第 {card.messageCount || 0} 轮</span>
+                </div>
 
                 {card.mountedLoreTitles && card.mountedLoreTitles.length > 0 && (
                   <div className="flex items-center gap-1 flex-wrap pt-1">
@@ -2164,20 +2172,6 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
             )}
           </button>
 
-          {/* 输入框左侧“+”号按钮 */}
-          <button 
-            type="button"
-            onClick={() => setShowActionPanel(!showActionPanel)}
-            className={`p-2.5 rounded-xl transition-all active:scale-95 flex items-center justify-center shrink-0 mb-0.5 border ${
-              showActionPanel 
-                ? 'bg-neutral-900 text-white border-black' 
-                : 'text-neutral-600 hover:text-black bg-neutral-100 hover:bg-neutral-200/80 border-neutral-200/80'
-            }`}
-            title="小剧场扩展功能面板"
-          >
-            <Plus className={`w-4 h-4 transition-transform duration-200 ${showActionPanel ? 'rotate-45' : ''}`} />
-          </button>
-
           {/* 输入框（支持内容多时自适应展开与手动展开/收起） */}
           <div className="flex-1 relative flex flex-col bg-neutral-100 rounded-2xl border border-neutral-200/70 focus-within:border-neutral-400 focus-within:bg-white transition-all overflow-hidden">
             <div className="flex items-center justify-between px-3 pt-1.5 pb-0.5 text-[10px] text-neutral-400 select-none">
@@ -2396,15 +2390,16 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
                 summaries.map((card, idx) => (
                   <div key={card.id || idx} className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/70 text-xs space-y-1.5">
                     <div className="flex items-center justify-between text-[11px] font-bold text-amber-900 border-b border-amber-200/40 pb-1">
-                      <span>卡片 {idx + 1} · {card.rangeText}</span>
-                      <span className="text-[10px] text-amber-700/60 font-normal">
-                        {new Date(card.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                      <span>卡片 {idx + 1}</span>
                     </div>
                     <p className="text-neutral-800 leading-relaxed whitespace-pre-wrap pt-0.5">
                       {card.summary}
                     </p>
-                    <div className="text-[10px] text-amber-800/70 font-medium text-right pt-1">共 {card.summary?.length || 0} 字</div>
+                    <div className="flex items-center gap-3 text-[10px] text-stone-500 font-normal pt-1.5 border-t border-amber-200/40">
+                      <span>{new Date(card.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span>共 {card.summary?.length || 0} 字</span>
+                      <span>{card.rangeText || (card.startRound && card.endRound && card.startRound !== card.endRound ? `第 ${card.startRound}-${card.endRound} 轮` : `第 ${card.endRound || idx + 1} 轮`)}</span>
+                    </div>
                   </div>
                 ))
               )}

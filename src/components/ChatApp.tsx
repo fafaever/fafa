@@ -3384,36 +3384,48 @@ ${existingCommentsText || "暂无评论"}
       }
 
       return (
-        <div className="w-full max-w-[260px] bg-white border border-neutral-200/80 rounded-[12px] p-4 shadow-[0_2px_12px_rgba(0,0,0,0.03)] my-1.5 select-none text-left font-sans">
+        <div className="w-full max-w-[300px] bg-white border border-neutral-200/90 rounded-[14px] p-4 shadow-[0_4px_16px_rgba(0,0,0,0.04)] my-2 select-none text-left font-sans">
           {/* Header */}
           <div className="flex items-center justify-between pb-2.5 border-b border-neutral-100">
-            <span className="text-[12px] font-medium text-neutral-500 tracking-wide">
-              线下见面 · 已结束
+            <span className="text-[12px] font-bold text-stone-800 tracking-wide flex items-center gap-1.5">
+              <span>📖</span>
+              <span>线下见面 · 剧情记忆卡片</span>
             </span>
-            <span className="w-1.5 h-1.5 rounded-full bg-neutral-300" />
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
           </div>
 
-          {/* Time */}
-          <div className="mt-3">
-            <div className="text-[10px] text-neutral-400 font-normal">见面时间</div>
-            <div className="text-[13px] font-bold text-neutral-900 mt-0.5 tracking-tight">
-              {cardData?.time || "2026年7月28日 14:30"}
+          {/* Time & Location */}
+          <div className="mt-3 grid grid-cols-2 gap-2 bg-stone-50/80 p-2.5 rounded-lg border border-stone-100">
+            <div>
+              <div className="text-[10px] text-neutral-400 font-medium">见面时间</div>
+              <div className="text-[11px] font-semibold text-neutral-800 mt-0.5 truncate">
+                {cardData?.time || "2026年7月28日 14:30"}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] text-neutral-400 font-medium">见面地点</div>
+              <div className="text-[11px] font-semibold text-neutral-800 mt-0.5 truncate">
+                {cardData?.location || "咖啡馆 · 窗边"}
+              </div>
             </div>
           </div>
 
-          {/* Location */}
-          <div className="mt-2.5">
-            <div className="text-[10px] text-neutral-400 font-normal">见面地点</div>
-            <div className="text-[12px] font-medium text-neutral-700 mt-0.5">
-              {cardData?.location || "咖啡馆 · 窗边"}
+          {/* Summary Section */}
+          {cardData?.summary && (
+            <div className="mt-3 pt-2.5 border-t border-neutral-100">
+              <div className="text-[10px] text-amber-800 font-bold mb-1 flex items-center gap-1">
+                <span>✨ 剧情总结摘要</span>
+              </div>
+              <div className="text-[12px] text-neutral-700 font-normal leading-relaxed whitespace-pre-wrap max-h-56 overflow-y-auto pr-1 space-y-1">
+                {cardData.summary}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Footer */}
-          <div className="mt-3 pt-2.5 border-t border-neutral-100 flex items-center justify-between">
-            <span className="text-[11px] text-neutral-400 font-normal flex items-center gap-1.5">
-              <span className="text-[12px]">📖</span>
-              <span>剧情记忆已注入</span>
+          <div className="mt-3 pt-2 border-t border-neutral-100 flex items-center justify-between">
+            <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+              <span>✓ 已同步写入剧情记忆库</span>
             </span>
           </div>
         </div>
@@ -7392,13 +7404,13 @@ ${existingCommentsText || "暂无评论"}
                 memoryId: cardInfo.memoryId,
                 time: cardInfo.time,
                 location: cardInfo.location,
-                summary: storySummary.slice(0, 300),
+                summary: storySummary,
               })}`,
               offlineMeetCardData: {
                 memoryId: cardInfo.memoryId,
                 time: cardInfo.time,
                 location: cardInfo.location,
-                summary: storySummary.slice(0, 300),
+                summary: storySummary,
               },
               timestamp: Date.now(),
             };
@@ -7424,7 +7436,7 @@ ${existingCommentsText || "暂无评论"}
               const memKey = `mobile_ai_memories_${activeCharId}`;
               const savedMems = localStorage.getItem(memKey);
               const parsedMems = savedMems ? JSON.parse(savedMems) : [];
-              const formattedText = `【线下见面】时间：${cardInfo.time} | 地点：${cardInfo.location}\n过程：${storySummary.slice(0, 300)}`;
+              const formattedText = `【线下见面】时间：${cardInfo.time} | 地点：${cardInfo.location}\n${storySummary}`;
               const newMemoryItem = {
                 id: cardInfo.memoryId,
                 characterId: activeCharId,
