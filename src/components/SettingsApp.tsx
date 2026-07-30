@@ -586,46 +586,42 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   };
 
   const exportAllData = () => {
-    const data: Record<string, any> = {};
-    const keys = [
-      "mobile_ai_settings",
-      "mobile_ai_characters",
-      "mobile_ai_lore",
-      "mobile_ai_personas",
-      "mobile_ai_sessions",
-      "mobile_ai_forum_boards",
-      "mobile_ai_forum_posts",
-      "mobile_ai_forum_private_contacts",
-      "mobile_ai_forum_user_bookmarks",
-      "mobile_ai_forum_user_avatar",
-      "mobile_ai_forum_user_nickname",
-      "mobile_ai_forum_char_profiles",
-      "mobile_ai_forum_pms",
-      "mobile_ai_forum_p_count",
-      "mobile_ai_forum_c_count",
-      "mobile_ai_user_name_v1",
-      "mobile_ai_user_avatar_v1",
-      "mobile_ai_user_description_v1",
-      "user_personas_v1",
-      "mobile_ai_greeting",
-      "mobile_ai_healing",
-      "mobile_ai_card_left",
-      "mobile_ai_card_right",
-      "mobile_ai_forum_char_profiles"
+    const data: Record<string, string> = {};
+    const prefixes = [
+      "mobile_ai",
+      "char_settings",
+      "chat_history",
+      "vector_memory",
+      "vector_memories",
+      "vector_embeddings_cache",
+      "uno_",
+      "turtlesoup_",
+      "active_theater",
+      "theater_history",
+      "user_personas",
+      "active_char_id",
+      "apiUrl",
+      "apiKey",
+      "model",
+      "apiFormat",
+      "subApiUrl",
+      "subApiKey",
+      "subModel",
+      "subApiFormat",
+      "subTemperature"
     ];
     
-    keys.forEach(key => {
-      const val = localStorage.getItem(key);
-      if (val) {
-        try {
-          data[key] = JSON.parse(val);
-        } catch (e) {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && prefixes.some(p => key.startsWith(p))) {
+        const val = localStorage.getItem(key);
+        if (val !== null) {
           data[key] = val;
         }
       }
-    });
+    }
 
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -642,8 +638,7 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
         try {
           const data = JSON.parse(event.target?.result as string);
           Object.keys(data).forEach(key => {
-            const val = typeof data[key] === 'string' ? data[key] : JSON.stringify(data[key]);
-            localStorage.setItem(key, val);
+            localStorage.setItem(key, data[key]);
           });
           alert("所有数据导入成功，正在刷新页面...");
           window.location.reload();
