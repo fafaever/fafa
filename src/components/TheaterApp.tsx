@@ -738,6 +738,18 @@ ${sliceText}`;
     showToast("已发送行动");
   };
 
+  // Advance plot without user input
+  const handleAdvanceTheater = async () => {
+    if (!selectedChar || isGenerating) return;
+    
+    // Check if there are existing messages to continue from
+    if (messages.length === 0) {
+      handleGenerateTheater("请开始第一段小剧场演绎。");
+    } else {
+      handleGenerateTheater("请继续推进当前剧情。");
+    }
+  };
+
   // AI Generation Handler
   const handleGenerateTheater = async (customPrompt?: string, overrideList?: TheaterMessage[], forceStart = false) => {
     console.log('🔴 小剧场生成函数被调用了！');
@@ -815,7 +827,7 @@ ${sliceText}`;
       const systemInstruction = `
 你现在正在进行【小剧场独立架空演绎模式】。这是一个纯文学小说/剧本演绎环境。用户是故事的【观看者/旁观者】，而不是对话对象，角色绝对不能对用户说话。
 
-【第一部分：强制读取的底层核心数据（必须全面结合）】：
+【第一部分：强制读取的底层核心数据（必须全面结合，不可遗漏）】：
 1. 【剧场上下文】：已由系统完整加载（包括前期剧情记忆卡片摘要与未总结段落原文）。
 2. 【剧场世界设定】：
 ${worldSetting}
@@ -835,25 +847,33 @@ ${memoryText}
 - ${perspectiveInstruction}
 - 注意：用户发送的剧情描述不受限制，不影响角色的人称变化。
 
-【第二部分：严格执行的演绎规则与绝对红线】：
-1. 【视角统一】：必须严格根据人称规则（${perspective === 'first' ? '第一人称' : perspective === 'second' ? '第二人称' : '第三人称'}）进行文学描写与叙述。
-2. 【用户输入描写规则（区分听到的台词与观察到的动作/心理）】：
-   - 用户输入的【未加双引号】的内容（如：走到窗前、叹了口气、若有所思），视为用户的动作、神态或心理描写。角色无法直接“听到”或读取用户的内心原话，只能通过观察用户的外部表现、动作、表情来推测。
-   - 用户输入的【加双引号】的内容（如：“我想一个人静一静”），视为角色/人物说出来的话。
-   - 写作时必须严格区分“听到的话”和“观察到的动作/心理”，不能把用户的心理描写当成直接的对话内容。
-3. 【绝对禁止出现以下内容（最高级别红线）】：
-   - 绝对禁止出现“网络信号”、“我是AI”、“加载中”、“大模型”、“API”、“服务器”等任何与剧情和文学演绎无关的现代科技或AI身份用语！
-   - 绝对禁止角色直接对用户说话（用户是故事的观看者，不是对话对象）。
-4. 内容必须以细腻的环境描写、心理描写、动作描写为主，对话为辅，文学代入感极强。
-5. 【排版与格式要求（绝对强制）】：
-   - 对话内容必须使用全角双引号（“ ”）包裹，绝对不能使用星号（* *）。
-   - 对话内容必须单独成行，与其他动作、环境描写段落分开。
+【第二部分：严格执行的演绎规则与剧情推进逻辑】：
+1. 【禁止结局式总结】：
+   - 严禁以“结局式总结”收尾。严禁出现诸如“开启了这场不可思议的计划”、“故事到这里就结束了”、“从此再也没有见过”、“转身消失在夜色里再也没回头”等总结性、宣告性或旁白式收尾描写。
+   - 严禁跳过剧情直接跳到结果，必须专注于当下的交互过程。
+
+2. 【强制保持“进行中”状态（Turn-Ending Rules）】：
+   - 每一段落的末尾必须停留在“正在进行中”的状态，留下明确的推进点（Hook），等待下一轮互动。
+   - 推进点示例：
+     * 角色做出一个动作后停下（有后续空间的动作，如：他站在晨光里，像是在等你说什么）。
+     * 环境出现新变化（如：灯忽然灭了、有人在敲门、远处传来奇怪的声音）。
+     * 角色说了一句需要回应的话（如：他停顿了一下，像是在等你开口；或者话说到一半被打断）。
+     * 一个新的物品或线索出现（如：你看到窗外有个人影一闪而过；或者桌子上多了一封信）。
+
+3. 【视角统一】：必须严格根据人称规则进行文学描写与叙述。
+4. 【用户输入描写规则】：
+   - 用户输入的【未加双引号】内容视为动作/神态/心理，角色通过观察推测，而非直接读取。
+   - 用户输入的【加双引号】内容视为台词。
+5. 【绝对禁止出现 AI 身份】：严禁提及“我是AI”、“加载中”、“服务器”等任何现代科技或AI术语。
+6. 【排版与格式】：
+   - 对话必须使用全角双引号（“ ”），单独成行。
    - 示例格式：
      他站在窗边，外面的雨刚停。
      “你来了。”
      她推开门，水珠从伞尖滴落。
-6. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
-7. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
+
+7. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
+8. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
 ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入，自然地开启剧情，不要附带任何多余解释。' : ''}
 `;
 
@@ -1018,7 +1038,7 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       const systemInstruction = `
 你现在正在进行【小剧场独立架空演绎模式】。这是一个纯文学小说/剧本演绎环境。用户是故事的【观看者/旁观者】，而不是对话对象，角色绝对不能对用户说话。
 
-【第一部分：强制读取的底层核心数据（必须全面结合）】：
+【第一部分：强制读取的底层核心数据（必须全面结合，不可遗漏）】：
 1. 【剧场上下文】：已由系统完整加载（包括前期剧情记忆卡片摘要与未总结段落原文）。
 2. 【剧场世界设定】：
 ${worldSetting}
@@ -1038,22 +1058,31 @@ ${memoryText}
 - ${perspectiveInstruction}
 - 注意：用户发送的剧情描述不受限制，不影响角色的人称变化。
 
-【第二部分：严格执行的演绎规则与绝对红线】：
-1. 【视角统一】：必须严格根据人称规则（${perspective === 'first' ? '第一人称' : perspective === 'second' ? '第二人称' : '第三人称'}）进行文学描写与叙述。
-2. 【绝对禁止出现以下内容（最高级别红线）】：
-   - 绝对禁止出现“网络信号”、“我是AI”、“加载中”、“大模型”、“API”、“服务器”等任何与剧情和文学演绎无关的现代科技或AI身份用语！
-   - 绝对禁止角色直接对用户说话（用户是故事的观看者，不是对话对象）。
-3. 结合上下文重新生成一段【不同角度/不同细节】的全新剧情描写。
-4. 内容必须以环境描写、心理描写、动作描写为主，对话为辅，代入感极强。
-5. 【排版与格式要求（绝对强制）】：
-   - 对话内容必须使用全角双引号（“ ”）包裹，绝对不能使用星号（* *）。
-   - 对话内容必须单独成行，与其他动作、环境描写段落分开。
+【第二部分：严格执行的演绎规则与剧情推进逻辑】：
+1. 【禁止结局式总结】：
+   - 严禁以“结局式总结”收尾。严禁出现诸如“开启了这场不可思议的计划”、“故事到这里就结束了”、“从此再也没有见过”、“转身消失在夜色里再也没回头”等总结性、宣告性或旁白式收尾描写。
+   - 严禁跳过剧情直接跳到结果，必须专注于当下的交互过程。
+
+2. 【强制保持“进行中”状态（Turn-Ending Rules）】：
+   - 每一段落的末尾必须停留在“正在进行中”的状态，留下明确的推进点（Hook），等待下一轮互动。
+   - 推进点示例：
+     * 角色做出一个动作后停下（有后续空间的动作，如：他站在晨光里，像是在等你说什么）。
+     * 环境出现新变化（如：灯忽然灭了、有人在敲门、远处传来奇怪的声音）。
+     * 角色说了一句需要回应的话（如：他停顿了一下，像是在等你开口；或者话说到一半被打断）。
+     * 一个新的物品或线索出现（如：你看到窗外有个人影一闪而过；或者桌子上多了一封信）。
+
+3. 【视角统一】：必须严格根据人称规则进行文学描写与叙述。
+4. 【结合上下文重新生成】：请结合上下文重新生成一段【不同角度/不同细节】的全新剧情描写，严禁敷衍。
+5. 【绝对禁止出现 AI 身份】：严禁提及“我是AI”、“加载中”、“服务器”等任何现代科技或AI术语。
+6. 【排版与格式】：
+   - 对话必须使用全角双引号（“ ”），单独成行。
    - 示例格式：
      他站在窗边，外面的雨刚停。
      “你来了。”
      她推开门，水珠从伞尖滴落。
-6. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
-7. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
+
+7. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
+8. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
 ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入。' : ''}
 `;
 
@@ -1885,7 +1914,28 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
             </button>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {/* 选项 1：结束该剧场并生成卡片存档 */}
+            {/* 选项 1：推进剧情 */}
+            <button
+              type="button"
+              onClick={() => {
+                setShowActionPanel(false);
+                handleAdvanceTheater();
+              }}
+              disabled={isGenerating}
+              className="p-3 bg-blue-50/80 hover:bg-blue-100 border border-blue-200/80 rounded-xl text-left flex flex-col gap-1 transition-all active:scale-98 disabled:opacity-50 group"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center shrink-0">
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                </div>
+                <span className="font-bold text-xs text-blue-950 group-hover:text-black">推进剧情</span>
+              </div>
+              <p className="text-[10px] text-blue-700/80 leading-tight">
+                AI 将根据当前情境自动推进下一段剧情描写
+              </p>
+            </button>
+
+            {/* 选项 2：结束该剧场并生成卡片存档 */}
             <button
               type="button"
               onClick={() => {
@@ -2017,16 +2067,16 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
             <Send className="w-4 h-4" />
           </button>
 
-          {/* AI 发送图标 */}
+          {/* AI 推进剧情按钮 */}
           <button 
             onClick={() => {
               if (isGenerating) return;
-              handleGenerateTheater();
-              showToast("触发 AI 下一段描写...");
+              handleAdvanceTheater();
+              showToast("正在推进剧情...");
             }}
             disabled={isGenerating}
             className="p-2.5 bg-rose-50 text-rose-600 hover:bg-rose-100 disabled:opacity-40 disabled:bg-neutral-100 disabled:text-neutral-400 disabled:border-neutral-200 disabled:cursor-not-allowed rounded-xl transition-all active:scale-95 shrink-0 flex items-center justify-center border border-rose-200/60 mb-0.5"
-            title={isGenerating ? "正在生成中..." : "AI 续写下一段描写"}
+            title={isGenerating ? "正在生成中..." : "推进剧情 (AI 续写)"}
           >
             {isGenerating ? (
               <Loader2 className="w-4 h-4 animate-spin text-neutral-400" />

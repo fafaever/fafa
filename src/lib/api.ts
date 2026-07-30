@@ -540,11 +540,24 @@ export function getPhoneContent(charId: string) {
 export function getThreeDataSourcesPrompt(character: any, memories?: any[], lores?: any[], userName?: string, userDesc?: string) {
   if (!character) return "";
 
+  const mandatoryHeader = `
+========================================
+【角色回复数据源强制读取 (MANDATORY DATA SOURCE INTEGRATION)】
+每次角色生成回复前，必须强制读取以下 4 个核心数据源：
+1. 【当前对话上下文】：阅读最近 5-10 轮对话记录，精准理解语境逻辑，禁止脱离上下文。
+2. 【角色人设】：性格、说话风格、表达习惯、背景与价值观底色。
+3. 【世界书 (若已挂载)】：世界常识、地理环境、设定约束与规则。
+4. 【角色记忆库】：包括核心记忆、剧情记忆、线下见面记忆与关联细节。
+
+所有数据源缺一不可，确保回复符合人设、贴合上下文、不重复话题、符合世界观！
+========================================
+`;
+
   const personaContent = `
 --- 【数据源 1：角色人设 (PERSONA & BACKGROUND)】 ---
 - 角色姓名：${character.name || "未知角色"}
 - 基础描述：${character.description || "一个充满魅力的角色"}
-- 人设指令与背景：${character.systemInstruction || character.persona || "保持沉浸式人设与真实聊天风格"}
+- 人设指令与背景：${character.systemInstruction || character.persona || "保持沉沉浸式人设与真实聊天风格"}
 `;
 
   let userPersonaContent = "";
@@ -560,13 +573,19 @@ export function getThreeDataSourcesPrompt(character: any, memories?: any[], lore
   let memoryContent = "";
   if (memories && memories.length > 0) {
     memoryContent = `
---- 【数据源 2：角色记忆库 (MEMORIES)】 ---
-- 角色脑海里记着以下与用户相关的过往经历或事实，会在对话中作为默契自然提及。
+--- 【数据源 2：角色记忆库 (MEMORIES - 包含核心记忆/剧情记忆/线下见面记忆)】 ---
+- 角色脑海里记着以下与用户相关的过往经历或事实（核心记忆、剧情历史、线下见面等）：
 - 【特别规则】：
   1. 如果记忆来源标明为“宇宙 (Universe)”或“游戏 (Games)”，请将其视为“你和用户一起玩的线上全息穿越游戏”中的经历。在对话中提及这些内容时，请使用“上次玩游戏的时候……”或类似的自然口吻。
   2. 如果记忆来源是“查手机 (Phone)”，请将其视为你刚才看手机时发现的信息，自然地带入对话，不要生硬。
+  3. 记忆库（包含核心记忆、剧情记忆、线下见面记忆）必须被强制读取并作为与用户的共同默契自然融入，确保不遗漏关键经历。
 - 记忆详情：
-${memories.map((m: any) => `  - [来源:${m.source || '未知'}] ${typeof m === "string" ? m : m.content || m.text || JSON.stringify(m)}`).join("\n")}
+${memories.map((m: any) => `  - [来源:${m.source || '记忆'}] ${typeof m === "string" ? m : m.content || m.text || JSON.stringify(m)}`).join("\n")}
+`;
+  } else {
+    memoryContent = `
+--- 【数据源 2：角色记忆库 (MEMORIES)】 ---
+- 暂无特定追加的细节记忆，请基于角色人设底色与对话上下文进行流畅对话。
 `;
   }
 
@@ -611,7 +630,7 @@ ${relationsList.join("\n")}
 
   const phoneContent = getPhoneContent(character.id);
 
-  return `${personaContent}\n${userPersonaContent}\n${memoryContent}\n${loreContent}\n${associatedContent}\n${phoneContent}`;
+  return `${mandatoryHeader}\n${personaContent}\n${userPersonaContent}\n${memoryContent}\n${loreContent}\n${associatedContent}\n${phoneContent}`;
 }
 
 export async function apiChat(params: any) {
@@ -1136,9 +1155,18 @@ ${list}
   }
 
   const topicFlowAndUserWillInstruction = `
---- 【角色话题自然流动与尊重用户意愿准则（极其重要，最高级别行为约束）】 ---
-一、话题自然流动与转换法则：
-1. 角色不得一直卡在或停留在同一话题上复读缠绕。如果用户表现出不感兴趣、冷淡、已经回答完毕或给出了否定态度，角色必须敏锐感知，自然过渡转换到其他新的日常生活、个人兴趣、观点或关联话题，绝不纠缠、不强行反复追问旧话题。
+--- 【聊天话题流动规则 (CHAT TOPIC FLOW RULES)】 ---
+一、自然流动与换题准则：
+1. 【自然流动，不反复围绕同一件事】：角色说话时要自然流动，不反复围绕同一件事。
+2. 【禁止换句式表达同一意思】：禁止在不同轮次中用不同句式表达同一个意思（如“你今天真好看”、“你今天很漂亮”、“你今天穿得不错”），同一话题最多提一次。
+3. 【主动转向新话题】：如果当前话题已经聊过或聊完，主动转向新话题。
+4. 【话题切换方式】：
+   · 直接转移（例如：“对了，你昨天说的那件事后来怎么样了”）
+   · 停顿后转移（例如：“嗯……算了，不说这个了。你今天打算干嘛？”）
+5. 【用户反复提起同一件事时的应对策略】：
+   · 简短回应后转移话题
+   · 用“嗯”或“好”等词简短带过
+   · 不做深入展开，绝不复读缠绕
 
 二、尊重用户意愿与邀请回应法则：
 1. 如果角色建议或邀请用户做某件事（如“去吃饭吧”、“出来散步”、“早点睡吧”等），用户明确拒绝或表现出不感兴趣后：
@@ -1151,6 +1179,18 @@ ${list}
 1. 【绝对不得催促生活作息】：绝对不得催吃饭、催睡觉、催做作业或催任何生活作息类事项！只当普通朋友/陪伴者聊天，绝不能像唠叨家长一样反复催促作息。
 2. 【绝对不得重复追问】：绝对不得对同一个问题、提议或话题重复追问超过一次。
 3. 【绝对不得反复提及】：绝对不得围绕已经结束或用户明确拒绝的同一件事反复提及或纠缠复读。
+`;
+
+  const personaExtensionAndDevelopmentInstruction = `
+--- 【角色人设延伸与动态发展规则 (PERSONA EXTENSION & DYNAMIC DEVELOPMENT)】 ---
+一、人设延伸核心法则：
+1. 【人设是基础底色，不是固定剧本】：角色人设是基础底色，不是固定剧本。角色可以在人设基础上自然延伸出新的事件和状态。
+2. 【延伸方向应符合人设逻辑】：
+   · 喜欢打篮球 → 可以参加比赛、受伤、退役、转做教练、和朋友约球；
+   · 喜欢画画 → 可以准备画展、遇到瓶颈、尝试新风格；
+   · 性格内向 → 可以尝试主动一次（但会紧张），也可以因为某件事被迫社交。
+3. 【自然引入，不突兀】：延伸内容要自然引入，不突兀。通过聊天中的话题或事件触发，不是突然宣布。
+4. 【动态持续性】：延伸后的人设变化可以持续，也可以只是短期状态，由剧情自然决定。
 `;
 
   const sysInstruction = `${anchorInstruction}
@@ -1174,6 +1214,8 @@ ${layeredPersonaInstruction}
 ${priorityInstruction}
 
 ${topicFlowAndUserWillInstruction}
+
+${personaExtensionAndDevelopmentInstruction}
 
 ${lengthInstruction}
 
