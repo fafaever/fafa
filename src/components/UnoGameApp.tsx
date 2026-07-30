@@ -834,7 +834,7 @@ export default function UnoGameApp({ characters, settings, onClose }: UnoGameApp
     discardPileRef.current = updatedDiscard;
 
     if (overrideDialogue) {
-      updatedPlayers[playerIndex] = { ...updatedPlayers[playerIndex], dialogue: overrideDialogue };
+      updatedPlayers[playerIndex] = { ...updatedPlayers[playerIndex], dialogue: overrideDialogue } as any;
     }
 
     setPlayers(updatedPlayers);

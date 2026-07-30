@@ -10,6 +10,7 @@ import { MeetSettingsModal } from "./MeetSettingsModal";
 import { CharacterAvatar } from "./CharacterAvatar";
 import { generateDefaultNpcsForCharacter } from "./CharacterCreatorApp";
 import { compressImage as globalCompressImage } from "../utils/imageCompressor";
+import { storeMemory } from "../lib/vectorMemory";
 
 interface ChatAppProps {
   characters: Character[];

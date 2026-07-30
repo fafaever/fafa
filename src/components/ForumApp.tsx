@@ -1977,10 +1977,10 @@ ${historyContext}
                   </span>
                 </div>
               </div>
-              {selectedPost.isFoundPhone && selectedPost.title && (
+              {(selectedPost as any).isFoundPhone && selectedPost.title && (
                 <div className="font-bold text-base text-neutral-900 mb-2">{selectedPost.title}</div>
               )}
-              {selectedPost.isFoundPhone && selectedPost.chatLogs && Array.isArray(selectedPost.chatLogs) ? (
+              {(selectedPost as any).isFoundPhone && (selectedPost as any).chatLogs && Array.isArray((selectedPost as any).chatLogs) ? (
                 <div className="bg-neutral-100 rounded-xl h-[400px] overflow-y-auto p-4 space-y-3 relative shadow-inner border border-neutral-200">
                   <div className="text-[10px] text-neutral-400 text-center mb-4">聊天记录开始</div>
                   {selectedPost.chatLogs.map((log: any, idx: number) => (
@@ -2430,11 +2430,11 @@ ${historyContext}
                             </button>
                           </div>
                         </div>
-                        {post.isFoundPhone && post.title && (
+                        {(post as any).isFoundPhone && post.title && (
                           <div className="font-bold text-[13px] text-neutral-900 mb-2">{post.title}</div>
                         )}
                         <p className="text-[13px] text-neutral-800 leading-relaxed font-medium mb-3 line-clamp-3 whitespace-pre-wrap">
-                          {post.isFoundPhone ? (post.chatLogs ? "[聊天记录] " + (post.chatLogs.length > 0 ? post.chatLogs[0].content : "") : post.content) : post.content}
+                          {(post as any).isFoundPhone ? ((post as any).chatLogs ? "[聊天记录] " + ((post as any).chatLogs.length > 0 ? (post as any).chatLogs[0].content : "") : post.content) : post.content}
                         </p>
                         <div className="flex items-center justify-between text-[11px] text-neutral-400 pt-2 border-t border-neutral-50">
                           <span>{formatTime(post.timestamp)}</span>

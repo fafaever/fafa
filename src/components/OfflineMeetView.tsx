@@ -147,7 +147,7 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   const [isInputZoomed, setIsInputZoomed] = useState<boolean>(false);
 
   // View Mode: 'chat' | 'settings_view' | 'history_replay'
-  const [viewMode, setViewMode] = useState<"chat" | "settings_view" | "history_replay">("chat");
+  const [viewMode, setViewMode] = useState<"chat" | "settings_view" | "history_replay" | "visual_settings" | "mode_settings">("chat");
 
   // Context menu & action states
   const [selectedMsgForMenu, setSelectedMsgForMenu] = useState<OfflineStoryMessage | null>(null);
@@ -595,7 +595,7 @@ ${intermediateSummaries.join("\n\n")}`;
 
   // Helper to generate dynamic style prompt instructions based on user settings
   const getPromptStyleInstructions = () => {
-    const currentUserName = settings.userPersonaName || "用户";
+    const currentUserName = (settings as any).userPersonaName || "用户";
     const assocList = getAssociatedCharacters();
     const selectedMultiChars = plotMode === "multi" ? assocList.filter((c) => selectedMultiCharIds.includes(c.id)) : [];
 
@@ -1784,7 +1784,7 @@ ${styleRules}
              </button>
           </div>
         </div>
-      ) : viewMode === "history_replay" ? (
+      ) : viewMode === "mode_settings" ? (
         /* 模式设置页面 (三条线图标) */
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-5 ">
           {/* 板块一：模式选择 */}

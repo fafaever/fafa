@@ -4,6 +4,7 @@ import { AppSettings, FontOption, ThemePreset } from "../types";
 import { apiFetchModels } from "../lib/api";
 import ImageGenSettingsApp from "./ImageGenSettingsApp";
 import { compressImage } from "../utils/imageCompressor";
+import { safeJsonParse } from "../utils/safeJson";
 
 interface SettingsAppProps {
   settings: AppSettings;
@@ -304,13 +305,24 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   };
 
   const applyApiPreset = (preset: any) => {
-    handleUpdate({
-      apiUrl: preset.apiUrl,
-      apiKey: preset.apiKey,
-      model: preset.model,
-      apiFormat: preset.apiFormat || settings.apiFormat,
+    const updatedSettings = {
+      ...settings,
+      apiUrl: preset.apiUrl || "",
+      apiKey: preset.apiKey || "",
+      model: preset.model || "",
+      apiFormat: preset.apiFormat || 'openai',
+      temperature: preset.temperature !== undefined ? preset.temperature : 0.8,
       activePresetId: preset.id
-    });
+    };
+    localStorage.setItem("apiUrl", preset.apiUrl || "");
+    localStorage.setItem("apiKey", preset.apiKey || "");
+    localStorage.setItem("model", preset.model || "");
+    localStorage.setItem("temperature", (preset.temperature !== undefined ? preset.temperature : 0.8).toString());
+    localStorage.setItem("apiFormat", preset.apiFormat || 'openai');
+    localStorage.setItem("mobile_ai_settings", JSON.stringify(updatedSettings));
+    handleUpdate(updatedSettings);
+    onSaveSettings(updatedSettings);
+    alert("API预设已应用");
   };
 
   const deleteApiPreset = (id: string) => {
@@ -632,22 +644,79 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
 
   const importAllData = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const data = JSON.parse(event.target?.result as string);
-          Object.keys(data).forEach(key => {
-            localStorage.setItem(key, data[key]);
-          });
-          alert("所有数据导入成功，正在刷新页面...");
-          window.location.reload();
-        } catch (err) {
-          alert("导入失败，无效的 JSON 文件");
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const fileContent = event.target?.result as string;
+        if (!fileContent || !fileContent.trim()) {
+          alert("数据格式错误，请检查文件内容");
+          return;
         }
-      };
-      reader.readAsText(file);
-    }
+
+        let data: any;
+        try {
+          data = JSON.parse(fileContent);
+        } catch (parseError) {
+          console.error("[JSON Import Error] Parse failed:", parseError);
+          alert("数据格式错误，请检查文件内容");
+          return;
+        }
+
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+          console.error("[JSON Import Error] Data is not a JSON object:", data);
+          alert("数据格式错误，请检查文件内容");
+          return;
+        }
+
+        const keys = Object.keys(data);
+        if (keys.length === 0) {
+          alert("数据格式错误，请检查文件内容");
+          return;
+        }
+
+        let importedCount = 0;
+        keys.forEach((key) => {
+          const val = data[key];
+          if (val === undefined || val === null) return;
+
+          if (typeof val === "object") {
+            // Stringify objects and arrays to prevent "[object Object]" corruption in localStorage
+            localStorage.setItem(key, JSON.stringify(val));
+            importedCount++;
+          } else if (typeof val === "string") {
+            if (val === "[object Object]") return;
+            localStorage.setItem(key, val);
+            importedCount++;
+          } else {
+            localStorage.setItem(key, String(val));
+            importedCount++;
+          }
+        });
+
+        if (importedCount === 0) {
+          alert("数据格式错误，请检查文件内容");
+          return;
+        }
+
+        alert("所有数据导入成功，正在刷新页面...");
+        window.location.reload();
+      } catch (err) {
+        console.error("[JSON Import Error] System error during data import:", err);
+        alert("数据格式错误，请检查文件内容");
+      } finally {
+        if (e.target) e.target.value = "";
+      }
+    };
+
+    reader.onerror = (readErr) => {
+      console.error("[JSON Import Error] FileReader error:", readErr);
+      alert("数据格式错误，请检查文件内容");
+      if (e.target) e.target.value = "";
+    };
+
+    reader.readAsText(file);
   };
 
   const clearAllData = () => {
@@ -663,10 +732,14 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   };
 
   const getDataStats = () => {
-    const chars = JSON.parse(localStorage.getItem("mobile_ai_characters") || "[]").length;
-    const lore = JSON.parse(localStorage.getItem("mobile_ai_lore") || "[]").length;
-    const sessions = JSON.parse(localStorage.getItem("mobile_ai_sessions") || "[]").length;
-    return chars + lore + sessions;
+    try {
+      const chars = safeJsonParse<any[]>(localStorage.getItem("mobile_ai_characters"), []).length;
+      const lore = safeJsonParse<any[]>(localStorage.getItem("mobile_ai_lore"), []).length;
+      const sessions = safeJsonParse<any[]>(localStorage.getItem("mobile_ai_sessions"), []).length;
+      return chars + lore + sessions;
+    } catch {
+      return 0;
+    }
   };
 
   const deletePreset = (id: string) => {
@@ -694,18 +767,47 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
 
   const importTheme = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        try {
-          const data = JSON.parse(event.target?.result as string);
-          handleUpdate(data);
-        } catch (err) {
-          alert("导入失败，无效的 JSON 文件");
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const fileContent = event.target?.result as string;
+        if (!fileContent || !fileContent.trim()) {
+          alert("数据格式错误，请检查文件内容");
+          return;
         }
-      };
-      reader.readAsText(file);
-    }
+
+        let data: any;
+        try {
+          data = JSON.parse(fileContent);
+        } catch (parseErr) {
+          console.error("[Import Theme Error] JSON parse failed:", parseErr);
+          alert("数据格式错误，请检查文件内容");
+          return;
+        }
+
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+          alert("数据格式错误，请检查文件内容");
+          return;
+        }
+
+        handleUpdate(data);
+        alert("主题配置导入成功！");
+      } catch (err) {
+        console.error("[Import Theme Error]:", err);
+        alert("数据格式错误，请检查文件内容");
+      } finally {
+        if (e.target) e.target.value = "";
+      }
+    };
+
+    reader.onerror = () => {
+      alert("数据格式错误，请检查文件内容");
+      if (e.target) e.target.value = "";
+    };
+
+    reader.readAsText(file);
   };
 
   const clearCache = () => {

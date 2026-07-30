@@ -711,9 +711,8 @@ ${npcsPromptText}
             name: item.name || "NPC朋友",
             relation: item.relation || "朋友",
             avatar: item.avatar || "💬",
-            bio: "",
             messages: newMsgs.slice(-30)
-          });
+          } as any);
         }
       });
 

@@ -246,8 +246,8 @@ ${dialogueText}`;
   };
 
   const shareToLayer1 = (memory: Memory) => {
-    const updated = memories.map(m => 
-      m.id === memory.id ? { ...m, layer: 1, isShared: true, source: `来自${m.source || '剧情'}` } : m
+    const updated: Memory[] = memories.map(m => 
+      m.id === memory.id ? { ...m, layer: 1 as const, isShared: true, source: `来自${m.source || '剧情'}` } : m
     );
     setMemories(updated);
     localStorage.setItem(`mobile_ai_memories_${character.id}`, JSON.stringify(updated));

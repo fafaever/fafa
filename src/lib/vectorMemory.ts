@@ -1,6 +1,8 @@
 
+import { safeJsonParse } from '../utils/safeJson';
+
 function getVectorApiConfig() {
-  const settings = JSON.parse(localStorage.getItem('mobile_ai_settings') || '{}');
+  const settings = safeJsonParse(localStorage.getItem('mobile_ai_settings'), {} as any);
   return {
     baseUrl: settings.vectorApiUrl || 'https://api.siliconflow.cn/v1',
     apiKey: settings.vectorApiKey || settings.apiKey || '',
@@ -30,7 +32,7 @@ export async function storeMemory(characterId: string, text: string, source: str
   }
 
   const trimmedText = text.trim();
-  const memories = JSON.parse(localStorage.getItem('vector_memories') || '[]');
+  const memories = safeJsonParse(localStorage.getItem('vector_memories'), []);
   
   // Prevent duplicate storage of exact same memory for same character
   if (memories.some((m: any) => m.characterId === characterId && m.text === trimmedText)) {
@@ -107,7 +109,7 @@ export async function retrieveMemories(characterId: string, query: string, topK:
       throw new Error("No query vector returned from API");
     }
 
-    const memories = JSON.parse(localStorage.getItem('vector_memories') || '[]')
+    const memories = safeJsonParse<any[]>(localStorage.getItem('vector_memories'), [])
       .filter((m: any) => m.characterId === characterId || m.characterId === 'all' || m.characterId === 'universe' || m.characterId === 'uno' || m.characterId === 'turtlesoup');
 
     if (memories.length === 0) return [];

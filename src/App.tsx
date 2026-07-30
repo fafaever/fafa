@@ -24,6 +24,7 @@ import { Character, UserPersona, LoreEntry, AppSettings, ChatSession, Message, F
 import { Sparkles, HelpCircle } from "lucide-react";
 import { apiChat, apiGenerateNote, performVectorRetrieval } from "./lib/api";
 import { storeMemory, retrieveMemories } from "./lib/vectorMemory";
+import { safeJsonParse, sanitizeLocalStorage } from "./utils/safeJson";
 
 const getThemeClass = (theme?: ThemeOption) => {
   switch (theme) {
@@ -263,6 +264,9 @@ export default function App() {
 
   // Hydrate from localStorage on mount
   useEffect(() => {
+    // Sanitize any corrupted "[object Object]" values from bad previous imports
+    sanitizeLocalStorage();
+
     // Clean up emoji / mood cache from localStorage
     try {
       const keysToRemove: string[] = [];
@@ -280,17 +284,15 @@ export default function App() {
     // 1.5 User Personas
     const savedPersonas = localStorage.getItem("user_personas_v1");
     if (savedPersonas) {
-      setUserPersonas(JSON.parse(savedPersonas));
+      const parsed = safeJsonParse<UserPersona[]>(savedPersonas, []);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setUserPersonas(parsed);
+      }
     }
     // 1. Characters
     const savedChars = localStorage.getItem("mobile_ai_characters");
     if (savedChars) {
-      let parsed: Character[] = [];
-      try {
-        parsed = JSON.parse(savedChars) as Character[];
-      } catch (e) {
-        console.error("[App Hydrate Error] Failed to parse mobile_ai_characters:", e);
-      }
+      const parsed = safeJsonParse<Character[]>(savedChars, []);
 
       if (Array.isArray(parsed) && parsed.length > 0) {
         const parsedMap = new Map(parsed.map((c) => [c.id, c]));
@@ -335,10 +337,13 @@ export default function App() {
     // 2. Lore Book
     const savedLore = localStorage.getItem("mobile_ai_lore");
     if (savedLore) {
-      setLoreList(JSON.parse(savedLore));
+      const parsed = safeJsonParse<LoreEntry[]>(savedLore, PRESET_LORE);
+      setLoreList(Array.isArray(parsed) && parsed.length > 0 ? parsed : PRESET_LORE);
     } else {
       setLoreList(PRESET_LORE);
-      localStorage.setItem("mobile_ai_lore", JSON.stringify(PRESET_LORE));
+      try {
+        localStorage.setItem("mobile_ai_lore", JSON.stringify(PRESET_LORE));
+      } catch (e) {}
     }
 
     // 3. Settings
@@ -348,11 +353,12 @@ export default function App() {
 
     if (savedSettings) {
       try {
-        const parsed = JSON.parse(savedSettings);
+        const parsed = safeJsonParse<any>(savedSettings, {});
         const s = {
           apiUrl: parsed.apiUrl || localStorage.getItem("apiUrl") || "",
           apiKey: parsed.apiKey || localStorage.getItem("apiKey") || "",
           model: parsed.model || localStorage.getItem("model") || "",
+          temperature: parsed.temperature !== undefined ? parsed.temperature : (localStorage.getItem("temperature") ? parseFloat(localStorage.getItem("temperature")!) : 0.8),
           apiFormat: parsed.apiFormat || 'openai',
           apiPresets: parsed.apiPresets || [],
           activePresetId: parsed.activePresetId || "",
@@ -367,13 +373,24 @@ export default function App() {
           fontColorMode: parsed.fontColorMode || 'black',
           fontColor: parsed.fontColor || '#000000',
           fontGradient: parsed.fontGradient || 'linear-gradient(to right, #ff7e5f, #feb47b)',
-          activeThemePresetId: parsed.activeThemePresetId || ""
+          activeThemePresetId: parsed.activeThemePresetId || "",
+          subApiUrl: parsed.subApiUrl || localStorage.getItem("subApiUrl") || "",
+          subApiKey: parsed.subApiKey || localStorage.getItem("subApiKey") || "",
+          subModel: parsed.subModel || localStorage.getItem("subModel") || "",
+          subApiFormat: parsed.subApiFormat || 'openai',
+          subTemperature: parsed.subTemperature !== undefined ? parsed.subTemperature : (localStorage.getItem("subTemperature") ? parseFloat(localStorage.getItem("subTemperature")!) : 0.8),
+          vectorApiUrl: parsed.vectorApiUrl || localStorage.getItem("vectorApiUrl") || "",
+          vectorApiKey: parsed.vectorApiKey || localStorage.getItem("vectorApiKey") || "",
+          vectorModel: parsed.vectorModel || localStorage.getItem("vectorModel") || "",
+          vectorDimension: parsed.vectorDimension || 1024,
+          rerankModel: parsed.rerankModel || "",
         };
         setSettings(s);
         setPreviewSettings(s);
         if (s.apiUrl) localStorage.setItem("apiUrl", s.apiUrl);
         if (s.apiKey) localStorage.setItem("apiKey", s.apiKey);
         if (s.model) localStorage.setItem("model", s.model);
+        if (s.temperature !== undefined) localStorage.setItem("temperature", s.temperature.toString());
         if (s.globalFont) localStorage.setItem("mobile_ai_global_font", s.globalFont);
         if (s.customFontUrl) localStorage.setItem("mobile_ai_custom_font_url", s.customFontUrl);
       } catch (e) {
@@ -395,7 +412,10 @@ export default function App() {
     // 4. Chat Sessions
     const savedSessions = localStorage.getItem("mobile_ai_chat_sessions");
     if (savedSessions) {
-      setSessions(JSON.parse(savedSessions));
+      const parsed = safeJsonParse<ChatSession[]>(savedSessions, []);
+      if (Array.isArray(parsed)) {
+        setSessions(parsed);
+      }
     }
   }, []);
 
@@ -487,6 +507,9 @@ export default function App() {
       if (newSettings.apiUrl !== undefined && newSettings.apiUrl !== null) localStorage.setItem("apiUrl", newSettings.apiUrl);
       if (newSettings.apiKey !== undefined && newSettings.apiKey !== null) localStorage.setItem("apiKey", newSettings.apiKey);
       if (newSettings.model !== undefined && newSettings.model !== null) localStorage.setItem("model", newSettings.model);
+      if (newSettings.temperature !== undefined && newSettings.temperature !== null) {
+        localStorage.setItem("temperature", newSettings.temperature.toString());
+      }
       if (newSettings.globalFont) localStorage.setItem("mobile_ai_global_font", newSettings.globalFont);
       if (newSettings.customFontUrl) localStorage.setItem("mobile_ai_custom_font_url", newSettings.customFontUrl);
     } catch (err) {

@@ -1654,7 +1654,7 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-3 content-start">
-          {characters.filter(c => !c.isGroup).map(c => (
+          {characters.filter(c => !(c as any).isGroup).map(c => (
             <button 
               key={c.id} 
               onClick={() => handleStartNewTheaterFlow(c)} 

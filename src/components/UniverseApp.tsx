@@ -1600,7 +1600,7 @@ ${chatHistory}
         ...(activeWorld.userIdentity || { name: "我", avatar: "👤", thought: "", role: "攻略者" }),
         name: editUserName,
         thought: editUserThought,
-      },
+      } as any,
       characterStates: editCharacterStates,
       tasks: editTasks,
       updatedAt: Date.now()
@@ -1620,7 +1620,7 @@ ${chatHistory}
       status: activeWorld.status,
       shared: false
     };
-    const updatedWorld = { ...activeWorld, memoryCard: cardObj, updatedAt: Date.now() };
+    const updatedWorld = { ...activeWorld, memoryCard: cardObj, updatedAt: Date.now() } as any;
     const newWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
     persistWorlds(newWorlds);
     alert("🎁 剧情记忆卡片已成功生成！");
@@ -2562,7 +2562,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 if (activeWorld) {
                   setEditWorldBg(activeWorld.background || "");
                   setEditUserName(activeWorld.userIdentity?.name || "");
-                  setEditUserThought(activeWorld.userIdentity?.thought || "");
+                  setEditUserThought((activeWorld.userIdentity as any)?.thought || "");
                   setEditCharacterStates(activeWorld.characterStates || {});
                   setEditTasks(activeWorld.tasks || []);
                   if (activeWorld.characterIds?.[0]) {
@@ -2907,14 +2907,14 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                   </div>
 
                   {/* Modern Warnings block */}
-                  {activeWorld.modernWarnings && activeWorld.modernWarnings.length > 0 && (
+                  {(activeWorld as any).modernWarnings && (activeWorld as any).modernWarnings.length > 0 && (
                     <div className="p-4 rounded-2xl bg-white border border-[#EFECE8] space-y-3 shadow-xs">
                       <h3 className="text-xs font-semibold text-[#1A1A1A] flex items-center gap-1.5 border-b border-[#EFECE8] pb-2">
                         <AlertTriangle className="w-4 h-4 text-[#78716C]" />
                         <span>现代言行穿帮警报</span>
                       </h3>
                       <div className="space-y-2">
-                        {activeWorld.modernWarnings.map((w, index) => (
+                        {((activeWorld as any).modernWarnings as any[]).map((w, index) => (
                           <div key={index} className="p-3 bg-[#FAFAF9] border border-[#EFECE8] rounded-xl space-y-1.5 text-xs text-[#1A1A1A]">
                             <div className="flex items-center justify-between text-[10px] text-[#78716C] border-b border-[#EFECE8] pb-1">
                               <span className="font-medium">穿帮事件 #{index + 1}</span>
@@ -2959,7 +2959,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                           <button
                             type="button"
                             onClick={() => handleTransmigrationUserSend("【AI推进】：请继续推进当前世界的剧情发展的关键节点！")}
-                            disabled={isGenerating || activeWorld.status === "completed"}
+                            disabled={isGenerating || (activeWorld.status as string) === "completed"}
                             className="px-3 py-1 rounded-full bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F5F3F0] disabled:text-[#A8A39A] text-white text-xs  font-medium transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50 shadow-xs active:scale-95 border border-[#1A1A1A]"
                             title="AI自动推进剧情"
                           >
@@ -3008,17 +3008,17 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                     <div className="p-3 bg-white flex items-center gap-2">
                       <input
                         type="text"
-                        placeholder={activeWorld.status !== "completed" ? "输入自定义行动、对话或回应..." : "世界已结束，无法继续操作"}
+                        placeholder={(activeWorld.status as string) !== "completed" ? "输入自定义行动、对话或回应..." : "世界已结束，无法继续操作"}
                         value={inputText}
                         onChange={(e) => setInputText(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleTransmigrationUserSend()}
-                        disabled={isGenerating || activeWorld.status === "completed"}
+                        disabled={isGenerating || (activeWorld.status as string) === "completed"}
                         className="flex-1 bg-white border border-[#E5E2DC] rounded-full px-4 py-2 text-xs sm:text-sm  text-[#1A1A1A] outline-none focus:border-[#1A1A1A] placeholder-[#A8A39A] disabled:opacity-50"
                       />
                       <button
                         type="button"
                         onClick={() => handleTransmigrationUserSend()}
-                        disabled={isGenerating || !inputText.trim() || activeWorld.status === "completed"}
+                        disabled={isGenerating || !inputText.trim() || (activeWorld.status as string) === "completed"}
                         className="p-2.5 bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F5F3F0] disabled:text-[#A8A39A] text-white rounded-full transition cursor-pointer flex items-center justify-center shrink-0 border border-[#1A1A1A]"
                         title="发送自定义行动"
                       >
@@ -3141,7 +3141,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         let displayName = msg.senderName;
                         const char = characters.find(c => c.id === msg.senderId || c.name === msg.senderName);
                         const charState = activeWorld.characterStates?.[char?.id || ""] ||
-                                          activeWorld.charactersState?.find(cs => cs.characterId === char?.id || cs.name === msg.senderName);
+                                          (activeWorld as any).charactersState?.find((cs: any) => cs.characterId === char?.id || cs.name === msg.senderName);
 
                         if (isMe) {
                           displayName = isMyFactionViewing ? "玩家（你自己）" : (activeWorld.userIdentity?.name || "未知异世者");
@@ -3156,8 +3156,8 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         }
 
                         const avatar = isMe
-                          ? (activeWorld.userIdentity?.avatar || "👤")
-                          : (charState?.avatar || char?.avatar || "👤");
+                          ? ((activeWorld.userIdentity as any)?.avatar || "👤")
+                          : ((charState as any)?.avatar || char?.avatar || "👤");
 
                         const avatarEl = (
                           <CharacterAvatar character={char} avatar={avatar} name={isMe ? "我" : (char?.name || "角色")} mode="real" size={28} className="rounded-full shadow-2xs shrink-0" />
@@ -3250,7 +3250,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
 
           {/* Character Inspect Drawer Modal */}
           {inspectingCharId && (() => {
-            const charState = activeWorld.charactersState.find(c => c.characterId === inspectingCharId);
+            const charState = ((activeWorld as any).charactersState || []).find((c: any) => c.characterId === inspectingCharId);
             if (!charState) return null;
             return (
               <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4">
@@ -3324,7 +3324,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
 
           {/* Accuse Modal */}
           {showAccuseModal && accuseTargetId && (() => {
-            const targetChar = activeWorld.charactersState.find(c => c.characterId === accuseTargetId);
+            const targetChar = ((activeWorld as any).charactersState || []).find((c: any) => c.characterId === accuseTargetId);
             if (!targetChar) return null;
             return (
               <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xs flex items-center justify-center p-4">
