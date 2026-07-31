@@ -148,6 +148,7 @@ export interface TransmigrationWorld {
   factionChats?: Record<string, FactionChatMessage[]>;
   actionOptions?: string[];
   factionProgress?: Record<string, number>;
+  npcs?: { name: string; role?: string; description?: string }[];
 }
 
 // 2. Rules Horror (规则怪谈)
@@ -285,6 +286,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
   const [editMaxWord, setEditMaxWord] = useState<number>(1500);
   const [editCharacterStates, setEditCharacterStates] = useState<Record<string, CharacterTransmigrationState>>({});
   const [editTasks, setEditTasks] = useState<TransmigrationTask[]>([]);
+  const [editNpcs, setEditNpcs] = useState<{ name: string; role?: string; description?: string }[]>([]);
   const [selectedShareCharId, setSelectedShareCharId] = useState<string>("");
   const [showEndWorldConfirm, setShowEndWorldConfirm] = useState(false);
   const [worldListTab, setWorldListTab] = useState<"active" | "archived">("active");
@@ -407,15 +409,46 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
   };
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const transmigrationHistoryScrollRef = useRef<HTMLDivElement | null>(null);
 
   // Scroll to bottom helper
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const scrollTransmigrationToBottom = (smooth: boolean = true) => {
+    const container = transmigrationHistoryScrollRef.current;
+    if (container) {
+      if (smooth) {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior: "smooth"
+        });
+      } else {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (activePlayTab === "history") {
+      // Use setTimeout 0 to ensure DOM is fully rendered/updated first
+      const timer = setTimeout(() => {
+        scrollTransmigrationToBottom(false);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [activePlayTab]);
+
+  useEffect(() => {
+    if (activePlayTab === "history" && activeWorld?.messages) {
+      scrollTransmigrationToBottom(true);
+    }
+  }, [activeWorld?.messages, isGenerating]);
+
   useEffect(() => {
     scrollToBottom();
-  }, [activeWorld?.messages, activeInstance?.messages, activeScript?.messages, isGenerating]);
+  }, [activeInstance?.messages, activeScript?.messages, isGenerating]);
 
   // Load from LocalStorage
   useEffect(() => {
@@ -495,77 +528,77 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
 
   const generateLocalFallbackWorld = (worldName: string, selectedChars: Character[]) => {
     let bg = `这是一个名为《${worldName}》的快穿高维重构世界。天地灵气与赛博代码交织，隐藏着不可告人的远古秘密。`;
-    let tasksList = ["探寻世界核心遗迹并破解封印", "解锁关键人物羁绊", "完成高维攻略并寻回原世界归途"];
-
-    const userIdentity: IdentityDetails = {
-      name: "秦羽",
-      age: 21,
-      appearance: "眼眸深邃，气质沉稳，身穿一袭符合当下身份的得体服饰，举手投足间带着从容不迫与洞察力。",
-      profession: "特级时空管理局攻略者",
-      relationship: "作为穿越而来的攻略者，需要解开各攻略对象的羁绊与心结。",
-      personality: "冷静克制，言辞谨慎，观察敏锐。",
-      background: "苏醒在此刻宿主的躯壳中，肩负着完成攻略与世界重构的使命。"
+    let tasksList = [
+      "探寻世界核心遗迹并唤醒古老石碑",
+      "解决这个世界的源能危机并保护伙伴",
+      "击败暗中操控命运维度的幕后反派"
+    ];
+    let userIdentity: IdentityDetails = {
+      name: "攻略者",
+      age: 23,
+      appearance: "一袭素色衣袍，眼神坚定，带着一丝不属于这个世界的冷静与从容。",
+      profession: "跨维度时空特工 / 攻略者",
+      relationship: "对所有人来说都是身份神秘的异界来客",
+      personality: "沉着冷静，智计百出，极具亲和力与观察力",
+      background: "来自高维时空‘星穹管理局’，执行时空修复与羁绊拯救任务。"
     };
 
-    const characterStates: Record<string, CharacterTransmigrationState> = {};
-    selectedChars.forEach((c) => {
-      characterStates[c.id] = {
-        characterId: c.id,
-        roleTag: "攻略对象",
+    let characterStates: Record<string, CharacterTransmigrationState> = {};
+    selectedChars.forEach((char, idx) => {
+      const isFirst = idx === 0;
+      characterStates[char.id] = {
+        characterId: char.id,
+        roleTag: isFirst ? "攻略对象" : "攻略对象",
         identity: {
-          name: c.name + " (位面宿体)",
-          age: 22,
-          appearance: "容貌清丽，神情中带着一丝疏离。",
-          profession: "位面核心人物",
-          relationship: "你的攻略目标对象，与你有着深厚的命运羁绊。",
-          personality: "多疑且敏感，伴随警惕心。",
-          background: "在此界有着特殊的位面身份背景。"
+          name: char.name,
+          age: 20 + idx,
+          appearance: "容貌清秀，气质独特，身上仿佛萦绕着某种不寻常的气息。",
+          profession: "世家传人 / 秘境寻宝者",
+          relationship: isFirst ? "你的宿命羁绊对象" : "共同行动的同伴",
+          personality: "表面高冷孤傲，实则内心善良且渴望被理解。",
+          background: "在这个世界的世家大族中长大，背负着家族的秘密使命与宿命。"
         },
         favorability: 50,
         suspicion: 20,
-        innerThought: "总觉得这个人身上有一种独特又让人在意的情感……",
-        flaws: ["过度戒备", "言不由衷"],
+        innerThought: "总觉得这个人有些古怪，但又有一种莫名的熟悉感...",
+        flaws: ["容易口是心非", "对外界充满警惕"]
       };
     });
 
-    return { bg, tasksList, userIdentity, characterStates };
+    const npcs = [
+      { name: "老张头", role: "老管家/引路人", description: "在这个世界侍奉多年的老管家，对各方势力和地理环境极为了解，言行稳重。" },
+      { name: "徐捕头", role: "地方治安官", description: "性格耿直且武艺不凡的捕头，对城中的风吹草动极其敏锐，是维护秩序的关键人物。" },
+      { name: "阿月", role: "机灵的小贩/侍女", description: "手脚麻利且眼观六路耳听八方的年轻侍女，经常能带来一些不为人知的密谈和传言。" }
+    ];
+
+    return { bg, tasksList, userIdentity, characterStates, npcs };
   };
 
   const handleCreateWorld = async () => {
+    if (!newWorldName.trim()) {
+      alert("请输入新世界名称！");
+      return;
+    }
+    if (selectedCharIds.length === 0) {
+      alert("请至少选择一位角色！");
+      return;
+    }
+
+    setIsGenerating(true);
     try {
-      const worldName = newWorldPresetId 
-        ? PRESET_WORLDS.find(p => p.id === newWorldPresetId)?.name || newWorldName 
-        : newWorldName;
-
-      if (!worldName.trim()) {
-        alert("请输入或选择一个世界名称！");
-        return;
-      }
-
-      let currentSelectedCharIds = [...selectedCharIds];
-      if (currentSelectedCharIds.length === 0) {
-        if (characters.length > 0) {
-          currentSelectedCharIds = characters.slice(0, 2).map((c) => c.id);
-          setSelectedCharIds(currentSelectedCharIds);
-        } else {
-          alert("请至少选择一位参与角色！");
-          return;
-        }
-      }
-
-      setIsGenerating(true);
-      const selectedChars = currentSelectedCharIds.map((id) => getCharacterById(id)).filter(Boolean) as Character[];
-      const charNames = selectedChars.map((c) => c.name).join("、");
+      const worldName = newWorldName.trim();
+    const selectedChars = selectedCharIds.map(id => getCharacterById(id)).filter(Boolean) as Character[];
+    const charNames = selectedChars.map(c => c.name).join("、");
 
     let generatedBackground = "";
     let generatedTasks: string[] = [];
     let generatedUserIdentity: IdentityDetails | undefined;
     let generatedCharIdentities: Record<string, any> = {};
+    let generatedNpcs: { name: string; role?: string; description?: string }[] = [];
 
     const presetObj = PRESET_WORLDS.find(p => p.id === newWorldPresetId);
     const customPromptPart = presetObj 
-      ? `【世界基础背景】：${presetObj.description}
-【核心预设任务】：${presetObj.tasks.join("、")}`
+      ? `【世界基础背景】：${presetObj.description}\n【核心预设任务】：${presetObj.tasks.join("、")}`
       : `【世界名】：${worldName}`;
 
     const prompt = "你是一个快穿世界剧情架构师。请为快穿世界《" + worldName + "》设计完整的背景、攻略者与攻略对象角色矩阵。\n" +
@@ -588,7 +621,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       "    \"profession\": \"职业\",\n" +
       "    \"relationship\": \"社会关系\",\n" +
       "    \"personality\": \"性格\",\n" +
-      "    \"background\": \"背景故事与攻略使命\"\n" +
+      "    \"background\": \"背景故事与攻略使命\"" +
       "  },\n" +
       "  \"character_identities\": {}\n" +
       "}\n\n" +
@@ -603,6 +636,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       generatedBackground = parsed.background;
       generatedTasks = parsed.tasks;
       generatedUserIdentity = parsed.user_identity;
+      generatedNpcs = parsed.npcs || [];
       
       selectedChars.forEach(char => {
         const idData = parsed.character_identities?.[char.id] || parsed.character_identities?.[char.name];
@@ -633,9 +667,10 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       generatedTasks = fb.tasksList;
       generatedUserIdentity = fb.userIdentity;
       generatedCharIdentities = fb.characterStates;
+      generatedNpcs = fb.npcs;
     }
 
-    // Default world chat faction container for group messaging
+      // Default world chat faction container for group messaging
     generatedFactions = [
       {
         id: "world_chat",
@@ -3014,7 +3049,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 </div>
 
                 {/* 剧情消息历史滚动区 */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                <div ref={transmigrationHistoryScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
                   {/* Story messages stream */}
                   <div className="space-y-3">
                     {activeWorld.messages && activeWorld.messages.length > 0 ? (
@@ -3100,7 +3135,6 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         点击下方“AI推进”或选择行动选项开启故事...
                       </div>
                     )}
-                    <div ref={messagesEndRef} />
                   </div>
 
                   {/* Modern Warnings block */}
