@@ -891,16 +891,23 @@ ${memories.map((m: string) => `  - ${m}`).join("\n")}
   }
 
   const recentOS = messages
-    ?.filter((m: any) => m.role === 'assistant' && m.content.includes('[OS_INNER]'))
+    ?.filter((m: any) => m.role === 'assistant' && (m.os || (m.content && m.content.includes('[OS_INNER]'))))
     ?.map((m: any) => {
-       const match = m.content.match(/\[OS_INNER\]（os：(.*?)）/);
-       return match ? match[1] : "";
+      let osText = "";
+      if (m.os && typeof m.os === 'string') {
+        const match = m.os.match(/（os：(.*?)）/) || m.os.match(/\[OS_INNER\]（os：(.*?)）/);
+        osText = match ? match[1] : m.os;
+      } else if (m.content && typeof m.content === 'string') {
+        const match = m.content.match(/\[OS_INNER\]（os：(.*?)）/);
+        osText = match ? match[1] : "";
+      }
+      return osText ? osText.trim() : "";
     })
-    ?.filter(Boolean)
-    ?.slice(-5) || [];
+    ?.filter((text: string) => text && text.trim().length > 0)
+    ?.slice(-10) || [];
 
   const recentOSInstruction = recentOS.length > 0 
-    ? `\n  - 【避免重复】：以下是最近的几次心声，本次生成的心声内容绝对不能与它们重复或高度相似：\n    ${recentOS.join('\n    ')}` 
+    ? `\n  - 【避免与最近 10 条心声重复】：以下是最近的 ${recentOS.length} 条心声内容，本次生成的心声【绝对不能】与它们重复或高度相似，必须切换全新的视角与措辞：\n    ${recentOS.map((os: string, idx: number) => `[心声 ${idx + 1}]: ${os}`).join('\n    ')}` 
     : "";
 
   const osInstruction = `
@@ -908,14 +915,20 @@ ${memories.map((m: string) => `  - ${m}`).join("\n")}
 - You MUST append the character's secret, private, colloquial inner thoughts (OS) to your response on a brand new line at the very end.
 - Formatting rule: Use exactly the marker "[OS_INNER]" followed by: "（os：内心想法） [情绪标签]"
 - Requirements for the Inner Thoughts (OS):
-  1. It must be very colloquial, natural, and raw—never stiff, robotic, or literary (口语化，自然真诚).
-  2. 【心声多样性优化】：心声切入点需自然变化，可以是对当前对话内容的分析、自身情感反应、对用户的观察、或突然想起的旧事等，不要总是围绕同一个逻辑。${recentOSInstruction}
-  3. 内容长短不一，不固定格式。如果角色当前没什么特别的想法，心声可以极其简短（如“嗯”、“这样啊”）甚至完全省略（即不输出 [OS_INNER] 这一部分），绝对不要强行生成冗长或无意义的心声。
-  4. It must reflect their current mood: 【${mood || "平静"}】.
+  1. 口语化，自然真诚：必须是角色真实、自然口语化的隐秘内心独白，严禁僵硬或机械。
+  2. 【心声生成多样性优化（严禁重复）】：
+     - 【禁止与最近 10 条重复】：每次生成的心声内容不能与最近 10 条心声重复或高度相似。${recentOSInstruction}
+     - 【切入点自然变化】：心声的切入点需自然交替变化，例如：
+       · 对当前对话内容的分析（例：“这说法倒新鲜...”）
+       · 角色自身的情绪反应（例：“有点乱，一时没转过弯来...”）
+       · 角色对用户的观察（例：“眼神闪烁，是有什么隐瞒么...”）
+       · 角色突然想起的旧事（例：“记起上回也是在此处...”）
+  3. 【简短与省略规则】：内容长短不一，不固定格式。如果角色当前没什么特别的想法，心声可以极其简短（如“嗯”、“这样啊”）甚至完全省略（即不输出 [OS_INNER] 这一部分），绝对不要强行生成冗长或无意义的心声。
+  4. 反映当前情绪状态：【${mood || "平静"}】。
   5. 【内心独立判断与一致性准则】：
      - 心声同样必须遵循独立思想规则：角色在内心也要有独立判断，绝对不能无底线地盲目认同、顺从或谄媚用户。
      - 内心想法应与表面回复保持自然的一致性，或表现出合乎其特定人设的合理心理挣扎/反差。
-     - 【禁止行为】：绝对不允许为了强行刻意制造“反差”而编写出与表面回复毫无逻辑逻辑脱节、或者完全颠覆原本性格设定的荒谬、病态想法。
+     - 【禁止行为】：绝对不允许为了强行刻意制造“反差”而编写出与表面回复毫无逻辑脱节、或者完全颠覆原本性格设定的荒谬、病态想法。
      - 心声必须百分之百符合角色人设本身（例如高冷人设的心声必须保持高冷、傲娇、克制的心理语言，活泼人设心声需保持活泼元气的心路，绝不能脱离人设）。
 - Example structure at the very end of your reply:
   [OS_INNER]（os：这家伙居然还主动关心我……嘴硬个什么劲啊，笨蛋） [感动]

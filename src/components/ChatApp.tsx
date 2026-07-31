@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
-import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2, CheckSquare, Mic, Volume2, ArrowUp } from "lucide-react";
+import { ChevronLeft, Send, Sparkles, Plus, Trash2, Edit, RefreshCw, MessageSquarePlus, MessageSquare, MoreHorizontal, User, CornerDownRight, ScrollText, Check, Menu, X, CornerUpLeft, Quote, Dices, Users, Compass, Heart, Search, AlertCircle, Phone, Video, CreditCard, MapPin, Gift, Gamepad2, Wallet, BookOpen, Image, Calendar, Copy, Settings, Camera, Share2, CheckSquare, Mic, Volume2, ArrowUp, ChevronDown, ChevronUp } from "lucide-react";
 import { apiChat, getPhoneContent, getThreeDataSourcesPrompt } from "../lib/api";
 import { getDefaultAvatar } from "../lib/avatarUtils";
 import { Character, Message, LoreEntry, AppSettings, ChatSession, UserPersona, MomentPost, MomentComment, BoundNPC } from "../types";
@@ -626,23 +626,31 @@ export default function ChatApp({
   const [ttsText, setTtsText] = useState("");
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
 
-  const sendGroupVoiceMessageContent = (content: string) => {
-    if (!activeSession || !activeSession.isGroup) return;
+  const sendVoiceMessageContent = (content: string) => {
+    if (!activeSession) return;
     const userMsg: Message = {
       id: `msg-${Date.now()}-user`,
       role: "user",
       content,
       timestamp: Date.now(),
     };
-    onUpdateSessionMessages(activeSession.id, [...activeSession.messages, userMsg], undefined, {
-      groupName: activeSession.groupName,
-      groupAvatar: activeSession.groupAvatar,
-      memberIds: activeSession.memberIds,
-      syncMemory: activeSession.syncMemory,
-      isGroup: true,
-    });
+
+    if (activeSession.isGroup) {
+      onUpdateSessionMessages(activeSession.id, [...(activeSession.messages || []), userMsg], undefined, {
+        groupName: activeSession.groupName,
+        groupAvatar: activeSession.groupAvatar,
+        memberIds: activeSession.memberIds,
+        syncMemory: activeSession.syncMemory,
+        worldSetting: activeSession.worldSetting,
+        isGroup: true,
+      });
+    } else if (activeCharId) {
+      onUpdateSessionMessages(activeCharId, [...(activeSession.messages || []), userMsg]);
+    }
     setTimeout(scrollToBottom, 100);
   };
+
+  const sendGroupVoiceMessageContent = sendVoiceMessageContent;
 
   const handleStartVoiceRecord = async () => {
     setShowVoiceMenu(false);
@@ -661,8 +669,8 @@ export default function ChatApp({
         const durationSec = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
         const durationStr = durationSec < 10 ? `00:0${durationSec}` : `00:${durationSec}`;
         
-        const voiceMsgContent = `[语音消息] ${durationStr}|${audioUrl}`;
-        sendGroupVoiceMessageContent(voiceMsgContent);
+        const voiceMsgContent = `[语音消息] ${durationStr}|${audioUrl}|text:录音语音`;
+        sendVoiceMessageContent(voiceMsgContent);
         
         stream.getTracks().forEach(track => track.stop());
       };
@@ -683,7 +691,7 @@ export default function ChatApp({
     } catch (err) {
       alert("无法访问麦克风，已为您生成模拟语音消息。");
       const durationStr = "00:06";
-      sendGroupVoiceMessageContent(`[语音消息] ${durationStr}`);
+      sendVoiceMessageContent(`[语音消息] ${durationStr}|text:模拟录音语音`);
       setIsRecordingVoice(false);
     }
   };
@@ -1090,7 +1098,7 @@ export default function ChatApp({
     }, 1500);
   };
 
-  // Extract all OS entries in chronological order (from old to new)
+  // Extract all OS entries in reverse chronological order (from new to old)
   const getSessionOsHistory = () => {
     if (!activeSession || !activeSession.messages) return [];
     const items: { id: string; msg: Message; os: string; timestamp: number }[] = [];
@@ -1101,7 +1109,7 @@ export default function ChatApp({
           id: `os-${m.id}`,
           msg: m,
           os: m.os,
-          timestamp: m.timestamp,
+          timestamp: m.timestamp || Date.now(),
         });
       }
     });
@@ -1115,13 +1123,13 @@ export default function ChatApp({
           id: `os-current-${lastAssistantMsg.id}`,
           msg: lastAssistantMsg,
           os: activeSession.currentOS,
-          timestamp: lastAssistantMsg.timestamp,
+          timestamp: lastAssistantMsg.timestamp || Date.now(),
         });
       }
     }
 
-    // Ensure chronological order (from old to new)
-    items.sort((a, b) => a.timestamp - b.timestamp);
+    // Ensure reverse chronological order (from new to old: latest first)
+    items.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
     return items;
   };
 
@@ -2930,7 +2938,15 @@ ${existingCommentsText || "暂无评论"}
       if (parts.length > 0) {
         let currentMessages = [...currentHistory];
         for (let i = 0; i < parts.length; i++) {
-          const part = parts[i];
+          let part = parts[i];
+          // ~20% probability for AI to reply as a fake voice message if standard text
+          if (!part.startsWith("[") && Math.random() < 0.20) {
+            const charCount = part.length;
+            const sec = Math.max(2, Math.min(30, Math.ceil(charCount / 3)));
+            const durationStr = sec < 10 ? `00:0${sec}` : `00:${sec}`;
+            part = `[语音消息] ${durationStr}|text:${part}`;
+          }
+
           const newBotMsg: Message = {
             id: `msg-${Date.now() + i}-assistant`,
             role: "assistant",
@@ -3280,64 +3296,117 @@ ${existingCommentsText || "暂无评论"}
     return false;
   };
 
-  const VoiceMessageBubble = ({ duration, audioUrl, textContent, isUser }: { duration: string; audioUrl?: string; textContent?: string; isUser?: boolean }) => {
+  const VoiceMessageBubble = ({
+    duration,
+    audioUrl,
+    textContent,
+    isUser,
+  }: {
+    duration: string;
+    audioUrl?: string;
+    textContent?: string;
+    isUser?: boolean;
+  }) => {
     const [isPlaying, setIsPlaying] = useState(false);
+    const [isExpanded, setIsExpanded] = useState(false);
 
-    const handlePlay = () => {
-      if (isPlaying) return;
-      setIsPlaying(true);
+    const handleTogglePlayOrExpand = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      setIsExpanded((prev) => !prev);
 
       if (audioUrl) {
-        const audio = new Audio(audioUrl);
-        audio.onended = () => setIsPlaying(false);
-        audio.onerror = () => setIsPlaying(false);
-        audio.play().catch(() => setIsPlaying(false));
-      } else if (textContent && 'speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(textContent);
-        utterance.lang = 'zh-CN';
-        utterance.onend = () => setIsPlaying(false);
-        utterance.onerror = () => setIsPlaying(false);
-        window.speechSynthesis.speak(utterance);
-      } else {
-        setTimeout(() => {
+        if (isPlaying) {
           setIsPlaying(false);
-        }, 3000);
+        } else {
+          setIsPlaying(true);
+          const audio = new Audio(audioUrl);
+          audio.onended = () => setIsPlaying(false);
+          audio.onerror = () => setIsPlaying(false);
+          audio.play().catch(() => setIsPlaying(false));
+        }
       }
     };
 
     return (
-      <div 
-        onClick={handlePlay}
-        className="flex items-center gap-3 py-1 cursor-pointer select-none group min-w-[140px] max-w-[210px]"
+      <div
+        onClick={handleTogglePlayOrExpand}
+        className={`rounded-2xl p-3 border transition-all cursor-pointer select-none max-w-[280px] sm:max-w-[320px] shadow-xs my-0.5 ${
+          isUser
+            ? "bg-neutral-900 border-neutral-800 text-white hover:bg-black"
+            : "bg-white border-neutral-300 text-neutral-950 hover:border-neutral-400"
+        }`}
       >
-        <div className="flex items-center gap-1.5 flex-1">
-          <div className="flex items-center gap-0.5 h-4">
-            {[12, 20, 8, 16, 24, 10, 18, 14, 22, 8].map((h, i) => (
-              <div 
-                key={i} 
+        {/* Waveform Bar & Duration */}
+        <div className="flex items-center gap-2.5">
+          <div
+            className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 border transition-all ${
+              isUser
+                ? "bg-white text-neutral-900 border-white"
+                : "bg-neutral-900 text-white border-neutral-900"
+            }`}
+          >
+            {isPlaying ? (
+              <span className="text-[10px] font-bold">⏸</span>
+            ) : (
+              <span className="text-[10px] font-bold ml-0.5">▶</span>
+            )}
+          </div>
+
+          {/* Minimalist Waveform bars */}
+          <div className="flex items-center gap-1 flex-1 h-5 overflow-hidden">
+            {[14, 22, 10, 18, 26, 12, 20, 16, 24, 10, 18, 12].map((h, i) => (
+              <div
+                key={i}
                 className={`w-1 rounded-full transition-all duration-300 ${
                   isUser ? "bg-white" : "bg-neutral-900"
                 } ${isPlaying ? "animate-pulse" : ""}`}
-                style={{ 
-                  height: isPlaying ? `${Math.max(4, (h * (i % 2 === 0 ? 1.4 : 0.8)))}px` : `${h}px`,
-                  opacity: isPlaying ? 1 : 0.7 
+                style={{
+                  height: isPlaying
+                    ? `${Math.max(4, Math.min(20, h * (i % 2 === 0 ? 1.3 : 0.7)))}px`
+                    : `${Math.min(18, h)}px`,
+                  opacity: isPlaying ? 1 : 0.8,
                 }}
               />
             ))}
           </div>
-          <span className={`text-[11px] font-mono font-medium ml-2 ${isUser ? "text-white/90" : "text-neutral-800"}`}>
-            {duration}
-          </span>
+
+          {/* Duration + Expand icon */}
+          <div className="flex items-center gap-1 shrink-0">
+            <span
+              className={`text-xs font-mono font-bold tracking-wide ${
+                isUser ? "text-neutral-200" : "text-neutral-700"
+              }`}
+            >
+              {duration || "00:05"}
+            </span>
+            {isExpanded ? (
+              <ChevronUp
+                className={`w-3.5 h-3.5 ${
+                  isUser ? "text-neutral-400" : "text-neutral-500"
+                }`}
+              />
+            ) : (
+              <ChevronDown
+                className={`w-3.5 h-3.5 ${
+                  isUser ? "text-neutral-400" : "text-neutral-500"
+                }`}
+              />
+            )}
+          </div>
         </div>
-        <div className={`w-6 h-6 rounded-full flex items-center justify-center border transition-all ${
-          isUser ? "border-white/30 text-white bg-white/10" : "border-neutral-300 text-neutral-900 bg-neutral-100"
-        }`}>
-          {isPlaying ? (
-            <span className="text-[10px]">⏸</span>
-          ) : (
-            <span className="text-[10px] ml-0.5">▶</span>
-          )}
-        </div>
+
+        {/* Expanded Text Content */}
+        {isExpanded && textContent && textContent !== "录音语音" && textContent !== "模拟录音语音" && (
+          <div
+            className={`mt-2.5 pt-2 border-t text-xs leading-relaxed whitespace-pre-wrap break-words animate-fade-in ${
+              isUser
+                ? "border-neutral-800 text-neutral-200 font-normal"
+                : "border-neutral-100 text-neutral-800 font-normal"
+            }`}
+          >
+            {textContent}
+          </div>
+        )}
       </div>
     );
   };
@@ -5132,6 +5201,8 @@ ${existingCommentsText || "暂无评论"}
               >
                 +
               </button>
+
+
               <input
                 type="text"
                 placeholder={editingMessageId ? "编辑消息..." : "发送群聊消息..."}
@@ -5700,20 +5771,50 @@ ${existingCommentsText || "暂无评论"}
                       </button>
                     </div>
                     <div className="grid grid-cols-4 gap-4 overflow-y-auto py-2">
-                      {/* 1. 语音 */}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowActionPanel(false);
-                          setActiveCall("voice");
-                        }}
-                        className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
-                      >
-                        <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
-                          <Phone className="w-5 h-5" />
-                        </div>
-                        <span className="text-[11px]  text-neutral-600">语音</span>
-                      </button>
+                      {/* 1. 发语音 */}
+                      <div className="relative flex flex-col items-center">
+                        <button
+                          type="button"
+                          onClick={() => setShowVoiceMenu(!showVoiceMenu)}
+                          className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group w-full"
+                        >
+                          <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
+                            <Mic className="w-5 h-5" />
+                          </div>
+                          <span className="text-[11px] text-neutral-600">发语音</span>
+                        </button>
+
+                        {/* Voice options popup inside + panel */}
+                        {showVoiceMenu && (
+                          <div className="absolute bottom-full left-0 mb-2 w-44 bg-white border border-neutral-200 rounded-2xl shadow-xl py-2 z-50 text-xs animate-fade-in font-sans">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowVoiceMenu(false);
+                                setShowActionPanel(false);
+                                setTtsText("");
+                                setShowTtsModal(true);
+                              }}
+                              className="w-full px-3.5 py-2.5 text-left hover:bg-neutral-50 flex items-center gap-2.5 font-medium text-neutral-900 transition-colors"
+                            >
+                              <Volume2 className="w-4 h-4 text-neutral-600" />
+                              <span>打字转语音</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowVoiceMenu(false);
+                                setShowActionPanel(false);
+                                handleStartVoiceRecord();
+                              }}
+                              className="w-full px-3.5 py-2.5 text-left hover:bg-neutral-50 flex items-center gap-2.5 font-medium text-neutral-900 transition-colors border-t border-neutral-100"
+                            >
+                              <Mic className="w-4 h-4 text-neutral-600" />
+                              <span>语音输入 (录音)</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
 
                       {/* 2. 视频 */}
                       <button
@@ -5935,6 +6036,8 @@ ${existingCommentsText || "暂无评论"}
                       >
                         +
                       </button>
+
+
                       <input
                         type="text"
                         placeholder={isGenerating ? "生成中..." : "输入消息..."}
@@ -7569,7 +7672,7 @@ ${existingCommentsText || "暂无评论"}
                     </span>
                   </h3>
                   <p className="text-[11px] text-stone-400 ">
-                    按时间顺序记录的角色内心真实想法（从旧到新）
+                    按时间顺序记录的角色内心真实想法（从新到旧）
                   </p>
                 </div>
               </div>
@@ -7581,7 +7684,7 @@ ${existingCommentsText || "暂无评论"}
               </button>
             </div>
 
-            {/* List content (Chronological, old to new) with 12px spacing between cards */}
+            {/* List content (New to old) with 12px spacing between cards */}
             <div className="flex-1 overflow-y-auto p-4 space-y-[12px] bg-stone-50/50">
               {(() => {
                 const osHistory = getSessionOsHistory();
@@ -7597,7 +7700,8 @@ ${existingCommentsText || "暂无评论"}
 
                 return osHistory.map((item, idx) => {
                   const parsed = parseOS(item.os);
-                  const formattedTime = new Date(item.timestamp).toLocaleString([], {
+                  const timeVal = item.timestamp && !isNaN(Number(item.timestamp)) ? Number(item.timestamp) : Date.now();
+                  const formattedTime = new Date(timeVal).toLocaleString([], {
                     year: 'numeric',
                     month: '2-digit',
                     day: '2-digit',
@@ -7644,7 +7748,12 @@ ${existingCommentsText || "暂无评论"}
                       {/* Bottom: Generation timestamp & Copy Button */}
                       <div className="flex items-center justify-between text-[10px] text-stone-400 font-mono pt-2 border-t border-stone-100 mt-1">
                         <div className="flex items-center gap-2">
-                          <span>#{idx + 1}</span>
+                          <span>#{osHistory.length - idx}</span>
+                          {idx === 0 && (
+                            <span className="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.2 rounded font-sans font-bold">
+                              最新
+                            </span>
+                          )}
                           <span>{formattedTime}</span>
                         </div>
                         <button
@@ -8269,29 +8378,32 @@ ${existingCommentsText || "暂无评论"}
 
       {/* TTS Modal */}
       {showTtsModal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in font-sans">
+          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl space-y-4 border border-neutral-200">
             <div className="flex justify-between items-center pb-3 border-b border-neutral-100">
-              <h3 className="font-bold text-base text-neutral-950">打字转语音</h3>
-              <button onClick={() => setShowTtsModal(false)} className="text-neutral-400 hover:text-neutral-700 p-1">
+              <div>
+                <h3 className="font-bold text-base text-neutral-950">文字转语音</h3>
+                <p className="text-[11px] text-neutral-500 mt-0.5">生成黑白简约模拟语音条（不产生真实音频）</p>
+              </div>
+              <button onClick={() => setShowTtsModal(false)} className="text-neutral-400 hover:text-neutral-700 p-1 rounded-full hover:bg-neutral-100">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="space-y-2">
-              <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">输入要转为语音的文字</label>
+              <label className="text-[10px] font-mono font-bold text-neutral-400 uppercase block">输入要转为语音条的文字</label>
               <textarea
                 rows={3}
                 placeholder="请输入你想说的话..."
                 value={ttsText}
                 onChange={(e) => setTtsText(e.target.value)}
-                className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-white focus:border-neutral-950 outline-none resize-none"
+                className="w-full text-xs border border-neutral-200 px-3.5 py-2.5 rounded-xl bg-neutral-50 focus:bg-white focus:border-neutral-950 outline-none resize-none transition-all"
               />
             </div>
             <div className="flex gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setShowTtsModal(false)}
-                className="flex-1 py-2 text-xs font-bold text-neutral-600 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-colors"
+                className="flex-1 py-2.5 text-xs font-bold text-neutral-600 bg-neutral-100 hover:bg-neutral-200 rounded-xl transition-colors"
               >
                 取消
               </button>
@@ -8305,12 +8417,13 @@ ${existingCommentsText || "暂无评论"}
                   const text = ttsText.trim();
                   setShowTtsModal(false);
                   const charCount = text.length;
-                  const sec = Math.max(2, Math.min(15, Math.ceil(charCount / 3)));
+                  const sec = Math.max(2, Math.min(30, Math.ceil(charCount / 3)));
                   const durationStr = sec < 10 ? `00:0${sec}` : `00:${sec}`;
                   const content = `[语音消息] ${durationStr}|text:${text}`;
-                  sendGroupVoiceMessageContent(content);
+                  sendVoiceMessageContent(content);
+                  setTtsText("");
                 }}
-                className="flex-1 py-2 text-xs font-bold text-white bg-black hover:bg-neutral-800 rounded-xl transition-colors"
+                className="flex-1 py-2.5 text-xs font-bold text-white bg-black hover:bg-neutral-800 rounded-xl transition-colors shadow-sm"
               >
                 生成发送
               </button>
