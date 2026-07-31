@@ -17,13 +17,19 @@ function getVectorApiConfig(customSettings?: any) {
     'https://api.siliconflow.cn/v1'
   ).trim().replace(/\/+$/, '');
 
-  const apiKey = String(
+  let apiKey = String(
     settings.vectorApiKey ||
     localStorage.getItem('vectorApiKey') ||
-    settings.apiKey ||
-    localStorage.getItem('apiKey') ||
     ''
   ).trim();
+
+  // If vectorApiKey is empty, only fallback to settings.apiKey if it's not a Gemini key (AIza...)
+  if (!apiKey) {
+    const fallbackKey = String(settings.apiKey || localStorage.getItem('apiKey') || '').trim();
+    if (fallbackKey && !fallbackKey.startsWith('AIza')) {
+      apiKey = fallbackKey;
+    }
+  }
 
   const model = String(
     settings.vectorModel ||
@@ -62,7 +68,7 @@ export async function storeMemory(characterId: string, text: string, source: str
   const config = getVectorApiConfig(customSettings);
 
   if (!config.apiKey) {
-    throw new Error("未检测到向量 API Key。请先在【设置 -> 向量 API 配置】中填写 Vector API Key（例如 SiliconFlow 或 OpenAI 密钥）。");
+    throw new Error("未检测到有效的 向量 API Key。\n请前往【设置 -> 向量 API 配置】填写 Vector API Key（例如 SiliconFlow 或 OpenAI 密钥）。");
   }
 
   const trimmedText = text.trim();
@@ -87,6 +93,9 @@ export async function storeMemory(characterId: string, text: string, source: str
 
   if (!response.ok) {
     const errText = await response.text().catch(() => "");
+    if (response.status === 401) {
+      throw new Error(`向量 API 鉴权失败 (HTTP 401 密钥无效)。\n当前 Vector API Key 无法通过验证，请前往【设置 -> 向量 API 配置】检查并更新有效的 向量 API Key。`);
+    }
     throw new Error(`向量 API [${config.baseUrl}/embeddings] 请求失败 (${response.status}): ${errText || response.statusText}`);
   }
 

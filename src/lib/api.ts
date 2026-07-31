@@ -486,21 +486,17 @@ export async function apiAnalyzeCharacterFile(params: any) {
 ${text}
 """
 
-你需要从中识别提取出该角色的核心人设信息。请输出一个严格的 JSON 格式，包含以下字段：
-1. name (角色的真实姓名或常称。提取规则：优先识别“姓名：XXX”或“名字：XXX”格式；若无明确标识，尝试从文件开头推测提取；如果实在无法提取，留空字符串 "")
+你需要从文档中提取角色基础信息，并对“聊天风格”进行总结提炼。请输出严格 JSON 格式，包含以下字段：
+1. name (角色的真实姓名或常称。优先识别“姓名：XXX”或“名字：XXX”格式；若无明确标识，尝试推算提取；如果实在无法提取，留空字符串 "")
 2. nickname (角色的别称、小名、爱称或代号，没有则填"无")
-3. personality (【极其重要：一字不差】直接从文档中摘录出关于“性格特点”、“人设”或核心特征的原始内容。绝对禁止任何总结、改写或摘要！)
-4. chatStyle (【核心任务】分析文档中体现的说话风格、语气和用词习惯。基于该角色的特定设定独立生成一段说话风格指令（约100-200字）。如果文中无具体描述，请根据其人设性格合理推演生成。绝不要使用通用的默认模板。)
-5. background (【极其重要：一字不差】直接从文档中摘录出关于“背景故事”、“经历”或“世界观”相关的原始内容。绝对禁止任何总结、改写或摘要！)
-6. avatar (根据该角色的外貌、气质、身份，智能推荐生成一组适合作为头像的英文 Prompt (用于 Image generation)，长度在 30 词以内，需简洁高级)
+3. chatStyle (【核心任务：总结提炼】仔细分析文档中体现的说话风格、口吻、语气、常用口癖和习惯用词，总结提炼出一段精准、生动且具代表性的聊天风格指导说明（约100-200字）。绝不要使用通用的默认模板。)
+4. avatar (根据角色的外貌、气质、身份，智能推荐生成一组适合作为头像的英文 Prompt (用于 Image generation)，长度在 30 词以内)
 
-注意：请务必确保 personality 和 background 字段是原文的搬运，不得有任何词句层面的修改。只输出 JSON 字符串，不要包含任何 markdown 块或多余解释：
+注意：只针对“聊天风格”字段进行总结提炼，只输出 JSON 字符串，不要包含任何 markdown 块或多余解释：
 {
   "name": "...",
   "nickname": "...",
-  "personality": "...",
   "chatStyle": "...",
-  "background": "...",
   "avatar": "..."
 }`;
 
@@ -1669,8 +1665,14 @@ export async function performVectorRetrieval(characterId: string, query: string,
   }
   if (!settings) settings = {};
 
-  const vectorApiUrl = String(settings.vectorApiUrl || localStorage.getItem("vectorApiUrl") || "https://api.siliconflow.cn/v1").trim();
-  const vectorApiKey = String(settings.vectorApiKey || localStorage.getItem("vectorApiKey") || settings.apiKey || localStorage.getItem("apiKey") || "").trim();
+  const vectorApiUrl = String(settings.vectorApiUrl || localStorage.getItem("vectorApiUrl") || "https://api.siliconflow.cn/v1").trim().replace(/\/+$/, '');
+  let vectorApiKey = String(settings.vectorApiKey || localStorage.getItem("vectorApiKey") || "").trim();
+  if (!vectorApiKey) {
+    const fallbackKey = String(settings.apiKey || localStorage.getItem("apiKey") || "").trim();
+    if (fallbackKey && !fallbackKey.startsWith("AIza")) {
+      vectorApiKey = fallbackKey;
+    }
+  }
   const vectorModel = String(settings.vectorModel || localStorage.getItem("vectorModel") || "BAAI/bge-m3").trim();
   const rerankModel = String(settings.rerankModel || localStorage.getItem("rerankModel") || "").trim();
 

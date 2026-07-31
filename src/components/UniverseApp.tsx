@@ -268,16 +268,11 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
 
   // Expanded Transmigration States
   const [newWorldPresetId, setNewWorldPresetId] = useState<string>("");
-  const [newWorldUserTag, setNewWorldUserTag] = useState<"攻略者" | "攻略对象">("攻略者");
   const [newMinWord, setNewMinWord] = useState<number>(300);
   const [newMaxWord, setNewMaxWord] = useState<number>(1500);
-  const [factionAName, setFactionAName] = useState("明光");
-  const [factionBName, setFactionBName] = useState("暗影");
-  const [characterFactionMap, setCharacterFactionMap] = useState<Record<string, 'faction_a' | 'faction_b'>>({});
   const [inspectingCharId, setInspectingCharId] = useState<string | null>(null);
   const [showAccuseModal, setShowAccuseModal] = useState(false);
   const [accuseTargetId, setAccuseTargetId] = useState<string | null>(null);
-  const [accuseGuessTag, setAccuseGuessTag] = useState<"攻略者" | "攻略对象">("攻略者");
   const [accuseText, setAccuseText] = useState("");
   const [activePlayTab, setActivePlayTab] = useState<"behavior" | "tasks" | "identities" | "history" | "chat" | "settings">("history");
   const [viewingFactionId, setViewingFactionId] = useState<string | null>(null);
@@ -497,38 +492,38 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
     }
   ];
 
-  const generateLocalFallbackWorld = (worldName: string, selectedChars: Character[], userTag: string) => {
-    let bg = `这是一个名为《${worldName}》的跨次元高维重构世界。天地灵气与赛博代码交织，各方势力盘根错节，隐藏着不可告人的远古秘密。`;
-    let tasksList = ["探寻世界核心遗迹并破解封印", "联合关键阵营NPC获取信任", "在时空崩塌前寻回原世界归途"];
+  const generateLocalFallbackWorld = (worldName: string, selectedChars: Character[]) => {
+    let bg = `这是一个名为《${worldName}》的快穿高维重构世界。天地灵气与赛博代码交织，隐藏着不可告人的远古秘密。`;
+    let tasksList = ["探寻世界核心遗迹并破解封印", "解锁关键人物羁绊", "完成高维攻略并寻回原世界归途"];
 
     const userIdentity: IdentityDetails = {
-      name: userTag === "攻略者" ? "秦羽" : "叶悠然",
+      name: "秦羽",
       age: 21,
-      appearance: "眼眸深邃，气质沉稳，身穿一袭符合当下身份的得体服饰，但举手投足间隐隐透露着一股游离于这个世界之外的超脱感。",
-      profession: userTag === "攻略者" ? "特级时空管理局监察官" : "流落此界的高维觉醒者",
-      relationship: "与众角色在当前世界中拥有千丝万缕的因果牵绊，彼此命运交织。",
-      personality: "冷静克制，言辞谨慎，对周围一切都保持着极强的观察力。",
-      background: "苏醒在此刻宿主的躯壳中。表面是个老实巴交的研究助手，实际上隐藏着极其强烈的穿越秘密，必须在不暴露的情况下推进世界重构。"
+      appearance: "眼眸深邃，气质沉稳，身穿一袭符合当下身份的得体服饰，举手投足间带着从容不迫与洞察力。",
+      profession: "特级时空管理局攻略者",
+      relationship: "作为穿越而来的攻略者，需要解开各攻略对象的羁绊与心结。",
+      personality: "冷静克制，言辞谨慎，观察敏锐。",
+      background: "苏醒在此刻宿主的躯壳中，肩负着完成攻略与世界重构的使命。"
     };
 
     const characterStates: Record<string, CharacterTransmigrationState> = {};
-    selectedChars.forEach((c, idx) => {
+    selectedChars.forEach((c) => {
       characterStates[c.id] = {
         characterId: c.id,
-        roleTag: idx % 2 === 0 ? "攻略对象" : "攻略者",
+        roleTag: "攻略对象",
         identity: {
-          name: c.name + " (异界宿体)",
+          name: c.name + " (位面宿体)",
           age: 22,
           appearance: "容貌清丽，神情中带着一丝疏离。",
-          profession: "核心观察员",
-          relationship: "与你有深厚的羁绊，但似乎各自心怀秘密。",
+          profession: "位面核心人物",
+          relationship: "你的攻略目标对象，与你有着深厚的命运羁绊。",
           personality: "多疑且敏感，伴随警惕心。",
-          background: "在此界有着特殊身份背景。"
+          background: "在此界有着特殊的位面身份背景。"
         },
         favorability: 50,
         suspicion: 20,
-        innerThought: "总觉得这个人身上有一种熟悉又陌生的气息……",
-        flaws: ["偶尔走神", "过度戒备"],
+        innerThought: "总觉得这个人身上有一种独特又让人在意的情感……",
+        flaws: ["过度戒备", "言不由衷"],
       };
     });
 
@@ -561,38 +556,6 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       const selectedChars = currentSelectedCharIds.map((id) => getCharacterById(id)).filter(Boolean) as Character[];
       const charNames = selectedChars.map((c) => c.name).join("、");
 
-      const fAName = factionAName.trim() || "明光";
-      const fBName = factionBName.trim() || "暗影";
-
-      let factionAMembers: string[] = [];
-      let factionBMembers: string[] = [];
-
-      // User's faction
-      if (characterFactionMap["user"] === "faction_b") {
-        factionBMembers.push("user");
-      } else {
-        factionAMembers.push("user");
-      }
-
-      // Characters' factions
-      selectedChars.forEach(c => {
-        if (characterFactionMap[c.id] === "faction_b") {
-          factionBMembers.push(c.id);
-        } else {
-          factionAMembers.push(c.id);
-        }
-      });
-
-      if (factionBMembers.length === 0 && selectedChars.length > 0) {
-        const lastChar = selectedChars[selectedChars.length - 1];
-        factionBMembers.push(lastChar.id);
-        factionAMembers = factionAMembers.filter(id => id !== lastChar.id);
-      } else if (factionAMembers.length === 0 && selectedChars.length > 0) {
-        const lastChar = selectedChars[selectedChars.length - 1];
-        factionAMembers.push(lastChar.id);
-        factionBMembers = factionBMembers.filter(id => id !== lastChar.id);
-      }
-
     let generatedBackground = "";
     let generatedTasks: string[] = [];
     let generatedUserIdentity: IdentityDetails | undefined;
@@ -604,27 +567,19 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
 【核心预设任务】：${presetObj.tasks.join("、")}`
       : `【世界名】：${worldName}`;
 
-    const prompt = "你是一个跨次元快穿世界剧情架构师。请为快穿世界《" + worldName + "》设计完整的背景、双线身份扮演矩阵以及【对立阵营攻略系统】。\n" +
+    const prompt = "你是一个快穿世界剧情架构师。请为快穿世界《" + worldName + "》设计完整的背景、攻略者与攻略对象角色矩阵。\n" +
       customPromptPart + "\n" +
-      "玩家穿越后的攻略标签为：【" + newWorldUserTag + "】。\n" +
-      "参与穿越的通讯录现实伙伴：" + charNames + "。\n\n" +
-      "【用户指定的阵营架构与成员分配】：\n" +
-      "- 阵营A：名称《" + fAName + "》，包含成员ID：" + JSON.stringify(factionAMembers) + "\n" +
-      "- 阵营B：名称《" + fBName + "》，包含成员ID：" + JSON.stringify(factionBMembers) + "\n" +
-      "请为这两个阵营分别设定对立的任务目标。\n\n" +
+      "玩家穿越后的身份与标签为：【攻略者】。\n" +
+      "参与穿越的位面攻略对象：" + charNames + "（身份全为【攻略对象】）。\n\n" +
       "【核心文风与描写规范】：\n" +
       "1. 必须使用口语化、简洁直白的表达方式。不使用词藻堆砌、文艺化修饰或复杂句式。\n" +
       "2. 使用短句，一句话只说一件事。多用名词和动词，少用形容词。\n" +
       "3. 不渲染氛围，不铺垫情绪。直接说“是什么”，不说“像什么”。\n" +
-      "4. 背景介绍通俗易懂，让用户一眼看懂当前世界发生了什么。\n\n" +
+      "4. 背景介绍通俗易懂，让用户一眼看懂当前世界发生了什么以及攻略目标。\n\n" +
       "请严格基于上述设定，生成JSON格式数据（不要包含markdown标记）：\n" +
       "{\n" +
       "  \"background\": \"世界宏观背景（150-200字）\",\n" +
       "  \"tasks\": [\"任务目标1\", \"任务目标2\", \"任务目标3\"],\n" +
-      "  \"factions\": [\n" +
-      "    {\"id\": \"faction_a\", \"name\": \"" + fAName + "\", \"goal\": \"阵营A目标\", \"memberIds\": " + JSON.stringify(factionAMembers) + "},\n" +
-      "    {\"id\": \"faction_b\", \"name\": \"" + fBName + "\", \"goal\": \"阵营B目标\", \"memberIds\": " + JSON.stringify(factionBMembers) + "}\n" +
-      "  ],\n" +
       "  \"user_identity\": {\n" +
       "    \"name\": \"玩家在本世界的扮演姓名\",\n" +
       "    \"age\": 20,\n" +
@@ -632,7 +587,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       "    \"profession\": \"职业\",\n" +
       "    \"relationship\": \"社会关系\",\n" +
       "    \"personality\": \"性格\",\n" +
-      "    \"background\": \"背景故事与秘密目标\"\n" +
+      "    \"background\": \"背景故事与攻略使命\"\n" +
       "  },\n" +
       "  \"character_identities\": {}\n" +
       "}\n\n" +
@@ -647,88 +602,70 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       generatedBackground = parsed.background;
       generatedTasks = parsed.tasks;
       generatedUserIdentity = parsed.user_identity;
-      generatedFactions = parsed.factions || [];
       
       selectedChars.forEach(char => {
         const idData = parsed.character_identities?.[char.id] || parsed.character_identities?.[char.name];
         if (idData) {
           generatedCharIdentities[char.id] = {
             characterId: char.id,
-            roleTag: "攻略者",
+            roleTag: "攻略对象",
             identity: {
               name: idData.name || char.name,
               age: Number(idData.age) || 20,
-              appearance: idData.appearance || "衣着华贵",
-              profession: idData.profession || "本地修士",
-              relationship: idData.relationship || "对手",
-              personality: idData.personality || "谨慎多疑",
-              background: idData.background || "本地世家继承人"
+              appearance: idData.appearance || "容貌端庄，着装得体",
+              profession: idData.profession || "位面关键角色",
+              relationship: idData.relationship || "攻略目标",
+              personality: idData.personality || "心思沉稳",
+              background: idData.background || "本地势力核心人物"
             },
             favorability: 50,
             suspicion: 10,
-            innerThought: idData.innerThought || "隐藏好自己的穿越秘密...",
-            flaws: idData.flaw ? [idData.flaw] : ["有些不符常理的动作"],
+            innerThought: idData.innerThought || "总觉得眼前这人眼神很特别...",
+            flaws: idData.flaw ? [idData.flaw] : ["言语间有些戒备"],
           };
         }
       });
     } catch (e) {
-      console.warn("AI World matrix generation failed, running premium local fallback engine:", e);
-      const fb = generateLocalFallbackWorld(worldName, selectedChars, newWorldUserTag);
+      console.warn("AI World matrix generation failed, running local fallback engine:", e);
+      const fb = generateLocalFallbackWorld(worldName, selectedChars);
       generatedBackground = fb.bg;
       generatedTasks = fb.tasksList;
       generatedUserIdentity = fb.userIdentity;
       generatedCharIdentities = fb.characterStates;
-      
-      // Default fallback factions
-      const half = Math.ceil(selectedChars.length / 2);
-      generatedFactions = [
-        {
-          id: "faction_a",
-          name: "逆天阵营",
-          goal: "颠覆当前世界的既定命运线",
-          memberIds: ["user", ...selectedChars.slice(0, half).map(c => c.id)]
-        },
-        {
-          id: "faction_b",
-          name: "顺天阵营",
-          goal: "维护当前世界的既定命运线",
-          memberIds: selectedChars.slice(half).map(c => c.id)
-        }
-      ];
     }
 
-    // Ensure factions exist if AI didn't provide enough
-    if (generatedFactions.length < 2) {
-        const userFaction = generatedFactions.find(f => f.memberIds.includes("user")) || { id: "f1", name: "阵营1", goal: "主线目标", memberIds: ["user"] };
-        const otherChars = selectedChars.filter(c => !userFaction.memberIds.includes(c.id));
-        generatedFactions = [
-            userFaction,
-            { id: "f2", name: "敌对阵营", goal: "对立目标", memberIds: otherChars.map(c => c.id) }
-        ];
-    }
+    // Default world chat faction container for group messaging
+    generatedFactions = [
+      {
+        id: "world_chat",
+        name: "位面交流群",
+        goal: "与攻略对象开展言语攻防与羁绊交互",
+        memberIds: ["user", ...selectedChars.map(c => c.id)]
+      }
+    ];
 
     // Double check character identities fully populated
     selectedChars.forEach(char => {
       if (!generatedCharIdentities[char.id]) {
-        const fb = generateLocalFallbackWorld(worldName, selectedChars, newWorldUserTag);
+        const fb = generateLocalFallbackWorld(worldName, selectedChars);
         generatedCharIdentities[char.id] = fb.characterStates[char.id] || {
           characterId: char.id,
-          roleTag: "攻略者",
+          roleTag: "攻略对象",
           identity: {
             name: char.name,
             age: 20,
             appearance: "神色自若，衣衫楚楚",
-            profession: "林府门客",
-            relationship: "盟友",
+            profession: "位面名流",
+            relationship: "攻略目标",
             personality: "神秘内敛",
-            background: "突兀降临在这个世界的穿越同类。"
+            background: "在这个快穿位面有着特殊身份。"
           },
           favorability: 50,
           suspicion: 10,
-          innerThought: "绝不能暴露出我是个穿越者……",
-          flaws: ["偶尔下意识寻找现代设备"],
-          skills: ["基础吐纳"],
-          items: ["一阶符箓"]
+          innerThought: "对眼前的陌生人保留戒心……",
+          flaws: ["偶尔露出不适感"],
+          skills: ["社交礼仪"],
+          items: ["随身信物"]
         };
       }
     });
@@ -748,13 +685,13 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
 你已成功降落于快穿世界《${worldName}》！
 
 🎭 我的新身份：【${generatedUserIdentity?.name || "未知"}】 (年龄: ${generatedUserIdentity?.age || "未知"})
-🏷️ 攻略阵营：【${newWorldUserTag}】
+🏷️ 穿越标签：【攻略者】
 💼 扮演职业：${generatedUserIdentity?.profession}
 ✨ 容貌外形：${generatedUserIdentity?.appearance}
-📜 背景与秘密：${generatedUserIdentity?.background}
+📜 背景与使命：${generatedUserIdentity?.background}
 
-🔮 参与穿梭的伙伴已隐秘就位。由于时空排斥，他们的言行偶尔会露出前世习惯的【细节破绽】。点击伙伴头像可以查看他们的【扮演身份】并洞察其真实的【内心世界】（心声线）。
-请努力维护你的原住民人设。如果触发敏感词、动作崩塌或乱用技能，将会提升你的【身份暴露值】！`,
+🔮 参与穿梭的攻略对象已隐秘就位。点击角色头像可以查看他们的【扮演身份】并洞察其真实的【内心心声】。
+请努力提升各攻略对象的好感度并达成位面任务。`,
           timestamp: Date.now(),
         },
       ],
@@ -767,7 +704,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       maxWord: Math.min(15000, newMaxWord || 1500),
 
       // Extended fields
-      userRoleTag: newWorldUserTag,
+      userRoleTag: "攻略者",
       userIdentity: generatedUserIdentity,
       characterStates: generatedCharIdentities,
       exposureLevel: 5,
@@ -1413,14 +1350,14 @@ ${chatHistory}
     }
   };
 
-  const handleAccuseCharacter = async (targetId: string, guessedTag: "攻略者" | "攻略对象", text: string) => {
+  const handleAccuseCharacter = async (targetId: string, text: string) => {
     if (!activeWorld || isGenerating) return;
     const charState = activeWorld.characterStates?.[targetId];
     const character = getCharacterById(targetId);
     if (!charState || !character) return;
 
     if (!text.trim()) {
-      alert("请输入你的戳穿说辞！");
+      alert("请输入你的试探或相认说辞！");
       return;
     }
 
@@ -1432,7 +1369,7 @@ ${chatHistory}
       id: `msg-accuse-${Date.now()}`,
       role: "user" as const,
       senderName: activeWorld.userIdentity?.name || "我",
-      content: `【指控相认】我当面指控【${charState.identity.name}】的真实身份，我猜测你的穿越秘密标签是：【${guessedTag}】！\n对白：“${text}”`,
+      content: `【试探相认】我当面与【${charState.identity.name}】试探摊牌！\n对白：“${text}”`,
       timestamp: Date.now(),
     };
 
@@ -1444,32 +1381,29 @@ ${chatHistory}
     setActiveWorld(updatedWorld);
     setAccuseText("");
 
-    const isCorrect = charState.roleTag === guessedTag;
     const prompt = `你现在是快穿游戏《${activeWorld.name}》的叙事主宰。
-玩家选择当场对伙伴【${character.name}】（本世界扮演身份：${charState.identity.name}，扮演职业：${charState.identity.profession}）发动“身份对质戳穿”！
-玩家猜测该伙伴的真实穿越标签是：【${guessedTag}】（他的真正属性是：【${charState.roleTag}】）。
-猜测是否正确：【${isCorrect ? "正确" : "错误"}】
+玩家（攻略者）选择当场对攻略目标【${character.name}】（本世界扮演身份：${charState.identity.name}，扮演职业：${charState.identity.profession}）进行情感试探与灵魂对质！
 玩家与该伙伴的当前好感度是：${charState.favorability}/100，怀疑度是：${charState.suspicion}/100。
 玩家当前的言辞：
 "${text}"
 
-请根据上述条件判定这次“当场相认戳穿”的成败。
-1. 判定标准：通常，必须【猜测正确】且【好感度 >= 60】才判定为【成功相认】。如果猜测错误或好感过低，则是【失败对质】。
-2. 成功对质：对方会极度动容，卸下伪装与你紧紧相拥或默契相认，决定全力支持你，好感度暴涨、怀疑度暴跌。
-3. 失败对质：对方会矢口否认，并认为你精神错乱或在胡言乱语，对你高度戒备甚至疏远你，好感度降低、怀疑度暴涨。
+请根据上述条件判定这次“情感摊牌与真实试探”的反应。
+1. 判定标准：好感度 >= 50 时，对方会真情流露、卸下心防，好感度上升、怀疑度下降。如果好感度过低（<50），对方会戒备自保或冷淡回避。
+2. 试探成功：对方情绪被触动，对白极具张力，心门进一步打开。
+3. 试探失败：对方警惕回避，认为你在言语过界或动机不明。
 
-请以极其精彩、戏剧化、扣人心弦的快穿小说男女主角对质相认场景，写出这精彩的一幕微表情和对白！
+请以极其精彩、戏剧化、扣人心弦的快穿小说互动场景，写出这精彩的一幕微表情和对白！
 【描写限制】：
 1. **绝对禁止**代替玩家进行任何心理活动、动机、表情或行动描写。
-2. 你只能描写伙伴【${character.name}】的反应、言行以及周围的环境变化。
+2. 你只能描写【${character.name}】的反应、言行以及周围的环境变化。
 3. 禁止描写“你感到...”、“你深吸一口气...”等任何涉及玩家主观层面的内容。
 
 请在文本的最末尾，输出以下状态更新标签（每行一个，必须在中括号内，用于引擎同步）：
-[ACCUSE_RESULT: ${isCorrect && charState.favorability >= 60 ? "success" : "failed"}]
-[FAVORABILITY_CHANGE: ${isCorrect && charState.favorability >= 60 ? "+30" : "-20"}]
-[SUSPICION_CHANGE: ${isCorrect && charState.favorability >= 60 ? "-40" : "+35"}]
-[EXPOSURE_CHANGE: ${isCorrect && charState.favorability >= 60 ? "-15" : "+20"}]
-[ACCUSE_INNER_THOUGHT: ${isCorrect ? "原来我们真的是同类……在这孤独的千百世界里，我终于找到你了。" : "太可怕了，他是在试探我吗？他到底是谁？我绝对不能向他妥协。"}]
+[ACCUSE_RESULT: ${charState.favorability >= 50 ? "success" : "failed"}]
+[FAVORABILITY_CHANGE: ${charState.favorability >= 50 ? "+15" : "-10"}]
+[SUSPICION_CHANGE: ${charState.favorability >= 50 ? "-10" : "+15"}]
+[EXPOSURE_CHANGE: 0]
+[ACCUSE_INNER_THOUGHT: ${charState.favorability >= 50 ? "总觉得和这个人的感情越来越难以自拔了……" : "这个人突然说这些，到底有什么目的？"}]
 `;
 
     try {
@@ -2818,8 +2752,8 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                </button>
                <button
                  onClick={() => {
-                   const userFaction = activeWorld.factions?.find(f => f.memberIds.includes("user")) || activeWorld.factions?.[0];
-                   if (userFaction && !viewingFactionId) setViewingFactionId(userFaction.id);
+                   const worldChat = activeWorld.factions?.[0];
+                   if (worldChat && !viewingFactionId) setViewingFactionId(worldChat.id);
                    setActivePlayTab("chat");
                  }}
                  className={`text-xs font-medium whitespace-nowrap px-4 py-1.5 rounded-full transition cursor-pointer flex items-center gap-1.5 ${
@@ -2828,7 +2762,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                      : "bg-[#F5F3F0] text-[#78716C] border border-[#EFECE8] hover:text-[#1A1A1A]"
                  }`}
                >
-                 <span>💬 阵营群聊区</span>
+                 <span>💬 位面交流群</span>
                </button>
             </div>
           )}
@@ -3275,97 +3209,27 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
               </div>
             )}
 
-            {/* ==================== 2. 阵营群聊区 (FACTION GROUP CHAT AREA) ==================== */}
+            {/* ==================== 2. 位面交流群 (WORLD GROUP CHAT AREA) ==================== */}
             {activePlayTab === "chat" && (() => {
-              const myFaction = activeWorld.factions?.find(f => f.memberIds.includes("user")) || activeWorld.factions?.[0];
-              const opponentFaction = activeWorld.factions?.find(f => !f.memberIds.includes("user")) || activeWorld.factions?.[1];
-              
-              const currentFactionId = viewingFactionId && activeWorld.factions?.some(f => f.id === viewingFactionId)
-                ? viewingFactionId
-                : (myFaction?.id || "");
-
-              const isMyFactionViewing = Boolean(myFaction && currentFactionId === myFaction.id);
+              const currentFactionId = activeWorld.factions?.[0]?.id || "world_chat";
 
               return (
                 <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] animate-fade-in overflow-hidden">
-                  {/* 群聊区顶栏：阵营切换标签 (我方阵营 vs 对方阵营) */}
-                  <div className="p-3 border-b border-[#EFECE8] bg-white sticky top-0 z-10 space-y-2 shrink-0 shadow-2xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-[#1A1A1A] flex items-center gap-1.5">
-                        <Shield className="w-3.5 h-3.5 text-[#1A1A1A]" />
-                        <span>双阵营加密群聊矩阵</span>
-                      </span>
-                      <span className={`text-[10px]  px-2.5 py-0.5 rounded-full border ${
-                        isMyFactionViewing 
-                          ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
-                          : "bg-amber-50 text-amber-700 border-amber-200"
-                      }`}>
-                        {isMyFactionViewing ? "🟢 我方可发言" : "👁️ 对方只能偷看"}
-                      </span>
-                    </div>
-
-                    {/* 切换标签按钮组 */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {/* 我方阵营 Tab */}
-                      {myFaction && (
-                        <button
-                          type="button"
-                          onClick={() => setViewingFactionId(myFaction.id)}
-                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex items-center justify-between ${
-                            currentFactionId === myFaction.id
-                              ? "bg-[#1A1A1A] border-[#1A1A1A] text-white shadow-xs"
-                              : "bg-[#F9F8F6] border-[#EFECE8] text-[#1A1A1A] hover:border-[#1A1A1A]"
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1 pr-1">
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              <span className="text-xs font-bold truncate">我方阵营 · {myFaction.name}</span>
-                            </div>
-                            <p className={`text-[10px] truncate ${currentFactionId === myFaction.id ? "text-neutral-300" : "text-[#78716C]"}`}>
-                              {myFaction.goal}
-                            </p>
-                          </div>
-                          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0 ${
-                            currentFactionId === myFaction.id ? "bg-white/20 text-white" : "bg-[#EFECE8] text-[#78716C]"
-                          }`}>
-                            {(activeWorld.factionChats?.[myFaction.id] || []).length}条
-                          </span>
-                        </button>
-                      )}
-
-                      {/* 对方阵营 Tab */}
-                      {opponentFaction && (
-                        <button
-                          type="button"
-                          onClick={() => setViewingFactionId(opponentFaction.id)}
-                          className={`p-2.5 rounded-xl border text-left transition cursor-pointer flex items-center justify-between ${
-                            currentFactionId === opponentFaction.id
-                              ? "bg-[#1A1A1A] border-[#1A1A1A] text-white shadow-xs"
-                              : "bg-[#F9F8F6] border-[#EFECE8] text-[#1A1A1A] hover:border-[#1A1A1A]"
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1 pr-1">
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              <span className="text-xs font-bold truncate">对方阵营 · {opponentFaction.name}</span>
-                            </div>
-                            <p className={`text-[10px] truncate ${currentFactionId === opponentFaction.id ? "text-neutral-300" : "text-[#78716C]"}`}>
-                              {opponentFaction.goal}
-                            </p>
-                          </div>
-                          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0 ${
-                            currentFactionId === opponentFaction.id ? "bg-white/20 text-white" : "bg-[#EFECE8] text-[#78716C]"
-                          }`}>
-                            {(activeWorld.factionChats?.[opponentFaction.id] || []).length}条
-                          </span>
-                        </button>
-                      )}
-                    </div>
+                  {/* 群聊区顶栏 */}
+                  <div className="p-3 border-b border-[#EFECE8] bg-white sticky top-0 z-10 space-y-1 shrink-0 shadow-2xs flex items-center justify-between">
+                    <span className="text-xs font-semibold text-[#1A1A1A] flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5 text-[#1A1A1A]" />
+                      <span>位面交流群</span>
+                    </span>
+                    <span className="text-[10px] px-2.5 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200">
+                      🟢 活跃中
+                    </span>
                   </div>
 
                   {/* 群聊消息展示区 (按时间倒序排列：最新消息在最上方) */}
                   <div className="flex-1 overflow-y-auto p-4 space-y-3 ">
                     {(() => {
-                      const rawMsgs = activeWorld.factionChats?.[currentFactionId] || [];
+                      const rawMsgs = activeWorld.factionChats?.[currentFactionId] || activeWorld.factionChats?.["world_chat"] || [];
                       // 按时间倒序排列 (最新消息置顶)
                       const sortedMsgs = [...rawMsgs].sort((a, b) => b.timestamp - a.timestamp);
 
@@ -3373,7 +3237,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         return (
                           <div className="h-full flex flex-col items-center justify-center text-[#A8A39A] gap-2 py-16">
                             <MessageSquare className="w-8 h-8 opacity-40 stroke-[1.2]" />
-                            <p className="text-xs font-medium">该阵营频道内暂无加密沟通</p>
+                            <p className="text-xs font-medium">交流群暂无讨论消息</p>
                           </div>
                         );
                       }
@@ -3381,23 +3245,16 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                       return sortedMsgs.map((msg, idx) => {
                         const isMe = msg.senderId === "user" || msg.senderName === "玩家" || msg.senderName === "我";
 
-                        // Format sender identity name:
-                        // 我方阵营消息显示角色真实身份（攻略者身份），对方阵营消息显示角色的伪装身份
                         let displayName = msg.senderName;
                         const char = characters.find(c => c.id === msg.senderId || c.name === msg.senderName);
                         const charState = activeWorld.characterStates?.[char?.id || ""] ||
                                           (activeWorld as any).charactersState?.find((cs: any) => cs.characterId === char?.id || cs.name === msg.senderName);
 
                         if (isMe) {
-                          displayName = isMyFactionViewing ? "玩家（你自己）" : (activeWorld.userIdentity?.name || "未知异世者");
-                        } else if (isMyFactionViewing) {
-                          // 我方阵营：显示角色真实身份（攻略者身份）
-                          const realName = char?.name || charState?.name || msg.senderName;
-                          displayName = `${realName}（攻略者）`;
+                          displayName = "玩家（你自己）";
                         } else {
-                          // 对方阵营：显示角色的伪装身份（原宿主/位面身份）
-                          const disguiseName = charState?.identity?.name || msg.senderName || char?.name || "敌方角力者";
-                          displayName = `${disguiseName}（伪装身份）`;
+                          const realName = char?.name || charState?.name || msg.senderName;
+                          displayName = `${realName}（攻略对象）`;
                         }
 
                         const avatar = isMe
@@ -3440,51 +3297,41 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                     })()}
                   </div>
 
-                  {/* 群聊区输入框 (我方可发言，对方只能查看) */}
-                  <div className={`p-3 border-t border-[#EFECE8] flex items-center gap-2 transition ${
-                    isMyFactionViewing ? "bg-white" : "bg-[#F5F3F0]"
-                  }`}>
-                    {isMyFactionViewing ? (
-                      <>
-                        <input
-                          type="text"
-                          value={factionChatInput}
-                          onChange={(e) => setFactionChatInput(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && handleSendFactionMessage()}
-                          placeholder={`在【${myFaction?.name || "我方"}】群聊发言，向队友打话/分配任务...`}
-                          className="flex-1 rounded-full px-4 py-2.5 text-xs  bg-white border border-[#E5E2DC] text-[#1A1A1A] focus:border-[#1A1A1A] outline-none transition placeholder-[#A8A39A]"
-                        />
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={handleSendFactionMessage}
-                            disabled={!factionChatInput.trim()}
-                            className={`px-3.5 py-2.5 rounded-full text-xs font-medium transition cursor-pointer flex items-center justify-center border ${
-                              factionChatInput.trim()
-                                ? "bg-[#1A1A1A] hover:bg-neutral-800 text-white border-[#1A1A1A] shadow-xs"
-                                : "bg-[#EFECE8] text-[#A8A39A] border-transparent cursor-not-allowed"
-                            }`}
-                            title="发送消息"
-                          >
-                            <Send className="w-3.5 h-3.5 stroke-[1.5]" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleAIGenerateFactionChat}
-                            disabled={isGenerating}
-                            className="px-3 py-2.5 rounded-full text-xs font-medium bg-[#F5F3F0] hover:bg-[#EFECE8] text-[#1A1A1A] border border-[#EFECE8] transition cursor-pointer flex items-center gap-1 shadow-2xs"
-                            title="AI生成讨论回复"
-                          >
-                            <Sparkles className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
-                            <span className="text-[11px]">AI讨论</span>
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="w-full py-2.5 text-center text-xs text-[#78716C] bg-[#EFECE8]/60 rounded-full  border border-[#EFECE8]">
-                        🔒 只能查看，无法发送
-                      </div>
-                    )}
+                  {/* 群聊区输入框 */}
+                  <div className="p-3 border-t border-[#EFECE8] flex items-center gap-2 bg-white">
+                    <input
+                      type="text"
+                      value={factionChatInput}
+                      onChange={(e) => setFactionChatInput(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSendFactionMessage()}
+                      placeholder="在位面交流群发言，向攻略对象互动..."
+                      className="flex-1 rounded-full px-4 py-2.5 text-xs bg-white border border-[#E5E2DC] text-[#1A1A1A] focus:border-[#1A1A1A] outline-none transition placeholder-[#A8A39A]"
+                    />
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleSendFactionMessage}
+                        disabled={!factionChatInput.trim()}
+                        className={`px-3.5 py-2.5 rounded-full text-xs font-medium transition cursor-pointer flex items-center justify-center border ${
+                          factionChatInput.trim()
+                            ? "bg-[#1A1A1A] hover:bg-neutral-800 text-white border-[#1A1A1A] shadow-xs"
+                            : "bg-[#EFECE8] text-[#A8A39A] border-transparent cursor-not-allowed"
+                        }`}
+                        title="发送消息"
+                      >
+                        <Send className="w-3.5 h-3.5 stroke-[1.5]" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAIGenerateFactionChat}
+                        disabled={isGenerating}
+                        className="px-3 py-2.5 rounded-full text-xs font-medium bg-[#F5F3F0] hover:bg-[#EFECE8] text-[#1A1A1A] border border-[#EFECE8] transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                        title="AI生成讨论回复"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 stroke-[1.5] text-amber-600" />
+                        <span className="text-[11px]">AI讨论</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -3576,8 +3423,8 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 <div className="bg-white border border-[#EFECE8] rounded-3xl p-5 w-full max-w-sm space-y-4 animate-fade-in text-[#1A1A1A] shadow-xl">
                   <div className="flex items-center justify-between border-b border-[#EFECE8] pb-3">
                     <h3 className="font-semibold text-sm text-[#1A1A1A] flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 text-[#78716C]" />
-                      <span>相认指控</span>
+                      <Sparkles className="w-4 h-4 text-amber-600" />
+                      <span>情感试探 / 当面摊牌</span>
                     </h3>
                     <button onClick={() => setShowAccuseModal(false)} className="text-[#A8A39A] hover:text-[#1A1A1A] cursor-pointer">
                       <X className="w-4 h-4" />
@@ -3585,42 +3432,14 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                   </div>
 
                   <p className="text-xs text-[#78716C] leading-normal bg-[#FAFAF9] p-2.5 rounded-xl border border-[#EFECE8]">
-                    您怀疑伙伴 <span className="text-[#1A1A1A] font-semibold">{targetChar.name}</span> 躯壳下隐藏着另一个灵魂。发出的试探如果猜错会提升其怀疑度。
+                    向攻略对象 <span className="text-[#1A1A1A] font-semibold">{targetChar.name}</span> 发出试探或当面表达心意。若好感度足够，将打动对方心弦。
                   </p>
 
                   <div className="space-y-3">
                     <div>
-                      <label className="text-xs font-medium text-[#1A1A1A] block mb-1.5">您猜想它的秘密身份是：</label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setAccuseGuessTag("攻略者")}
-                          className={`p-2 rounded-xl border text-center transition cursor-pointer text-xs ${
-                            accuseGuessTag === "攻略者"
-                              ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                              : "bg-white border-[#E5E2DC] text-[#78716C] hover:border-[#1A1A1A]"
-                          }`}
-                        >
-                          攻略者
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAccuseGuessTag("攻略对象")}
-                          className={`p-2 rounded-xl border text-center transition cursor-pointer text-xs ${
-                            accuseGuessTag === "攻略对象"
-                              ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                              : "bg-white border-[#E5E2DC] text-[#78716C] hover:border-[#1A1A1A]"
-                          }`}
-                        >
-                          攻略对象
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
                       <label className="text-xs font-medium text-[#1A1A1A] block mb-1">说出您的试探或台词：</label>
                       <textarea
-                        placeholder="例如：那天你下意识动作，其实你也是个攻略者对吧？"
+                        placeholder="例如：其实在这个世界，我一直注视着你的一切……"
                         rows={3}
                         value={accuseText}
                         onChange={(e) => setAccuseText(e.target.value)}
@@ -3639,17 +3458,17 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                     <button
                       onClick={async () => {
                         if (!accuseText.trim()) {
-                          alert("请输入揭穿相认的行动对白！");
+                          alert("请输入试探或对白！");
                           return;
                         }
                         setShowAccuseModal(false);
-                        await handleAccuseCharacter(accuseTargetId, accuseGuessTag, accuseText);
+                        await handleAccuseCharacter(accuseTargetId, accuseText);
                       }}
                       disabled={isGenerating || !accuseText.trim()}
                       className="px-4 py-2 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs font-medium rounded-full transition flex items-center gap-1 cursor-pointer disabled:opacity-50"
                     >
                       {isGenerating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                      <span>确认指控</span>
+                      <span>确认发送</span>
                     </button>
                   </div>
                 </div>
@@ -4234,158 +4053,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 </div>
               </div>
 
-              {/* User Identity Role preference selection */}
-              <div>
-                <label className="text-xs  text-[#1A1A1A] block mb-2 font-medium">您的穿越身份标签</label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setNewWorldUserTag("攻略者")}
-                    className={`p-3 rounded-[12px] border transition-all text-center cursor-pointer ${
-                      newWorldUserTag === "攻略者"
-                        ? "bg-[#1A1A1A] border-[#1A1A1A] text-white font-medium"
-                        : "bg-white border-[#EFECE8] text-[#1A1A1A] hover:border-[#1A1A1A]"
-                    }`}
-                  >
-                    <div className="text-xs ">🎯 攻略者</div>
-                    <div className={`text-[10px]  mt-0.5 ${newWorldUserTag === "攻略者" ? "text-neutral-300" : "text-[#A8A39A]"}`}>主动出击 推进宿命关系</div>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewWorldUserTag("攻略对象")}
-                    className={`p-3 rounded-[12px] border transition-all text-center cursor-pointer ${
-                      newWorldUserTag === "攻略对象"
-                        ? "bg-[#1A1A1A] border-[#1A1A1A] text-white font-medium"
-                        : "bg-white border-[#EFECE8] text-[#1A1A1A] hover:border-[#1A1A1A]"
-                    }`}
-                  >
-                    <div className="text-xs ">💖 攻略对象</div>
-                    <div className={`text-[10px]  mt-0.5 ${newWorldUserTag === "攻略对象" ? "text-neutral-300" : "text-[#A8A39A]"}`}>被攻略方 试探言语温度</div>
-                  </button>
-                </div>
-              </div>
-
               {renderCharacterSelector()}
-
-              {/* Faction Assignment Section (Requirement 1) */}
-              <div className="space-y-3 pt-3 border-t border-[#EFECE8]">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs  text-[#1A1A1A] font-medium flex items-center gap-1.5">
-                    <Shield className="w-3.5 h-3.5 text-[#1A1A1A]" />
-                    <span>阵营分配与名称自定义</span>
-                  </label>
-                  <span className="text-[10px] text-[#78716C]">划分阵营并自动生成对立目标</span>
-                </div>
-
-                {/* Custom Faction Names */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-[11px]  text-[#78716C] block mb-1">阵营 A 自定义名称</label>
-                    <input
-                      type="text"
-                      placeholder="如：明光 / 正道"
-                      value={factionAName}
-                      onChange={(e) => setFactionAName(e.target.value)}
-                      className="w-full bg-white border border-[#EFECE8] rounded-[10px] px-3 py-1.5 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A]"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px]  text-[#78716C] block mb-1">阵营 B 自定义名称</label>
-                    <input
-                      type="text"
-                      placeholder="如：暗影 / 魔道"
-                      value={factionBName}
-                      onChange={(e) => setFactionBName(e.target.value)}
-                      className="w-full bg-white border border-[#EFECE8] rounded-[10px] px-3 py-1.5 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A]"
-                    />
-                  </div>
-                </div>
-
-                {/* Member Faction Allocation */}
-                <div className="space-y-2">
-                  <label className="text-[11px]  text-[#78716C] block font-medium">成员阵营划归</label>
-                  
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {/* 1. User (Self) */}
-                    <div className="flex items-center justify-between p-2 rounded-[12px] bg-[#F9F8F6] border border-[#EFECE8]">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-[#1A1A1A] text-white flex items-center justify-center text-[10px] font-bold">
-                          我
-                        </div>
-                        <span className="text-xs font-medium text-[#1A1A1A]">玩家（你自己）</span>
-                      </div>
-                      <div className="flex items-center gap-1 bg-white p-1 rounded-full border border-[#EFECE8]">
-                        <button
-                          type="button"
-                          onClick={() => setCharacterFactionMap(prev => ({ ...prev, user: 'faction_a' }))}
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition cursor-pointer ${
-                            (characterFactionMap['user'] || 'faction_a') === 'faction_a'
-                              ? "bg-[#1A1A1A] text-white shadow-xs"
-                              : "text-[#78716C] hover:text-[#1A1A1A]"
-                          }`}
-                        >
-                          {factionAName.trim() || "明光"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setCharacterFactionMap(prev => ({ ...prev, user: 'faction_b' }))}
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition cursor-pointer ${
-                            characterFactionMap['user'] === 'faction_b'
-                              ? "bg-[#1A1A1A] text-white shadow-xs"
-                              : "text-[#78716C] hover:text-[#1A1A1A]"
-                          }`}
-                        >
-                          {factionBName.trim() || "暗影"}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* 2. Selected Characters */}
-                    {selectedCharIds.length === 0 ? (
-                      <p className="text-[11px] text-[#A8A39A] italic px-1">请先在上方选择参与调遣的角色</p>
-                    ) : (
-                      selectedCharIds.map((cId) => {
-                        const char = getCharacterById(cId);
-                        if (!char) return null;
-                        const currentFaction = characterFactionMap[cId] || 'faction_a';
-                        return (
-                          <div key={cId} className="flex items-center justify-between p-2 rounded-[12px] bg-white border border-[#EFECE8]">
-                            <div className="flex items-center gap-2 min-w-0 flex-1 pr-2">
-                              <CharacterAvatar character={char} mode="real" size={20} className="rounded-full shrink-0" />
-                              <span className="text-xs font-medium text-[#1A1A1A] truncate">{char.name}</span>
-                            </div>
-
-                            <div className="flex items-center gap-1 bg-[#F9F8F6] p-1 rounded-full border border-[#EFECE8] shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => setCharacterFactionMap(prev => ({ ...prev, [cId]: 'faction_a' }))}
-                                className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition cursor-pointer ${
-                                  currentFaction === 'faction_a'
-                                    ? "bg-[#1A1A1A] text-white shadow-xs"
-                                    : "text-[#78716C] hover:text-[#1A1A1A]"
-                                }`}
-                              >
-                                {factionAName.trim() || "明光"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setCharacterFactionMap(prev => ({ ...prev, [cId]: 'faction_b' }))}
-                                className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition cursor-pointer ${
-                                  currentFaction === 'faction_b'
-                                    ? "bg-[#1A1A1A] text-white shadow-xs"
-                                    : "text-[#78716C] hover:text-[#1A1A1A]"
-                                }`}
-                              >
-                                {factionBName.trim() || "暗影"}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#EFECE8]">

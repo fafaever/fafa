@@ -439,13 +439,15 @@ export default function CharacterCreatorApp({
         
         setFileContent(decodedText);
         
-        // Use AI to extract Name and Summarize Chat Style, but keep Personality/Background literal
+        // Rule 1 & 2: Preserve full file text in personality with zero modification/summarization
         let parsedName = "";
-        let parsedPersonality = decodedText.trim();
+        let parsedPersonality = decodedText;
         let parsedNickname = "";
         let parsedChatStyle = "";
         let extractedNpcs: BoundNPC[] = [];
         
+        setPersonality(decodedText);
+        setBackground("");
 
         if (settings && (settings.apiKey || settings.apiUrl)) {
           try {
@@ -461,11 +463,6 @@ export default function CharacterCreatorApp({
                 parsedName = data.name;
               }
               if (data.nickname && data.nickname !== "无") parsedNickname = data.nickname;
-              if (data.personality || data.background) {
-                // Not merging them into one field, keeping background separated to display in input box
-                parsedPersonality = data.personality || "";
-                setBackground(data.background || "");
-              }
               if (data.chatStyle) parsedChatStyle = data.chatStyle;
               if (data.avatar) setAvatarPrompt(data.avatar);
             }
@@ -478,17 +475,24 @@ export default function CharacterCreatorApp({
 
         // Fallback for Name if AI failed
         if (!parsedName) {
-           setName("");
-           setTimeout(() => {
-             alert("姓名提取失败，请手动输入角色的姓名。");
-           }, 500);
-        } else {
-           setName(parsedName);
+           const firstLine = decodedText.split(/\r?\n/)[0]?.trim();
+           const nameMatch = decodedText.match(/(?:姓名|角色名|名字|Name)\s*[:：]\s*(.+)/i);
+           if (nameMatch) {
+             parsedName = nameMatch[1].split(/\s+/)[0].trim();
+           } else if (firstLine && firstLine.length < 15 && !firstLine.includes("设定") && !firstLine.includes("背景")) {
+             parsedName = firstLine;
+           } else {
+             parsedName = file.name.replace(/\.[^/.]+$/, "");
+           }
         }
+        setName(parsedName);
 
-        // Update form fields
-        if (parsedPersonality) setPersonality(parsedPersonality);
-        if (parsedChatStyle) setChatStyle(parsedChatStyle);
+        // Rule 3: Only update chatStyle from summarized AI result
+        if (parsedChatStyle) {
+          setChatStyle(parsedChatStyle);
+        } else {
+          setChatStyle(`作为${parsedName}，说话时字里行间流露出独特的个人特质与语气，语气真实生动，带有沉浸式动作与心理描写。`);
+        }
 
         // Automatically generate NPCs based on uploaded character file content
         if (settings && (settings.apiKey || settings.apiUrl)) {
@@ -525,7 +529,7 @@ export default function CharacterCreatorApp({
         }
 
         setBoundNpcs(extractedNpcs);
-        setSuccessMsg("📂 角色文件导入成功！人设与背景已一字不差填入字段，聊天风格已智能总结。请核对并点击保存按钮。");
+        setSuccessMsg("📂 角色文件导入成功！人设与背景已原封不动完整复制填入，聊天风格已智能总结提炼。请核对并点击保存按钮。");
       } catch (err: any) {
         console.error("❌ [角色导入异常]:", err);
         setErrorMsg(err.message || "文件解析失败。");
@@ -647,8 +651,9 @@ export default function CharacterCreatorApp({
 
     setName(parsedName);
     setNickname(parsedNickname);
-    setPersonality(parsedPersonality.trim() || parsedDesc.trim());
-    setBackground(parsedBackground.trim());
+    // Rule 1 & 2: Preserve full file content in personality, 100% intact
+    setPersonality(fileText);
+    setBackground("");
     setChatStyle(parsedChatStyle.trim() || `作为${parsedName}，说话时字里行间流露出独特的个人特质与语气，语气真实生动，带有沉浸式动作与心理描写。`);
   };
 
@@ -674,7 +679,7 @@ export default function CharacterCreatorApp({
       });
       
       if (response?.success && response?.data) {
-        const { name: aiName, nickname: aiNick, personality: aiPers, chatStyle: aiChat, background: aiBg, avatar: aiAvatar } = response.data;
+        const { name: aiName, nickname: aiNick, chatStyle: aiChat, avatar: aiAvatar } = response.data;
         
         if (aiName) {
           setName(aiName);
@@ -682,15 +687,16 @@ export default function CharacterCreatorApp({
           setName("");
         }
         if (aiNick && aiNick !== "无") setNickname(aiNick);
-        if (aiPers) setPersonality(aiPers);
-        if (aiBg) setBackground(aiBg);
+        // Rule 1 & 2: Ensure full file text is retained in personality, untouched!
+        setPersonality(fileContent);
+        setBackground("");
         if (aiChat) setChatStyle(aiChat);
         if (aiAvatar) setAvatar(aiAvatar);
         
         if (!aiName) {
-          setSuccessMsg("✨ AI 提炼完成，但未能提取到明确姓名，请手动填写姓名！其他信息已填充。");
+          setSuccessMsg("✨ AI 提炼完成！人设背景已完整一字不差填充，聊天风格已智能总结。请补充姓名。");
         } else {
-          setSuccessMsg("✨ AI 智能一键提炼成功！关键信息已填充至对应字段，您可以继续微调设定。");
+          setSuccessMsg("✨ AI 智能提炼成功！人设背景已完整复制填入，聊天风格已智能总结提炼。");
         }
       } else {
         throw new Error("AI 返回的数据为空或格式不正确。");
@@ -877,7 +883,7 @@ ${background.trim() || "暂无背景故事"}
             </div>
             
             <p className="text-[10px] text-neutral-500 leading-relaxed ">
-              导入现成的角色大纲、设定文本或剧本。人设背景将<b>原封不动地全部倒入</b>，AI 只需自动精准提取识别角色的<b>姓名、年龄与聊天风格</b>，为您省去繁琐填充！
+              导入现成的角色大纲或设定文本。文件中的“人设背景”全量文字（设定、背景故事、经历等）将<b>完整一字不差复制保留</b>（不进行任何自动摘要或改写，保持所有段落格式与特殊符号），仅对<b>聊天风格</b>进行智能提炼！
             </p>
 
             <div className="relative">
