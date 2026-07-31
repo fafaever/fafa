@@ -1563,6 +1563,7 @@ export default function App() {
       case "settings":
         return (
           <SettingsApp
+            key="settings-v2"
             settings={previewSettings}
             onUpdateSettings={handlePreviewSettings}
             onSaveSettings={handleUpdateSettings}

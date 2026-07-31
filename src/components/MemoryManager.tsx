@@ -167,37 +167,47 @@ export function MemoryManager({ character, settings, sessions, vectorMemoryEnabl
 
   const extractMemories = async (currentMemories: Memory[], isAuto = false) => {
     const charSession = sessions.find(s => s.characterId === character.id);
-    if (!charSession) return;
-
     const lastExtracted = character.extractionSettings?.lastExtractionTimestamp || 0;
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-    
-    // We want messages from the last 24h, but only those AFTER the last extraction to avoid duplicates
-    // However, the rule says "extract past 24h memories". 
-    // If we haven't extracted for 2 days, "past 24h" only gets the most recent day.
-    // If we extracted 1 hour ago, "past 24h" would overlap 23 hours.
-    // The instruction "仅提取过去 24 小时内尚未提取过的内容" means we should filter messages by timestamp > lastExtracted AND timestamp > oneDayAgo.
-    
     const startTime = Math.max(lastExtracted, oneDayAgo);
-    const recentMessages = charSession.messages.filter(m => m.timestamp > startTime);
 
-    if (recentMessages.length < 5) {
-      if (!isAuto) alert("暂无足够的新对话内容进行提取（需至少 5 条新消息）。");
+    const recentMessages = charSession ? charSession.messages.filter(m => m.timestamp > startTime) : [];
+
+    // Also fetch offline story history or stored offline meet records for this character in the last 24h
+    let offlineStoriesText = "";
+    try {
+      const offlineHistRaw = localStorage.getItem(`offline_history_${character.id}`);
+      if (offlineHistRaw) {
+        const parsedHist = JSON.parse(offlineHistRaw);
+        if (Array.isArray(parsedHist)) {
+          const recentOffline = parsedHist.filter((h: any) => h.timestamp > startTime);
+          if (recentOffline.length > 0) {
+            offlineStoriesText = "\n\n【同期线下见面/剧情卡片记录】：\n" + recentOffline.map((h: any) => h.summary || "").join("\n");
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load offline history for extraction:", e);
+    }
+
+    if (recentMessages.length < 5 && !offlineStoriesText) {
+      if (!isAuto) alert("暂无足够的新对话内容进行提取（需至少 5 条新消息或有线下见面剧情）。");
       return; 
     }
 
     setIsExtracting(true);
     try {
       const dialogueText = recentMessages.map(m => `${m.role === 'user' ? '用户' : character.name}: ${m.content}`).join('\n');
-      const prompt = `你是一个长期记忆提取助手。请根据以下最近 24 小时的对话内容，进行客观的第三人称总结。
+      const prompt = `你是一个长期记忆提取助手。请根据以下最近 24 小时的对话内容以及同期的线下见面剧情记录，进行客观的第三人称总结，并自动将线下见面剧情卡片内容一并纳入核心记忆中。
 要求：
-1. 提取出关键事件、重要信息、用户分享的内容、角色的心理变化。
+1. 提取出关键事件、重要信息、用户分享的内容、角色的心理变化，以及线下见面中的核心互动进展。
 2. 仅保留重要事实，自动过滤日常琐碎内容（如“吃了没”、“在干嘛”）。
 3. 格式为第三人称陈述句，客观概括，不要包含角色对用户的直接说话内容。
 4. 保持简洁，不要包含任何开场白或解释语。
 
 对话内容：
-${dialogueText}`;
+${dialogueText}
+${offlineStoriesText}`;
 
       const response = await apiChat({
         character: character || { id: "memory-assistant", name: "记忆助手", description: "记忆提取专家" },
@@ -455,9 +465,9 @@ ${combinedText}`;
   return (
     <div className="flex flex-col h-full bg-[#F5F3F0]">
       <div className="flex justify-around bg-white border-b border-neutral-100 pt-3">
-        {[1, 2, 3].map((l) => (
+        {[1, 3].map((l) => (
           <button key={l} className={tabClass(l as any)} onClick={() => setActiveLayer(l as any)}>
-            {l === 1 ? "核心记忆" : l === 2 ? "剧情记忆" : "即时记忆"}
+            {l === 1 ? "核心记忆" : "即时记忆"}
             {activeLayer === l && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-neutral-900 mx-auto w-8" />}
           </button>
         ))}
