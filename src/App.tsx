@@ -1510,6 +1510,7 @@ export default function App() {
             isGeneratingMap={isGeneratingMap}
             onTriggerAiReply={triggerAiReply}
             userPersonas={userPersonas}
+            onUpdateUserPersonas={setUserPersonas}
           />
         );
       case "creator":

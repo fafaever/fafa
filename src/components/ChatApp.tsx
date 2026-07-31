@@ -28,6 +28,7 @@ interface ChatAppProps {
   isGeneratingMap?: Record<string, boolean>;
   onTriggerAiReply?: (characterId: string, customMessages?: Message[]) => Promise<void>;
   userPersonas: UserPersona[];
+  onUpdateUserPersonas?: (personas: UserPersona[]) => void;
 }
 
 const getAgeFromInstruction = (inst: string) => {
@@ -235,6 +236,7 @@ export default function ChatApp({
   isGeneratingMap,
   onTriggerAiReply,
   userPersonas: userPersonasProp,
+  onUpdateUserPersonas,
 }: ChatAppProps) {
   const [activeTab, setActiveTab] = useState<"chat" | "library">("library");
   const [activeCharId, setActiveCharId] = useState<string | null>(null);
@@ -605,6 +607,12 @@ export default function ChatApp({
       return [];
     }
   });
+
+  useEffect(() => {
+    if (userPersonasProp) {
+      setUserPersonas(userPersonasProp);
+    }
+  }, [userPersonasProp]);
   const [showUserPersonas, setShowUserPersonas] = useState(false);
   const [editingPersona, setEditingPersona] = useState<UserPersona | null>(null);
   const [isCreatingPersona, setIsCreatingPersona] = useState(false);
@@ -622,6 +630,8 @@ export default function ChatApp({
   const [showGroupPlusMenu, setShowGroupPlusMenu] = useState(false);
   const [showGroupSettingsModal, setShowGroupSettingsModal] = useState(false);
   const [showVoiceMenu, setShowVoiceMenu] = useState(false);
+  const [showVoiceTypeModal, setShowVoiceTypeModal] = useState(false);
+  const [isAiVoiceMode, setIsAiVoiceMode] = useState(false);
   const [showTtsModal, setShowTtsModal] = useState(false);
   const [ttsText, setTtsText] = useState("");
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
@@ -659,20 +669,49 @@ export default function ChatApp({
       const mediaRecorder = new MediaRecorder(stream);
       const audioChunks: Blob[] = [];
       
+      let recognizedText = "";
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      let recognition: any = null;
+      if (SpeechRecognition) {
+        try {
+          recognition = new SpeechRecognition();
+          recognition.lang = "zh-CN";
+          recognition.interimResults = false;
+          recognition.maxAlternatives = 1;
+          recognition.onresult = (event: any) => {
+            if (event.results && event.results[0] && event.results[0][0]) {
+              recognizedText = event.results[0][0].transcript;
+            }
+          };
+          recognition.start();
+        } catch (recognitionErr) {
+          console.error("Speech recognition error:", recognitionErr);
+        }
+      }
+      
       mediaRecorder.ondataavailable = (event) => {
         audioChunks.push(event.data);
       };
 
       mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const durationSec = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
-        const durationStr = durationSec < 10 ? `00:0${durationSec}` : `00:${durationSec}`;
+        if (recognition) {
+          try {
+            recognition.stop();
+          } catch (e) {}
+        }
         
-        const voiceMsgContent = `[语音消息] ${durationStr}|${audioUrl}|text:录音语音`;
-        sendVoiceMessageContent(voiceMsgContent);
-        
-        stream.getTracks().forEach(track => track.stop());
+        setTimeout(() => {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const durationSec = Math.max(1, Math.floor((Date.now() - startTime) / 1000));
+          const durationStr = durationSec < 10 ? `00:0${durationSec}` : `00:${durationSec}`;
+          
+          const text = recognizedText || "（录音成功，点击上方按钮收听语音）";
+          const voiceMsgContent = `[语音消息] ${durationStr}|${audioUrl}|text:${text}`;
+          sendVoiceMessageContent(voiceMsgContent);
+          
+          stream.getTracks().forEach(track => track.stop());
+        }, 300);
       };
 
       mediaRecorder.start();
@@ -1225,6 +1264,9 @@ export default function ChatApp({
   const [showActionPanel, setShowActionPanel] = useState(false);
   const [activeCall, setActiveCall] = useState<null | "voice" | "video">(null);
   const videoScrollRef = useRef<HTMLDivElement>(null);
+  const [videoCallMessages, setVideoCallMessages] = useState<Message[]>([]);
+  const [videoInputText, setVideoInputText] = useState("");
+  const [isGeneratingVideoReply, setIsGeneratingVideoReply] = useState(false);
 
   const [activeModal, setActiveModal] = useState<null | "transfer" | "location" | "redpacket" | "games" | "meet">(null);
   const [transferAmount, setTransferAmount] = useState("");
@@ -2279,7 +2321,7 @@ ${existingCommentsText || "暂无评论"}
         }
       }, 80);
     }
-  }, [activeCall, activeSession?.messages?.length]);
+  }, [activeCall, videoCallMessages.length]);
 
   const hasMoreMessages = allMessages.length > displayMessageLimit;
   const displayedMessages = hasMoreMessages ? allMessages.slice(allMessages.length - displayMessageLimit) : allMessages;
@@ -2562,64 +2604,106 @@ ${existingCommentsText || "暂无评论"}
   // Save User Persona (create or update)
   const handleSavePersona = () => {
     setPersonaError("");
-    if (!personaName.trim()) {
+    const name = personaName.trim();
+    const avatar = personaAvatar.trim() || "👤";
+    const description = personaDesc.trim();
+
+    if (!name) {
       setPersonaError("请输入设定名称");
       return;
     }
-    if (!personaDesc.trim()) {
+    if (!description) {
       setPersonaError("请输入人设简介/背景说明");
       return;
     }
 
-    let updatedList: UserPersona[] = [];
-    if (editingPersona) {
-      // Update
-      updatedList = userPersonas.map((p) => {
-        if (p.id === editingPersona.id) {
-          return {
-            ...p,
-            name: personaName.trim(),
-            avatar: personaAvatar.trim() || "👤",
-            description: personaDesc.trim(),
-          };
+    try {
+      let updatedList: UserPersona[] = [];
+      let savedPersona: UserPersona | null = null;
+
+      if (editingPersona) {
+        // Update
+        savedPersona = {
+          ...editingPersona,
+          name,
+          avatar,
+          description,
+        };
+        // Verify all required fields
+        if (!savedPersona.id || !savedPersona.name || !savedPersona.avatar || !savedPersona.description) {
+          throw new Error("更新用户设定数据字段不完整");
         }
-        return p;
-      });
-    } else {
-      // Create
-      const newPersona: UserPersona = {
-        id: `up-${Date.now()}`,
-        name: personaName.trim(),
-        avatar: personaAvatar.trim() || "👤",
-        description: personaDesc.trim(),
-        createdAt: Date.now(),
-      };
-      updatedList = [...userPersonas, newPersona];
+        updatedList = userPersonas.map((p) => (p.id === editingPersona.id ? (savedPersona as UserPersona) : p));
+      } else {
+        // Create
+        savedPersona = {
+          id: `up-${Date.now()}`,
+          name,
+          avatar,
+          description,
+          createdAt: Date.now(),
+        };
+        // Verify all required fields
+        if (!savedPersona.id || !savedPersona.name || !savedPersona.avatar || !savedPersona.description || !savedPersona.createdAt) {
+          throw new Error("新建用户设定数据字段不完整");
+        }
+        updatedList = [...userPersonas, savedPersona];
+      }
+
+      console.log("Saving user persona with current data:", savedPersona);
+      console.log("Updated user persona list to save:", updatedList);
+
+      // Attempt to save to localStorage
+      localStorage.setItem("user_personas_v1", JSON.stringify(updatedList));
+      console.log("Successfully saved user personas to localStorage");
+
+      // Update state and parent state
+      setUserPersonas(updatedList);
+      if (onUpdateUserPersonas) {
+        onUpdateUserPersonas(updatedList);
+      }
+
+      // Reset forms ONLY on success
+      setPersonaName("");
+      setPersonaAvatar("");
+      setPersonaDesc("");
+      setEditingPersona(null);
+      setIsCreatingPersona(false);
+
+    } catch (err: any) {
+      console.error("Failed to save user persona. Error details:", err);
+      // Set local error state for display in form
+      setPersonaError(`保存失败: ${err?.message || "未知错误"}`);
+      // Prompt the user of the failure and keep current inputs intact
+      alert("保存失败，请重试");
     }
-
-    setUserPersonas(updatedList);
-    localStorage.setItem("user_personas_v1", JSON.stringify(updatedList));
-
-    // Reset forms
-    setPersonaName("");
-    setPersonaAvatar("");
-    setPersonaDesc("");
-    setEditingPersona(null);
-    setIsCreatingPersona(false);
   };
 
   // Delete User Persona
   const handleDeletePersona = (id: string) => {
-    const updatedList = userPersonas.filter((p) => p.id !== id);
-    setUserPersonas(updatedList);
-    localStorage.setItem("user_personas_v1", JSON.stringify(updatedList));
+    try {
+      const updatedList = userPersonas.filter((p) => p.id !== id);
+      console.log("Deleting persona ID:", id);
+      console.log("Updated persona list after deletion:", updatedList);
 
-    // Cascade unbind
-    characters.forEach((c) => {
-      if (c.userPersonaId === id) {
-        onUpdateCharacter({ ...c, userPersonaId: undefined });
+      localStorage.setItem("user_personas_v1", JSON.stringify(updatedList));
+      console.log("Successfully updated localStorage after persona deletion");
+
+      setUserPersonas(updatedList);
+      if (onUpdateUserPersonas) {
+        onUpdateUserPersonas(updatedList);
       }
-    });
+
+      // Cascade unbind
+      characters.forEach((c) => {
+        if (c.userPersonaId === id) {
+          onUpdateCharacter({ ...c, userPersonaId: undefined });
+        }
+      });
+    } catch (err: any) {
+      console.error("Failed to delete user persona. Error details:", err);
+      alert("删除失败，请重试");
+    }
   };
 
   // Lore matcher: check if the latest user text contains active lore keys or is always active, filtered by active character and sorted by priority.
@@ -2952,8 +3036,8 @@ ${existingCommentsText || "暂无评论"}
         let currentMessages = [...currentHistory];
         for (let i = 0; i < parts.length; i++) {
           let part = parts[i];
-          // ~20% probability for AI to reply as a fake voice message if standard text
-          if (!part.startsWith("[") && Math.random() < 0.20) {
+          // If AI voice mode is enabled, force 100% voice response. Otherwise, 20% random probability.
+          if (!part.startsWith("[") && (isAiVoiceMode || Math.random() < 0.20)) {
             const charCount = part.length;
             const sec = Math.max(2, Math.min(30, Math.ceil(charCount / 3)));
             const durationStr = sec < 10 ? `00:0${sec}` : `00:${sec}`;
@@ -3337,6 +3421,23 @@ ${existingCommentsText || "暂无评论"}
           audio.onerror = () => setIsPlaying(false);
           audio.play().catch(() => setIsPlaying(false));
         }
+      } else if (textContent) {
+        if (isPlaying) {
+          window.speechSynthesis.cancel();
+          setIsPlaying(false);
+        } else {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(textContent);
+          const voices = window.speechSynthesis.getVoices();
+          const zhVoice = voices.find(v => v.lang.includes("zh") || v.lang.includes("ZH"));
+          if (zhVoice) {
+            utterance.voice = zhVoice;
+          }
+          utterance.onend = () => setIsPlaying(false);
+          utterance.onerror = () => setIsPlaying(false);
+          setIsPlaying(true);
+          window.speechSynthesis.speak(utterance);
+        }
       }
     };
 
@@ -3409,7 +3510,7 @@ ${existingCommentsText || "暂无评论"}
         </div>
 
         {/* Expanded Text Content */}
-        {isExpanded && textContent && textContent !== "录音语音" && textContent !== "模拟录音语音" && (
+        {isExpanded && textContent && (
           <div
             className={`mt-2.5 pt-2 border-t text-xs leading-relaxed whitespace-pre-wrap break-words animate-fade-in ${
               isUser
@@ -4443,6 +4544,7 @@ ${existingCommentsText || "暂无评论"}
                         setActiveProfileId(null);
                         setSubAccountParentId(parentId);
                       }}
+                      userPersonas={userPersonas}
                     />
                   </div>
                 )}
@@ -5139,7 +5241,10 @@ ${existingCommentsText || "暂无评论"}
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setShowVoiceMenu(!showVoiceMenu)}
+                  onClick={() => {
+                    setShowGroupPlusMenu(false);
+                    setShowVoiceTypeModal(true);
+                  }}
                   className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-neutral-100 active:scale-95 transition-all text-neutral-800 group"
                 >
                   <div className="w-12 h-12 rounded-2xl bg-white border border-neutral-200 flex items-center justify-center text-neutral-800 shadow-sm group-hover:border-black transition-colors">
@@ -5147,35 +5252,6 @@ ${existingCommentsText || "暂无评论"}
                   </div>
                   <span className="text-[10px] text-neutral-700 font-medium">语音消息</span>
                 </button>
-
-                {/* Voice options popup */}
-                {showVoiceMenu && (
-                  <div className="absolute bottom-16 left-0 w-44 bg-white border border-neutral-200 rounded-2xl shadow-xl py-2 z-50 text-xs animate-fade-in">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowVoiceMenu(false);
-                        setShowGroupPlusMenu(false);
-                        handleStartVoiceRecord();
-                      }}
-                      className="w-full px-3.5 py-2.5 text-left hover:bg-neutral-50 flex items-center gap-2.5 font-medium text-neutral-900 transition-colors"
-                    >
-                      <Mic className="w-4 h-4 text-neutral-600" /> 语音输入 (录音)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowVoiceMenu(false);
-                        setShowGroupPlusMenu(false);
-                        setTtsText("");
-                        setShowTtsModal(true);
-                      }}
-                      className="w-full px-3.5 py-2.5 text-left hover:bg-neutral-50 flex items-center gap-2.5 font-medium text-neutral-900 transition-colors border-t border-neutral-100"
-                    >
-                      <Volume2 className="w-4 h-4 text-neutral-600" /> 打字转语音
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -5788,7 +5864,10 @@ ${existingCommentsText || "暂无评论"}
                       <div className="relative flex flex-col items-center">
                         <button
                           type="button"
-                          onClick={() => setShowVoiceMenu(!showVoiceMenu)}
+                          onClick={() => {
+                            setShowActionPanel(false);
+                            setShowVoiceTypeModal(true);
+                          }}
                           className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group w-full"
                         >
                           <div className="w-11 h-11 rounded-full bg-neutral-100 group-hover:bg-neutral-900 group-hover:text-white text-neutral-800 flex items-center justify-center transition-all shadow-sm">
@@ -5796,37 +5875,6 @@ ${existingCommentsText || "暂无评论"}
                           </div>
                           <span className="text-[11px] text-neutral-600">发语音</span>
                         </button>
-
-                        {/* Voice options popup inside + panel */}
-                        {showVoiceMenu && (
-                          <div className="absolute bottom-full left-0 mb-2 w-44 bg-white border border-neutral-200 rounded-2xl shadow-xl py-2 z-50 text-xs animate-fade-in font-sans">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowVoiceMenu(false);
-                                setShowActionPanel(false);
-                                setTtsText("");
-                                setShowTtsModal(true);
-                              }}
-                              className="w-full px-3.5 py-2.5 text-left hover:bg-neutral-50 flex items-center gap-2.5 font-medium text-neutral-900 transition-colors"
-                            >
-                              <Volume2 className="w-4 h-4 text-neutral-600" />
-                              <span>打字转语音</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShowVoiceMenu(false);
-                                setShowActionPanel(false);
-                                handleStartVoiceRecord();
-                              }}
-                              className="w-full px-3.5 py-2.5 text-left hover:bg-neutral-50 flex items-center gap-2.5 font-medium text-neutral-900 transition-colors border-t border-neutral-100"
-                            >
-                              <Mic className="w-4 h-4 text-neutral-600" />
-                              <span>语音输入 (录音)</span>
-                            </button>
-                          </div>
-                        )}
                       </div>
 
                       {/* 2. 视频 */}
@@ -5834,6 +5882,8 @@ ${existingCommentsText || "暂无评论"}
                         type="button"
                         onClick={() => {
                           setShowActionPanel(false);
+                          setVideoCallMessages([]);
+                          setVideoInputText("");
                           setActiveCall("video");
                         }}
                         className="flex flex-col items-center gap-1.5 active:scale-95 transition-all group"
@@ -6118,227 +6168,298 @@ ${existingCommentsText || "暂无评论"}
             </div>
           ) : (
             // Full screen simulated Video Call Overlay with background, chat bubbles, and narrator notes
-            <div className="fixed inset-0 text-white z-50 flex flex-col justify-between p-4 md:p-6 animate-fade-in overflow-hidden">
-              {/* Simulated Video Background */}
+            <div className="fixed inset-0 text-white z-50 flex flex-col justify-between p-4 md:p-6 bg-neutral-950 animate-fade-in overflow-hidden select-none">
               {(() => {
-                const videoBgUrl = activeChar.realImage || activeChar.realAvatar || activeChar.chatAvatar || activeChar.avatar;
-                if (videoBgUrl && (videoBgUrl.startsWith("http") || videoBgUrl.startsWith("data:") || videoBgUrl.startsWith("/"))) {
-                  return (
-                    <img 
-                      src={videoBgUrl} 
-                      alt={activeChar.name} 
-                      className="absolute inset-0 w-full h-full object-cover select-none -z-10 brightness-[0.6] scale-105 transition-all duration-700 animate-pulse-slow" 
-                      referrerPolicy="no-referrer"
-                    />
-                  );
-                }
-                return (
-                  <div className="absolute inset-0 bg-gradient-to-tr from-neutral-900 via-neutral-800 to-neutral-950 -z-10 flex items-center justify-center">
-                    <span className="text-9xl opacity-20 filter blur-sm">{activeChar.avatar || "🤖"}</span>
-                  </div>
-                );
-              })()}
-              
-              {/* Soft vignette for maximum text contrast */}
-              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-black/60 -z-10" />
-
-              {/* Top Header - Calling Information */}
-              <div className="flex items-center justify-between w-full max-w-md mx-auto pt-4 px-2 shrink-0">
-                <div className="flex items-center gap-3 bg-black/30 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/10 shadow-lg">
-                  <div className="w-8 h-8 rounded-full overflow-hidden bg-white/10 flex items-center justify-center border border-white/20">
-                    {activeChar.chatAvatar ? (
-                      <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                    ) : (
-                      <span className="text-sm">{activeChar.avatar || "🤖"}</span>
-                    )}
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-extrabold text-white tracking-wide">{activeChar.name}</h4>
-                    <p className="text-[9px] text-green-400 font-bold flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping inline-block" />
-                      视频通话中...
-                    </p>
-                  </div>
-                </div>
-
-                <div className="bg-black/30 backdrop-blur-md text-white/80 font-mono text-[10px] px-3 py-1.5 rounded-xl border border-white/10 shadow-md">
-                  00:{activeSession?.messages?.length ? String(Math.min(activeSession.messages.length * 3, 59)).padStart(2, '0') : "02"}
-                </div>
-              </div>
-
-              {/* Chat Dialog Overlay (Scrollable Messages) */}
-              <div 
-                ref={videoScrollRef}
-                className="flex-1 w-full max-w-md mx-auto my-4 overflow-y-auto px-2 space-y-4 flex flex-col scrollbar-none scroll-smooth pb-4"
-                style={{ contentVisibility: 'auto' }}
-              >
-                {(() => {
-                  const visibleMessages = (activeSession?.messages || []).filter(
-                    m => m.role === 'user' || m.role === 'assistant'
-                  );
-                  
-                  if (visibleMessages.length === 0) {
-                    return (
-                      <div className="flex-1 flex items-center justify-center text-center p-8">
-                        <p className="text-xs text-white/40 font-medium font-sans">
-                          与 {activeChar.name} 开启视频对话，向对方倾诉吧...
-                        </p>
-                      </div>
-                    );
+                const parseVoiceOrVideoMessage = (text: string) => {
+                  let cleanText = text || "";
+                  if (cleanText.startsWith("[语音消息]")) {
+                    const pipeIndex = cleanText.indexOf("|text:");
+                    if (pipeIndex !== -1) {
+                      cleanText = cleanText.substring(pipeIndex + 6);
+                    } else {
+                      cleanText = cleanText.replace(/^\[语音消息\]\s*\d\d:\d\d\s*\|?/, "");
+                    }
                   }
 
-                  const parseVoiceOrVideoMessage = (text: string) => {
-                    let cleanText = text || "";
-                    if (cleanText.startsWith("[语音消息]")) {
-                      const pipeIndex = cleanText.indexOf("|text:");
-                      if (pipeIndex !== -1) {
-                        cleanText = cleanText.substring(pipeIndex + 6);
-                      } else {
-                        cleanText = cleanText.replace(/^\[语音消息\]\s*\d\d:\d\d\s*\|?/, "");
-                      }
-                    }
-
-                    const blocks: { type: 'dialogue' | 'narrator'; text: string }[] = [];
-                    // Match asterisk-enclosed blocks first or bracket-enclosed blocks
-                    const regex = /(\*[^*]+\*|\([^)]+\)|（[^）]+）|\[[^\]]+\]|【[^】]+】)/g;
+                  const blocks: { type: 'dialogue' | 'narrator'; text: string }[] = [];
+                  const regex = /(\*[^*]+\*|\([^)]+\)|（[^）]+）|\[[^\]]+\]|【[^】]+】)/g;
+                  
+                  let lastIndex = 0;
+                  let match;
+                  
+                  while ((match = regex.exec(cleanText)) !== null) {
+                    const matchIndex = match.index;
+                    const matchText = match[0];
                     
-                    let lastIndex = 0;
-                    let match;
-                    
-                    while ((match = regex.exec(cleanText)) !== null) {
-                      const matchIndex = match.index;
-                      const matchText = match[0];
-                      
-                      if (matchIndex > lastIndex) {
-                        const diag = cleanText.substring(lastIndex, matchIndex).trim();
-                        if (diag) {
-                          blocks.push({ type: 'dialogue', text: diag });
-                        }
-                      }
-                      
-                      const cleanedNarrator = matchText.replace(/^[\*\(\[（【]|[\*\)\]）】]$/g, "").trim();
-                      if (cleanedNarrator) {
-                        blocks.push({ type: 'narrator', text: cleanedNarrator });
-                      }
-                      
-                      lastIndex = regex.lastIndex;
-                    }
-                    
-                    if (lastIndex < cleanText.length) {
-                      const diag = cleanText.substring(lastIndex).trim();
+                    if (matchIndex > lastIndex) {
+                      const diag = cleanText.substring(lastIndex, matchIndex).trim();
                       if (diag) {
                         blocks.push({ type: 'dialogue', text: diag });
                       }
                     }
                     
-                    if (blocks.length === 0) {
-                      blocks.push({ type: 'dialogue', text: cleanText });
+                    const cleanedNarrator = matchText.replace(/^[\*\(\[（【]|[\*\)\]）】]$/g, "").trim();
+                    if (cleanedNarrator) {
+                      blocks.push({ type: 'narrator', text: cleanedNarrator });
                     }
                     
-                    return blocks;
-                  };
+                    lastIndex = regex.lastIndex;
+                  }
+                  
+                  if (lastIndex < cleanText.length) {
+                    const diag = cleanText.substring(lastIndex).trim();
+                    if (diag) {
+                      blocks.push({ type: 'dialogue', text: diag });
+                    }
+                  }
+                  
+                  if (blocks.length === 0) {
+                    blocks.push({ type: 'dialogue', text: cleanText });
+                  }
+                  
+                  return blocks;
+                };
 
-                  return visibleMessages.map((msg) => {
-                    const isUser = msg.role === 'user';
-                    
-                    if (isUser) {
-                      return (
-                        <div key={msg.id} className="flex gap-2.5 items-start max-w-[85%] self-end animate-fade-in">
-                          <div className="flex flex-col gap-1 items-end">
-                            <span className="text-[9px] text-white/50 font-bold mr-1">我</span>
-                            <div className="bg-black/40 backdrop-blur-md border border-white/10 text-white text-xs px-3.5 py-2.5 rounded-2xl shadow-md leading-relaxed max-w-full font-sans">
-                              {msg.content}
+                return (
+                  <>
+                    {/* Top Header - Calling Information and Hang Up Button */}
+                    <div className="flex items-center justify-between w-full max-w-lg mx-auto pt-2 pb-4 px-2 shrink-0 z-10">
+                      <div className="flex items-center gap-3 bg-black/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-lg">
+                        <span className="text-xs font-bold tracking-wide flex items-center gap-1.5 text-white">
+                          <span className="animate-pulse">📹</span> 视频通话中
+                        </span>
+                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping inline-block" />
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          // Save video call transcript to chat session before hanging up
+                          if (videoCallMessages.length > 0) {
+                            const systemNotice: Message = {
+                              id: `vsys-${Date.now()}`,
+                              role: "system",
+                              content: "📹 视频通话已结束，通话记录已同步",
+                              timestamp: Date.now()
+                            };
+                            const syncedMessages = videoCallMessages.map(m => ({
+                              ...m,
+                              id: `synced-${m.id}`,
+                              timestamp: Date.now()
+                            }));
+                            const updatedSessionMessages = [
+                              ...(activeSession?.messages || []),
+                              systemNotice,
+                              ...syncedMessages
+                            ];
+                            onUpdateSessionMessages(activeCharId!, updatedSessionMessages);
+                          }
+                          setActiveCall(null);
+                        }}
+                        className="bg-red-600 hover:bg-red-700 active:scale-95 text-white font-bold py-2 px-5 rounded-full text-xs transition-all flex items-center gap-1.5 shadow-lg border border-red-500/20"
+                      >
+                        <Phone className="w-3.5 h-3.5 rotate-[135deg]" />
+                        <span>挂断</span>
+                      </button>
+                    </div>
+
+                    {/* Middle - Character real portrait, centered, filling main area */}
+                    <div className="flex-1 w-full max-w-lg mx-auto relative flex flex-col justify-end overflow-hidden bg-neutral-900/40 rounded-3xl border border-white/5 shadow-2xl">
+                      {/* Real avatar/image as background of this middle area */}
+                      <div className="absolute inset-0 flex items-center justify-center bg-neutral-950 overflow-hidden">
+                        {(() => {
+                          const avatarUrl = activeChar.realImage || activeChar.realAvatar || activeChar.chatAvatar || activeChar.avatar;
+                          if (avatarUrl && (avatarUrl.startsWith("http") || avatarUrl.startsWith("data:") || avatarUrl.startsWith("/"))) {
+                            return (
+                              <img 
+                                src={avatarUrl} 
+                                alt={activeChar.name} 
+                                className="w-full h-full object-cover select-none brightness-75 scale-100 transition-all duration-700" 
+                                referrerPolicy="no-referrer"
+                              />
+                            );
+                          }
+                          return (
+                            <div className="text-9xl opacity-20 filter blur-sm select-none">
+                              {activeChar.avatar || "🤖"}
                             </div>
-                          </div>
-                          <div className="w-7 h-7 rounded-full overflow-hidden bg-white/10 border border-white/20 shrink-0 flex items-center justify-center">
-                            <User className="w-3.5 h-3.5 text-white/80" />
-                          </div>
-                        </div>
-                      );
-                    } else {
-                      const blocks = parseVoiceOrVideoMessage(msg.content);
-                      return (
-                        <div key={msg.id} className="flex gap-2.5 items-start max-w-[85%] self-start animate-fade-in">
-                          <div className="w-7 h-7 rounded-full overflow-hidden bg-neutral-900 border border-white/20 shrink-0">
-                            {activeChar.chatAvatar ? (
-                              <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-                            ) : (
-                              <span className="text-xs flex items-center justify-center h-full bg-neutral-800">{activeChar.avatar || "🤖"}</span>
-                            )}
-                          </div>
-                          <div className="flex flex-col gap-1.5 items-start max-w-full">
-                            <span className="text-[9px] text-white/50 font-bold ml-1">{activeChar.name}</span>
-                            {blocks.map((block, bIdx) => {
-                              if (block.type === 'dialogue') {
-                                return (
-                                  <div key={bIdx} className="bg-white/15 backdrop-blur-md border border-white/20 text-white text-xs px-3.5 py-2.5 rounded-2xl shadow-md leading-relaxed max-w-full font-sans">
-                                    {block.text}
-                                  </div>
-                                );
-                              } else {
-                                return (
-                                  <div key={bIdx} className="text-[10px] text-neutral-300 italic opacity-90 max-w-full leading-relaxed font-sans font-medium pl-1 my-0.5">
-                                    * {block.text} *
-                                  </div>
-                                );
-                              }
-                            })}
-                          </div>
-                        </div>
-                      );
-                    }
-                  });
-                })()}
-              </div>
+                          );
+                        })()}
+                        {/* Gentle gradient for text readability overlay */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-black/35 pointer-events-none" />
+                      </div>
 
-              {/* Bottom Controllers & Interactive Chat Input */}
-              <div className="w-full max-w-md mx-auto space-y-4 pt-2 pb-4 px-2 shrink-0 border-t border-white/10 bg-black/20 backdrop-blur-md rounded-3xl p-3 shadow-2xl">
-                <form 
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!(inputText || '').trim() || isGenerating) return;
-                    await handleSendMessage(e);
-                  }} 
-                  className="flex items-center gap-2"
-                >
-                  <input
-                    type="text"
-                    placeholder={isGenerating ? "生成中..." : "输入消息开始通话..."}
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    disabled={isGenerating}
-                    className="flex-1 text-xs border border-white/10 hover:border-white/20 focus:border-white/40 px-3.5 py-2.5 rounded-xl bg-white/10 backdrop-blur-md text-white placeholder-white/40 outline-none transition-all"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!(inputText || '').trim() || isGenerating}
-                    className="w-10 h-10 bg-white/10 hover:bg-white/20 disabled:bg-transparent disabled:text-white/20 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 border border-white/10"
-                    title="发送"
-                  >
-                    <Send className="w-4 h-4 stroke-[1.75]" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleTriggerAiReply()}
-                    disabled={isGenerating}
-                    className="w-10 h-10 bg-white hover:bg-neutral-100 disabled:bg-white/10 disabled:text-white/25 text-black rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 shadow-md"
-                    title="生成回复"
-                  >
-                    <Heart className="w-4 h-4 fill-black stroke-black" />
-                  </button>
-                </form>
+                      {/* Overlaid conversation messages */}
+                      <div 
+                        ref={videoScrollRef}
+                        className="absolute inset-0 top-12 bottom-4 overflow-y-auto px-4 space-y-4 flex flex-col scrollbar-none scroll-smooth pb-4 pointer-events-auto z-10"
+                      >
+                        {videoCallMessages.length === 0 ? (
+                          <div className="flex-1 flex flex-col items-center justify-center text-center p-8 text-white/50 space-y-2 select-none">
+                            <div className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-2xl animate-pulse">
+                              💬
+                            </div>
+                            <p className="text-xs font-medium font-sans text-white">
+                              与 {activeChar.name} 开启了视频通话
+                            </p>
+                            <p className="text-[10px] opacity-60">
+                              在下方输入或点击 AI 回复，开始倾听与对话
+                            </p>
+                          </div>
+                        ) : (
+                          videoCallMessages.map((msg) => {
+                            const isUser = msg.role === 'user';
+                            
+                            if (isUser) {
+                              return (
+                                <div key={msg.id} className="flex gap-2.5 items-start max-w-[85%] self-end animate-fade-in">
+                                  <div className="flex flex-col gap-1 items-end">
+                                    <span className="text-[9px] text-white/40 font-bold mr-1">我</span>
+                                    <div className="bg-black/50 backdrop-blur-md border border-white/10 text-white text-xs px-3.5 py-2.5 rounded-2xl shadow-md leading-relaxed font-sans">
+                                      {msg.content}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            } else {
+                              const blocks = parseVoiceOrVideoMessage(msg.content);
+                              return (
+                                <div key={msg.id} className="flex gap-2.5 items-start max-w-[85%] self-start animate-fade-in">
+                                  <div className="flex flex-col gap-1.5 items-start max-w-full">
+                                    <span className="text-[9px] text-white/40 font-bold ml-1">{activeChar.name}</span>
+                                    {blocks.map((block, bIdx) => {
+                                      if (block.type === 'dialogue') {
+                                        return (
+                                          <div key={bIdx} className="bg-white/15 backdrop-blur-md border border-white/20 text-white text-xs px-3.5 py-2.5 rounded-2xl shadow-md leading-relaxed max-w-full font-sans">
+                                            {block.text}
+                                          </div>
+                                        );
+                                      } else {
+                                        return (
+                                          <div key={bIdx} className="text-[10px] text-yellow-300/90 italic font-sans font-medium pl-1 my-1 block leading-normal">
+                                            * {block.text} *
+                                          </div>
+                                        );
+                                      }
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            }
+                          })
+                        )}
+                      </div>
+                    </div>
 
-                {/* Hang up controller */}
-                <div className="flex justify-center pt-1 pb-1">
-                  <button
-                    onClick={() => setActiveCall(null)}
-                    className="bg-red-600 hover:bg-red-700 hover:scale-105 text-white rounded-full py-2.5 px-8 text-xs font-bold shadow-lg shadow-red-950/40 active:scale-95 transition-all flex items-center gap-2"
-                  >
-                    <Phone className="w-4 h-4 rotate-[135deg]" />
-                    <span>挂断电话</span>
-                  </button>
-                </div>
-              </div>
+                    {/* Bottom - Input field, Send button, AI Reply button */}
+                    <div className="w-full max-w-lg mx-auto pt-4 pb-2 px-2 shrink-0 z-10">
+                      <form 
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (!videoInputText.trim() || isGeneratingVideoReply) return;
+                          
+                          const text = videoInputText.trim();
+                          setVideoInputText("");
+                          const userMsg: Message = {
+                            id: `vmsg-${Date.now()}-user`,
+                            role: "user",
+                            content: text,
+                            timestamp: Date.now()
+                          };
+                          const updated = [...videoCallMessages, userMsg];
+                          setVideoCallMessages(updated);
+                          
+                          // Trigger AI reply automatically
+                          setIsGeneratingVideoReply(true);
+                          try {
+                            const priorContext = (activeSession?.messages || []).slice(-10).map(m => ({ role: m.role, content: m.content }));
+                            const response = await apiChat({
+                              character: activeChar,
+                              messages: [
+                                ...priorContext,
+                                ...updated.map(m => ({ role: m.role, content: m.content }))
+                              ],
+                              settings,
+                              systemInstruction: activeChar.systemInstruction + "\n【重要指令】：你当前正在与用户进行实时[视频通话]。请直接说话（直接回答），多使用带括号的旁白来生动描述你的微表情、手势动作、眼神变化和背景环境（例如：*歪了歪头，凑近摄像头* “哈啰，听得清吗？” ）。请保持回答简短、口语化，像真的在进行视频通话一样，避免冗长的段落。",
+                              temperature: getCharacterTemperature(activeCharId) || 0.8
+                            });
+                            
+                            const replyText = response.text || "喂？听得到吗？信号好像有点慢。";
+                            const aiMsg: Message = {
+                              id: `vmsg-${Date.now()}-ai`,
+                              role: "assistant",
+                              content: replyText,
+                              timestamp: Date.now()
+                            };
+                            setVideoCallMessages(prev => [...prev, aiMsg]);
+                          } catch (err) {
+                            console.error("Video response error:", err);
+                          } finally {
+                            setIsGeneratingVideoReply(false);
+                          }
+                        }} 
+                        className="flex items-center gap-2 bg-black/40 backdrop-blur-md border border-white/10 p-2 rounded-2xl shadow-xl"
+                      >
+                        <input
+                          type="text"
+                          placeholder={isGeneratingVideoReply ? "对方正在输入..." : "输入文字与对方视频通话..."}
+                          value={videoInputText}
+                          onChange={(e) => setVideoInputText(e.target.value)}
+                          disabled={isGeneratingVideoReply}
+                          className="flex-1 text-xs px-3 py-2.5 rounded-xl bg-white/5 border border-white/5 text-white placeholder-white/30 outline-none focus:border-white/20 transition-all font-sans"
+                        />
+                        
+                        <button
+                          type="submit"
+                          disabled={!videoInputText.trim() || isGeneratingVideoReply}
+                          className="w-9 h-9 bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:hover:bg-white/10 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 border border-white/10"
+                          title="发送"
+                        >
+                          <Send className="w-3.5 h-3.5 stroke-[1.75]" />
+                        </button>
+                        
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (isGeneratingVideoReply) return;
+                            setIsGeneratingVideoReply(true);
+                            try {
+                              const priorContext = (activeSession?.messages || []).slice(-10).map(m => ({ role: m.role, content: m.content }));
+                              const response = await apiChat({
+                                character: activeChar,
+                                messages: [
+                                  ...priorContext,
+                                  ...videoCallMessages.map(m => ({ role: m.role, content: m.content }))
+                                ],
+                                settings,
+                                systemInstruction: activeChar.systemInstruction + "\n【重要指令】：你当前正在与用户进行实时[视频通话]。请直接说话（直接回答），多使用带括号的旁白来生动描述你的微表情、手势动作、眼神变化和背景环境。请保持回答简短、口语化，像真的在进行视频通话一样，避免冗长的段落。",
+                                temperature: getCharacterTemperature(activeCharId) || 0.8
+                              });
+                              
+                              const replyText = response.text || "你在听吗？";
+                              const aiMsg: Message = {
+                                id: `vmsg-${Date.now()}-ai`,
+                                role: "assistant",
+                                content: replyText,
+                                timestamp: Date.now()
+                              };
+                              setVideoCallMessages(prev => [...prev, aiMsg]);
+                            } catch (err) {
+                              console.error("Video AI response error:", err);
+                            } finally {
+                              setIsGeneratingVideoReply(false);
+                            }
+                          }}
+                          disabled={isGeneratingVideoReply}
+                          className="w-9 h-9 bg-white hover:bg-neutral-100 disabled:opacity-40 disabled:hover:bg-white text-black rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 shadow-md border border-white/10"
+                          title="AI 回复"
+                        >
+                          <Heart className="w-3.5 h-3.5 fill-black stroke-black" />
+                        </button>
+                      </form>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           )}
         </>
@@ -8612,6 +8733,80 @@ ${existingCommentsText || "暂无评论"}
             >
               ✕
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Universal Voice Type Selection Modal */}
+      {showVoiceTypeModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in font-sans">
+          <div className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl space-y-4 border border-neutral-200">
+            <div className="flex justify-between items-center pb-2 border-b border-neutral-100">
+              <div>
+                <h3 className="font-bold text-base text-neutral-950">选择发送语音方式</h3>
+                <p className="text-[11px] text-neutral-500 mt-0.5">支持输入文本自动生成，或直接录制真实语音</p>
+              </div>
+              <button 
+                onClick={() => setShowVoiceTypeModal(false)} 
+                className="text-neutral-400 hover:text-neutral-700 p-1 rounded-full hover:bg-neutral-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3.5 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowVoiceTypeModal(false);
+                  setTtsText("");
+                  setShowTtsModal(true);
+                }}
+                className="flex flex-col items-center gap-3 p-5 bg-[#FAFAF9] hover:bg-[#F5F3F0] border border-neutral-200/50 hover:border-neutral-400 rounded-2xl active:scale-95 transition-all text-neutral-800 text-center group"
+              >
+                <div className="w-12 h-12 rounded-full bg-white border border-neutral-200 shadow-sm flex items-center justify-center text-neutral-800 group-hover:bg-neutral-950 group-hover:text-white group-hover:border-neutral-950 transition-all">
+                  <Volume2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold block text-neutral-900">打字转语音</span>
+                  <span className="text-[10px] text-neutral-500 mt-0.5 block">输入文字生成语音条</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowVoiceTypeModal(false);
+                  handleStartVoiceRecord();
+                }}
+                className="flex flex-col items-center gap-3 p-5 bg-[#FAFAF9] hover:bg-[#F5F3F0] border border-[#FAFAF9]/50 hover:border-neutral-400 rounded-2xl active:scale-95 transition-all text-neutral-800 text-center group"
+              >
+                <div className="w-12 h-12 rounded-full bg-white border border-neutral-200 shadow-sm flex items-center justify-center text-neutral-800 group-hover:bg-neutral-950 group-hover:text-white group-hover:border-neutral-950 transition-all">
+                  <Mic className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-xs font-bold block text-neutral-900">麦克风录音</span>
+                  <span className="text-[10px] text-neutral-500 mt-0.5 block">录制并发送真实原声</span>
+                </div>
+              </button>
+            </div>
+
+            {/* AI Voice Toggle Option */}
+            <div className="pt-3.5 border-t border-neutral-100 flex items-center justify-between">
+              <div className="space-y-0.5 text-left">
+                <span className="text-xs font-bold text-neutral-900 block">AI 角色语音回复模式</span>
+                <span className="text-[10px] text-neutral-500 block">开启后，角色的每一条回复都将自动变为语音消息</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAiVoiceMode(!isAiVoiceMode)}
+                className={`w-10 h-6 flex items-center rounded-full p-1 transition-all ${
+                  isAiVoiceMode ? "bg-black justify-end" : "bg-neutral-200 justify-start"
+                }`}
+              >
+                <div className="w-4 h-4 rounded-full bg-white shadow-xs" />
+              </button>
+            </div>
           </div>
         </div>
       )}

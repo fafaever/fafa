@@ -249,6 +249,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
   const [inputText, setInputText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isRefreshingOptions, setIsRefreshingOptions] = useState(false);
+  const [isOptionsExpanded, setIsOptionsExpanded] = useState(false);
   const [showBackgroundDrawer, setShowBackgroundDrawer] = useState(false);
   const [showSecretModal, setShowSecretModal] = useState<RoleAssignment | null>(null);
 
@@ -777,46 +778,50 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       return { name: c?.name || id, worldName: state?.identity?.name || c?.name || id };
     });
 
-    const sentences = content.split(/[\n。！？；]/).map(s => s.trim()).filter(Boolean);
-    const cardsMap: Record<string, { action: string[]; dialogue: string[] }> = {};
-
-    sentences.forEach(sent => {
-      let matchedChar = chars.find(c => sent.includes(c.name) || sent.includes(c.worldName));
-      if (!matchedChar && chars.length > 0) {
-        matchedChar = chars[0];
-      }
-      if (!matchedChar) return;
-
-      const charKey = matchedChar.name;
-      if (!cardsMap[charKey]) cardsMap[charKey] = { action: [], dialogue: [] };
-
-      const quoteMatch = sent.match(/[“""]([^”""]+)[”""]/);
-      if (quoteMatch) {
-        const diag = quoteMatch[1];
-        cardsMap[charKey].dialogue.push(diag);
-        const act = sent.replace(/[“""][^”""]+[”""]/g, "").replace(matchedChar.name, "").trim();
-        if (act) cardsMap[charKey].action.push(act);
-      } else {
-        const act = sent.replace(matchedChar.name, "").trim();
-        if (act) cardsMap[charKey].action.push(act);
-      }
-    });
-
+    // Split content by lines/paragraphs to maintain perfect narrative sequence
+    const blocks = content.split('\n').map(b => b.trim()).filter(Boolean);
     const result: CharacterCardData[] = [];
-    Object.keys(cardsMap).forEach(k => {
-      const data = cardsMap[k];
-      if (data.action.length > 0 || data.dialogue.length > 0) {
+
+    blocks.forEach(block => {
+      // Find matching character
+      const matchedChar = chars.find(c => block.includes(c.name) || block.includes(c.worldName));
+      const charName = matchedChar ? matchedChar.name : "剧情描写";
+
+      // Match dialogue inside quote marks
+      const quoteMatch = block.match(/[“"']([^”"']+)?[”"']/);
+      if (quoteMatch) {
+        const dialogue = quoteMatch[1] || "";
+        let action = block.replace(/[“"'][^”"']*[”"']/g, "").trim();
+        if (matchedChar) {
+          action = action.replace(new RegExp(matchedChar.name, "g"), "")
+                         .replace(new RegExp(matchedChar.worldName, "g"), "")
+                         .replace(/^[，。、,：:\s]+|[，。、,：:\s]+$/g, "")
+                         .trim();
+        }
         result.push({
-          characterName: k,
-          action: data.action.join("，"),
-          dialogue: data.dialogue.join(" ")
+          characterName: charName,
+          action: action,
+          dialogue: dialogue
+        });
+      } else {
+        let action = block;
+        if (matchedChar) {
+          action = action.replace(new RegExp(matchedChar.name, "g"), "")
+                         .replace(new RegExp(matchedChar.worldName, "g"), "")
+                         .replace(/^[，。、,：:\s]+|[，。、,：:\s]+$/g, "")
+                         .trim();
+        }
+        result.push({
+          characterName: charName,
+          action: action,
+          dialogue: ""
         });
       }
     });
 
     if (result.length === 0 && content.trim()) {
       result.push({
-        characterName: chars[0]?.name || "AI主宰",
+        characterName: "剧情描写",
         action: content,
         dialogue: ""
       });
@@ -950,6 +955,14 @@ ${chatHistory}
 4. 字数控制要求：请务必将你的每一轮剧情描写与角色回应控制在 ${minW}~${maxW} 字范围内（单轮生成最高上限 15000 字）。
 5. 文风要求：使用口语化、简洁直白的表达方式，短句为主，多用名词和动词。
 6. **绝对禁止**代替玩家进行任何言行、表情或心理活动描写。所有玩家的行动必须由玩家自己决定。
+7. 【剧情描写与对话的隔离与节奏优化】：
+   · 必须将角色对话（言语台词）与动作描写、行为神态严格区分。
+   · 在生成 [CHAR_CARD: 角色名字 | 动作描述 | 对话内容] 时：
+     - “对话内容”必须是纯粹的口头台词，不得夹杂任何神态或动作叙述。
+     - “动作描述”必须是纯粹的神态、表情、肢体动作、心理描写或语气，不得夹杂任何台词。
+   · 自动剧情描写插入机制：在角色对话自然停顿、话题转换、场景变化或用户做出重要选择后，**必须在角色描述之后，自动插入一小段独立的剧情描写**来推进故事发展。
+   · 剧情描写必须与任何个体的言行卡片彻底分开，独立成段，并且输出为专属卡片：
+     [CHAR_CARD: 剧情描写 | 独立的剧情描述或场景环境推进描写 | ] （其中第三个字段“对话内容”留空）。
 
 请在叙述文本的**最末尾**，严格以以下标签格式输出更新数据（每行一个标签，必须在中括号内，用于引擎状态同步）：
 [TASK_COMPLETE: 任务ID] (如果某项任务在此轮得到了达成，输出如 [TASK_COMPLETE: 1])
@@ -960,7 +973,7 @@ ${chatHistory}
 [CHARACTER_FLAW_LEAKED: 伙伴真实名字, 破绽说明] (若该伙伴在此轮对话里露出了习惯破绽，输出此标签，字数20-45字)
 [GAME_ENDING: perfect 或 partial 或 failed] (如果满足结束条件：全部任务完成且暴露度低于70%触发perfect；部分任务完成或暴露度高于70%触发partial；暴露度满100%或全任务失败触发failed。没有触发结局千万别输出)
 [ACTION_OPTION: 选项具体可执行内容] (请生成 4 到 6 个玩家下一步具体可执行的操作选项，例如“走过去和她说话”、“检查书桌抽屉”、“躲在门后观察”等，涵盖不同尝试方向。每行输出一个 [ACTION_OPTION: ...] 标签)
-[CHAR_CARD: 角色名字 | 动作描述 | 对话内容] (为参与此轮对话的每个角色分别输出1条卡片标签。如 [CHAR_CARD: 苏墨 | 缓缓放下茶盏，抬眼看着你 | 你真的以为能瞒过我吗])
+[CHAR_CARD: 角色名字 | 动作描述 | 对话内容] (为参与此轮对话的每个角色分别输出1条卡片标签。如 [CHAR_CARD: 剧情描写 | 窗外的冷雨敲打着玻璃，气氛瞬间凝固了。 | ]，或 [CHAR_CARD: 苏墨 | 缓缓放下茶盏，抬眼看着你 | 你真的以为能瞒过我吗])
 ${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字, 消息内容] (为阵营【${f.name}】(使命:${f.goal})生成1条群聊消息：队友对当前局势的分析、建议或对敌方的猜想策略)`).join("\n")}
 `;
 
@@ -2518,7 +2531,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
 
       {/* 2. TRANSMIGRATION LIST */}
       {activeTab === "transmigration_list" && (
-        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#F9F8F6] text-[#1A1A1A]">
+        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#F8F6F3] text-[#1A1A1A]">
           {/* Header Bar */}
           <div className="h-14 border-b border-[#EFECE8] px-4 flex items-center justify-between shrink-0 bg-white/90 backdrop-blur-md">
             <button
@@ -2528,7 +2541,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             >
               <ChevronLeft className="w-5 h-5 stroke-[1.5]" />
             </button>
-            <h1 className=" font-semibold text-base text-[#1A1A1A]">快穿 · 世界列表</h1>
+            <h1 className="font-serif font-bold text-base text-[#1A1A1A]">快穿 · 世界列表</h1>
             <button
               onClick={() => setShowCreateWorldModal(true)}
               className="px-3 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs font-medium transition flex items-center gap-1 cursor-pointer shadow-2xs border border-[#1A1A1A]"
@@ -2595,7 +2608,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                     <div className="flex items-start justify-between gap-2">
                       <div className="space-y-1 flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <h3 className=" font-semibold text-sm text-[#1A1A1A] truncate">{world.name}</h3>
+                          <h3 className="font-serif font-bold text-sm text-[#1A1A1A] truncate">{world.name}</h3>
                           <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusObj.color}`}>
                             {isArchived ? "已完结 / 快穿存档" : statusObj.text}
                           </span>
@@ -2685,7 +2698,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
 
       {/* 2.5 TRANSMIGRATION PLAY */}
       {activeTab === "transmigration_play" && activeWorld && (
-        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#F5F3F0] text-[#1A1A1A]">
+        <div className="flex-1 flex flex-col z-10 overflow-hidden bg-[#F8F6F3] text-[#1A1A1A]">
           {/* Top Header */}
           <div className="h-14 border-b border-[#EFECE8] px-4 flex items-center justify-between shrink-0 bg-white/90 backdrop-blur-md">
             <button
@@ -2698,7 +2711,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             >
               <ChevronLeft className="w-5 h-5 stroke-[1.5]" />
             </button>
-            <span className=" font-semibold text-base text-[#1A1A1A] truncate max-w-[180px]">
+            <span className="font-serif font-bold text-base text-[#1A1A1A] truncate max-w-[180px]">
               {activeWorld.name}
             </span>
             <div className="flex items-center gap-2">
@@ -3048,32 +3061,37 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
 
                         return (
                           <div key={msg.id || idx} className="space-y-3 mb-3">
-                            {cards.map((card, cIdx) => (
-                              <div
-                                key={cIdx}
-                                className="bg-white rounded-[12px] p-[12px_16px] shadow-2xs border border-[#EFECE8] space-y-1.5"
-                              >
-                                {/* Top-left: Character name (10px, warm gray #A8A39A, bold) + time (9px, #BFBAB2, regular) on the same line */}
-                                <div className="flex items-center gap-1.5 text-[10px] leading-none">
-                                  <span className="font-bold text-[#A8A39A]">{card.characterName}</span>
-                                  <span className="text-[#BFBAB2] font-normal">{timeStr}</span>
-                                </div>
+                            {cards.map((card, cIdx) => {
+                              const isNarrative = card.characterName === "剧情描写" || card.characterName === "旁白" || card.characterName === "环境描写" || card.characterName === "场景" || card.characterName === "系统叙事" || card.characterName === "AI主宰";
+                              return (
+                                <div
+                                  key={cIdx}
+                                  className="bg-white rounded-[12px] p-[12px_16px] shadow-[0_1px_2px_rgba(0,0,0,0.02)] border border-[#EFECE8] space-y-2 font-['Inter']"
+                                >
+                                  {/* Top-left: Character name (12px, bold, warm gray #A8A39A) + time (12px, regular, #BFBAB2) */}
+                                  <div className="flex items-center gap-1.5 text-[12px] leading-none">
+                                    <span className="font-bold text-[#A8A39A]">
+                                      {isNarrative ? "📖 剧情推进" : card.characterName}
+                                    </span>
+                                    <span className="text-[#BFBAB2] font-normal">{timeStr}</span>
+                                  </div>
 
-                                {/* Content area */}
-                                <div className="space-y-1 pt-0.5">
-                                  {card.action && (
-                                    <p className="text-[15px] text-[#1A1A1A]  text-left leading-relaxed">
-                                      {card.action}
-                                    </p>
-                                  )}
-                                  {card.dialogue && (
-                                    <p className="text-[15px] text-[#1A1A1A]  text-left leading-relaxed">
-                                      {card.dialogue.replace(/^[“""]|[”""]$/g, "")}
-                                    </p>
-                                  )}
+                                  {/* Content area */}
+                                  <div className="space-y-1.5 pt-0.5">
+                                    {card.action && (
+                                      <p className="text-[14px] text-[#333333] text-left leading-relaxed font-['Inter']">
+                                        {card.action}
+                                      </p>
+                                    )}
+                                    {card.dialogue && (
+                                      <p className="text-[14px] text-[#1A1A1A] text-left leading-relaxed italic block mt-1.5 font-['Inter']">
+                                        “{card.dialogue.replace(/^[“"']|[”"']$/g, "")}”
+                                      </p>
+                                    )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         );
                       })
@@ -3118,70 +3136,103 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 {activeWorld.status !== "completed" && (
                   <div className="bg-white border-t border-[#EFECE8] flex flex-col shrink-0 shadow-lg">
                     {/* 分支选项 */}
-                    <div className="p-3 sm:p-4 space-y-2.5 border-b border-[#EFECE8]">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-[#1A1A1A] flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-[#1A1A1A]" />
-                          <span>剧情分支行动</span>
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={handleRefreshActionOptions}
-                            disabled={isGenerating || isRefreshingOptions}
-                            className="text-xs  text-[#78716C] hover:text-[#1A1A1A] hover:bg-[#F5F3F0] flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-[#E5E2DC] transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs active:scale-95"
-                            title="刷新行动选项"
-                          >
-                            <RefreshCw className={`w-3 h-3 ${isRefreshingOptions ? "animate-spin text-[#1A1A1A]" : "text-[#78716C]"}`} />
-                            <span>{isRefreshingOptions ? "刷新中..." : "刷新选项"}</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleTransmigrationUserSend("【AI推进】：请继续推进当前世界的剧情发展的关键节点！")}
-                            disabled={isGenerating || (activeWorld.status as string) === "completed"}
-                            className="px-3 py-1 rounded-full bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F5F3F0] disabled:text-[#A8A39A] text-white text-xs  font-medium transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50 shadow-xs active:scale-95 border border-[#1A1A1A]"
-                            title="AI自动推进剧情"
-                          >
-                            {isGenerating ? (
-                              <>
-                                <RefreshCw className="w-3 h-3 animate-spin stroke-[1.5]" />
-                                <span>推进中...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles className="w-3 h-3 stroke-[1.5]" />
-                                <span>AI推进剧情</span>
-                              </>
-                            )}
-                          </button>
+                    {!isOptionsExpanded ? (
+                      <div className="border-b border-[#EFECE8]">
+                        <button
+                          type="button"
+                          onClick={() => setIsOptionsExpanded(true)}
+                          className="w-full py-3 px-4 bg-[#FAFAF9] hover:bg-[#F5F3F0] flex items-center justify-between text-xs text-[#78716C] font-semibold transition cursor-pointer active:scale-[0.99]"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-[#1A1A1A] animate-pulse" />
+                            <span>点击展开选项</span>
+                          </div>
+                          <div className="flex items-center gap-1 text-[11px] text-stone-400 font-normal">
+                            <span>展开下一步行动</span>
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </div>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="p-3 sm:p-4 space-y-2.5 border-b border-[#EFECE8] bg-[#FAFAF9]/30">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-[#1A1A1A] flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5 text-[#1A1A1A]" />
+                            <span>剧情分支行动</span>
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleRefreshActionOptions}
+                              disabled={isGenerating || isRefreshingOptions}
+                              className="text-xs  text-[#78716C] hover:text-[#1A1A1A] hover:bg-[#F5F3F0] flex items-center gap-1.5 px-3 py-1 rounded-full bg-white border border-[#E5E2DC] transition cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs active:scale-95"
+                              title="刷新行动选项"
+                            >
+                              <RefreshCw className={`w-3 h-3 ${isRefreshingOptions ? "animate-spin text-[#1A1A1A]" : "text-[#78716C]"}`} />
+                              <span>{isRefreshingOptions ? "刷新中..." : "刷新选项"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                handleTransmigrationUserSend("【AI推进】：请继续推进当前世界的剧情发展的关键节点！");
+                                setIsOptionsExpanded(false);
+                              }}
+                              disabled={isGenerating || (activeWorld.status as string) === "completed"}
+                              className="px-3 py-1 rounded-full bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F5F3F0] disabled:text-[#A8A39A] text-white text-xs  font-medium transition flex items-center gap-1.5 cursor-pointer shrink-0 disabled:opacity-50 shadow-xs active:scale-95 border border-[#1A1A1A]"
+                              title="AI自动推进剧情"
+                            >
+                              {isGenerating ? (
+                                <>
+                                  <RefreshCw className="w-3 h-3 animate-spin stroke-[1.5]" />
+                                  <span>推进中...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-3 h-3 stroke-[1.5]" />
+                                  <span>AI推进剧情</span>
+                                </>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsOptionsExpanded(false)}
+                              className="text-xs text-[#78716C] hover:text-[#1A1A1A] hover:bg-[#F5F3F0] p-1 rounded-full border border-transparent transition cursor-pointer"
+                              title="收起选项"
+                            >
+                              <ChevronUp className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          {(activeWorld.actionOptions && activeWorld.actionOptions.length > 0
+                            ? activeWorld.actionOptions
+                            : [
+                                "走过去与对方说话",
+                                "检查四周的环境与物品",
+                                "思考当前原主宿留下的记忆",
+                                "静观其变，等待对方开口"
+                              ]
+                          ).map((optText, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => {
+                                setInputText(optText);
+                                setIsOptionsExpanded(false);
+                              }}
+                              disabled={isGenerating || isRefreshingOptions}
+                              className="text-left px-3.5 py-2 bg-white border border-[#E5E2DC] hover:border-[#1A1A1A] hover:bg-[#F5F3F0] rounded-xl text-xs  text-[#1A1A1A] transition flex items-center gap-2.5 cursor-pointer disabled:opacity-50 active:scale-[0.99] group shadow-xs"
+                            >
+                              <span className="w-4 h-4 rounded-full bg-[#F5F3F0] group-hover:bg-[#1A1A1A] group-hover:text-white flex items-center justify-center text-[10px] font-mono text-[#78716C] shrink-0 transition font-medium border border-[#EFECE8]">
+                                {idx + 1}
+                              </span>
+                              <span className="truncate flex-1">{optText}</span>
+                            </button>
+                          ))}
                         </div>
                       </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {(activeWorld.actionOptions && activeWorld.actionOptions.length > 0
-                          ? activeWorld.actionOptions
-                          : [
-                              "走过去与对方说话",
-                              "检查四周的环境与物品",
-                              "思考当前原主宿留下的记忆",
-                              "静观其变，等待对方开口"
-                            ]
-                        ).map((optText, idx) => (
-                          <button
-                            key={idx}
-                            type="button"
-                            onClick={() => handleTransmigrationUserSend(optText)}
-                            disabled={isGenerating || isRefreshingOptions}
-                            className="text-left px-3.5 py-2 bg-white border border-[#E5E2DC] hover:border-[#1A1A1A] hover:bg-[#F5F3F0] rounded-xl text-xs  text-[#1A1A1A] transition flex items-center gap-2.5 cursor-pointer disabled:opacity-50 active:scale-[0.99] group shadow-xs"
-                          >
-                            <span className="w-4 h-4 rounded-full bg-[#F5F3F0] group-hover:bg-[#1A1A1A] group-hover:text-white flex items-center justify-center text-[10px] font-mono text-[#78716C] shrink-0 transition font-medium border border-[#EFECE8]">
-                              {idx + 1}
-                            </span>
-                            <span className="truncate flex-1">{optText}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    )}
 
                     {/* 剧情推进自定义输入框 */}
                     <div className="p-3 bg-white flex items-center gap-2">
@@ -3214,7 +3265,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
               const currentFactionId = activeWorld.factions?.[0]?.id || "world_chat";
 
               return (
-                <div className="flex-1 flex flex-col h-full bg-[#F5F3F0] animate-fade-in overflow-hidden">
+                <div className="flex-1 flex flex-col h-full bg-[#F8F6F3] animate-fade-in overflow-hidden">
                   {/* 群聊区顶栏 */}
                   <div className="p-3 border-b border-[#EFECE8] bg-white sticky top-0 z-10 space-y-1 shrink-0 shadow-2xs flex items-center justify-between">
                     <span className="text-xs font-semibold text-[#1A1A1A] flex items-center gap-1.5">

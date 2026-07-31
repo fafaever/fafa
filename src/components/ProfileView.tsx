@@ -10,15 +10,17 @@ interface ProfileViewProps {
   onUpdateCharacter: (char: Character) => void;
   onStartChat: (id: string) => void;
   onCreateSubAccount?: (parentId: string) => void;
+  userPersonas?: UserPersona[];
 }
 
-export default function ProfileView({ character, allCharacters, onBack, onUpdateCharacter, onStartChat, onCreateSubAccount }: ProfileViewProps) {
+export default function ProfileView({ character, allCharacters, onBack, onUpdateCharacter, onStartChat, onCreateSubAccount, userPersonas: userPersonasProp }: ProfileViewProps) {
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notes, setNotes] = useState(character.notes || "");
   const [isEditingGroup, setIsEditingGroup] = useState(false);
   const [group, setGroup] = useState(character.group || "其它");
 
-  const [userPersonas] = useState<UserPersona[]>(() => {
+  const [userPersonas, setUserPersonas] = useState<UserPersona[]>(() => {
+    if (userPersonasProp && userPersonasProp.length > 0) return userPersonasProp;
     try {
       const stored = localStorage.getItem("user_personas_v1");
       return stored ? JSON.parse(stored) : [];
@@ -26,6 +28,12 @@ export default function ProfileView({ character, allCharacters, onBack, onUpdate
       return [];
     }
   });
+
+  React.useEffect(() => {
+    if (userPersonasProp) {
+      setUserPersonas(userPersonasProp);
+    }
+  }, [userPersonasProp]);
 
   const existingGroups = Array.from(new Set(allCharacters.map(c => c.group || "其它")));
 
