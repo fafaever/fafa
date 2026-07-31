@@ -138,7 +138,20 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   ];
 
   const handleUpdate = (updates: Partial<AppSettings>) => {
-    onUpdateSettings({ ...settings, ...updates });
+    const nextSettings = { ...settings, ...updates };
+    onUpdateSettings(nextSettings);
+    if (updates.model !== undefined && updates.model !== null) {
+      localStorage.setItem("model", updates.model);
+    }
+    if (updates.apiUrl !== undefined && updates.apiUrl !== null) {
+      localStorage.setItem("apiUrl", updates.apiUrl);
+    }
+    if (updates.apiKey !== undefined && updates.apiKey !== null) {
+      localStorage.setItem("apiKey", updates.apiKey);
+    }
+    if (updates.temperature !== undefined && updates.temperature !== null) {
+      localStorage.setItem("temperature", updates.temperature.toString());
+    }
   };
 
   const handleReset = () => {
@@ -169,6 +182,27 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
       ...settings,
       themePresets: newThemePresets
     };
+
+    try {
+      localStorage.setItem("mobile_ai_settings", JSON.stringify(finalSettings));
+      if (finalSettings.apiUrl !== undefined && finalSettings.apiUrl !== null) {
+        localStorage.setItem("apiUrl", finalSettings.apiUrl);
+      }
+      if (finalSettings.apiKey !== undefined && finalSettings.apiKey !== null) {
+        localStorage.setItem("apiKey", finalSettings.apiKey);
+      }
+      if (finalSettings.model !== undefined && finalSettings.model !== null) {
+        localStorage.setItem("model", finalSettings.model);
+      }
+      if (finalSettings.temperature !== undefined && finalSettings.temperature !== null) {
+        localStorage.setItem("temperature", finalSettings.temperature.toString());
+      }
+      if (finalSettings.apiFormat) {
+        localStorage.setItem("apiFormat", finalSettings.apiFormat);
+      }
+    } catch (err) {
+      console.error("[Save Settings Error]:", err);
+    }
 
     onSaveSettings(finalSettings);
     alert("设置已保存并应用");

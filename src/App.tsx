@@ -202,34 +202,28 @@ export default function App() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [userPersonas, setUserPersonas] = useState<UserPersona[]>([]);
   const [loreList, setLoreList] = useState<LoreEntry[]>([]);
-  const [settings, setSettings] = useState<AppSettings>({ 
-    apiUrl: "", 
-    apiKey: "", 
-    model: "", 
-    apiFormat: 'openai',
-    apiPresets: [], 
-    activePresetId: "",
-    appIcons: {},
-    themePresets: [],
-    fontColorMode: 'black',
-    fontColor: '#000000',
-    fontGradient: 'linear-gradient(to right, #ff7e5f, #feb47b)',
-    activeThemePresetId: ""
-  });
-  const [previewSettings, setPreviewSettings] = useState<AppSettings>({ 
-    apiUrl: "", 
-    apiKey: "", 
-    model: "", 
-    apiFormat: 'openai',
-    apiPresets: [], 
-    activePresetId: "",
-    appIcons: {},
-    themePresets: [],
-    fontColorMode: 'black',
-    fontColor: '#000000',
-    fontGradient: 'linear-gradient(to right, #ff7e5f, #feb47b)',
-    activeThemePresetId: ""
-  });
+  const getInitialSettings = (): AppSettings => {
+    const savedSettings = typeof window !== "undefined" ? localStorage.getItem("mobile_ai_settings") : null;
+    const parsed = savedSettings ? safeJsonParse<any>(savedSettings, {}) : {};
+    return {
+      apiUrl: parsed.apiUrl || (typeof window !== "undefined" ? localStorage.getItem("apiUrl") : "") || "",
+      apiKey: parsed.apiKey || (typeof window !== "undefined" ? localStorage.getItem("apiKey") : "") || "",
+      model: (typeof window !== "undefined" ? localStorage.getItem("model") : "") || parsed.model || "",
+      temperature: (typeof window !== "undefined" && localStorage.getItem("temperature")) ? parseFloat(localStorage.getItem("temperature")!) : (parsed.temperature !== undefined ? parsed.temperature : 0.8),
+      apiFormat: parsed.apiFormat || (typeof window !== "undefined" ? localStorage.getItem("apiFormat") : "") || 'openai',
+      apiPresets: parsed.apiPresets || [],
+      activePresetId: parsed.activePresetId || "",
+      appIcons: parsed.appIcons || {},
+      themePresets: parsed.themePresets || [],
+      fontColorMode: parsed.fontColorMode || 'black',
+      fontColor: parsed.fontColor || '#000000',
+      fontGradient: parsed.fontGradient || 'linear-gradient(to right, #ff7e5f, #feb47b)',
+      activeThemePresetId: parsed.activeThemePresetId || ""
+    };
+  };
+
+  const [settings, setSettings] = useState<AppSettings>(getInitialSettings);
+  const [previewSettings, setPreviewSettings] = useState<AppSettings>(getInitialSettings);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
 
   // Background generation & notification states
@@ -510,6 +504,7 @@ export default function App() {
       if (newSettings.temperature !== undefined && newSettings.temperature !== null) {
         localStorage.setItem("temperature", newSettings.temperature.toString());
       }
+      if (newSettings.apiFormat) localStorage.setItem("apiFormat", newSettings.apiFormat);
       if (newSettings.globalFont) localStorage.setItem("mobile_ai_global_font", newSettings.globalFont);
       if (newSettings.customFontUrl) localStorage.setItem("mobile_ai_custom_font_url", newSettings.customFontUrl);
     } catch (err) {
