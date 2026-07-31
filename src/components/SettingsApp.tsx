@@ -339,23 +339,27 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   };
 
   const applyApiPreset = (preset: any) => {
+    console.log("[API Preset Switch] Old model:", settings.model, "New model:", preset.model);
     const updatedSettings = {
       ...settings,
       apiUrl: preset.apiUrl || "",
       apiKey: preset.apiKey || "",
       model: preset.model || "",
       apiFormat: preset.apiFormat || 'openai',
-      temperature: preset.temperature !== undefined ? preset.temperature : 0.8,
+      temperature: preset.temperature !== undefined ? preset.temperature : (settings.temperature ?? 0.8),
       activePresetId: preset.id
     };
     localStorage.setItem("apiUrl", preset.apiUrl || "");
     localStorage.setItem("apiKey", preset.apiKey || "");
     localStorage.setItem("model", preset.model || "");
-    localStorage.setItem("temperature", (preset.temperature !== undefined ? preset.temperature : 0.8).toString());
+    if (preset.temperature !== undefined) {
+      localStorage.setItem("temperature", preset.temperature.toString());
+    }
     localStorage.setItem("apiFormat", preset.apiFormat || 'openai');
     localStorage.setItem("mobile_ai_settings", JSON.stringify(updatedSettings));
     handleUpdate(updatedSettings);
     onSaveSettings(updatedSettings);
+    console.log("[API Preset Switch] Completed. Current settings.model:", updatedSettings.model, "localStorage model:", localStorage.getItem("model"));
     alert("API预设已应用");
   };
 
@@ -373,21 +377,25 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
   const applyPresetToCard = (preset: any, type: 'main' | 'sub' | 'vector') => {
     let updatedSettings = { ...settings };
     if (type === 'main') {
+      console.log("[Main Card Preset Switch] Old model:", settings.model, "New model:", preset.model);
       updatedSettings = {
         ...settings,
         apiUrl: preset.apiUrl || "",
         apiKey: preset.apiKey || "",
         model: preset.model || "",
         apiFormat: preset.apiFormat || 'openai',
-        temperature: preset.temperature !== undefined ? preset.temperature : 0.8,
+        temperature: preset.temperature !== undefined ? preset.temperature : (settings.temperature ?? 0.8),
         activePresetId: preset.id
       };
       localStorage.setItem("apiUrl", preset.apiUrl || "");
       localStorage.setItem("apiKey", preset.apiKey || "");
       localStorage.setItem("model", preset.model || "");
-      localStorage.setItem("temperature", (preset.temperature !== undefined ? preset.temperature : 0.8).toString());
+      if (preset.temperature !== undefined) {
+        localStorage.setItem("temperature", preset.temperature.toString());
+      }
       localStorage.setItem("apiFormat", preset.apiFormat || 'openai');
       localStorage.setItem("mobile_ai_settings", JSON.stringify(updatedSettings));
+      console.log("[Main Card Preset Switch] Completed. Current settings.model:", updatedSettings.model, "localStorage model:", localStorage.getItem("model"));
     } else if (type === 'sub') {
       updatedSettings = {
         ...settings,
