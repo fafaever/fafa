@@ -252,7 +252,7 @@ export const SetupForm = ({
         <span className="text-neutral-400">-</span>
         <input 
           type="number" 
-          placeholder="最大 (6000)"
+          placeholder="最大 (15000)"
           value={maxWord} 
           onChange={e => setMaxWord(e.target.value === "" ? "" : Number(e.target.value))} 
           className="w-full text-xs bg-neutral-100 rounded-lg p-2 outline-none focus:ring-1 focus:ring-black/20" 
@@ -264,9 +264,9 @@ export const SetupForm = ({
       type="button" 
       onClick={() => {
         const min = Number(minWord) || 500;
-        const max = Number(maxWord) || 1500;
-        if (min < 100 || max < 100 || min > 6000 || max > 6000) {
-          alert("字数范围必须在 100 - 6000 之间");
+        const max = Number(maxWord) || 3000;
+        if (min < 50 || max < 50 || min > 15000 || max > 15000) {
+          alert("字数范围必须在 50 - 15000 之间");
           return;
         }
         if (max < min) {
@@ -306,7 +306,7 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
   const [worldSetting, setWorldSetting] = useState<string>("");
   const [mountedLoreIds, setMountedLoreIds] = useState<string[]>([]);
   const [minWord, setMinWord] = useState<number | "">(500);
-  const [maxWord, setMaxWord] = useState<number | "">(1500);
+  const [maxWord, setMaxWord] = useState<number | "">(3000);
   const [keywords, setKeywords] = useState("");
   const [perspective, setPerspective] = useState<'first' | 'second' | 'third'>('first');
   const [writingTone, setWritingTone] = useState<'daily_plain' | 'literary' | 'cold_restrained' | 'warm_soft'>('daily_plain');
@@ -529,7 +529,7 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
       worldSetting: overrideSettings?.worldSetting !== undefined ? overrideSettings.worldSetting : worldSetting,
       mountedLoreIds: overrideSettings?.mountedLoreIds !== undefined ? overrideSettings.mountedLoreIds : mountedLoreIds,
       minWord: Number(overrideSettings?.minWord ?? minWord) || 500,
-      maxWord: Number(overrideSettings?.maxWord ?? maxWord) || 1500,
+      maxWord: Number(overrideSettings?.maxWord ?? maxWord) || 3000,
       perspective: overrideSettings?.perspective || perspective,
       writingTone: overrideSettings?.writingTone || writingTone,
       keywords: overrideSettings?.keywords !== undefined ? overrideSettings.keywords : keywords,
@@ -548,7 +548,7 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
     setWorldSetting(activeSession.worldSetting || "");
     setMountedLoreIds(activeSession.mountedLoreIds || []);
     setMinWord(activeSession.minWord || 500);
-    setMaxWord(activeSession.maxWord || 1500);
+    setMaxWord(activeSession.maxWord || 3000);
     setPerspective(activeSession.perspective || 'first');
     setWritingTone(activeSession.writingTone || 'daily_plain');
     setKeywords(activeSession.keywords || "");
@@ -579,7 +579,7 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
       worldSetting: card.worldSetting || "",
       mountedLoreIds: matchedLoreIds,
       minWord: 500,
-      maxWord: 1500,
+      maxWord: 3000,
       perspective: 'first',
       writingTone: 'daily_plain',
       keywords: '',
@@ -975,7 +975,7 @@ ${memoryText}
      “你来了。”
      她推开门，水珠从伞尖滴落。
 
-7. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
+7. 每轮生成字数要求在【${minWord || 500}-${maxWord || 3000}字】左右。
 8. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
 ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入，自然地开启剧情，不要附带任何多余解释。' : ''}
 `;
@@ -1184,7 +1184,7 @@ ${memoryText}
      “你来了。”
      她推开门，水珠从伞尖滴落。
 
-7. 每轮生成字数要求在【${minWord || 500}-${maxWord || 1500}字】左右。
+7. 每轮生成字数要求在【${minWord || 500}-${maxWord || 3000}字】左右。
 8. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
 ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入。' : ''}
 `;
@@ -1399,7 +1399,7 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       worldSetting,
       mountedLoreIds,
       minWord: Number(minWord) || 500,
-      maxWord: Number(maxWord) || 1500,
+      maxWord: Number(maxWord) || 3000,
       perspective,
       writingTone,
       keywords
@@ -1968,9 +1968,14 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
               </div>
 
               {/* 剧情卡片 / 消息操作按钮 */}
-              <div className={`flex items-center justify-end gap-2.5 mt-3 pt-2 border-t text-[10px] font-medium ${
+              <div className={`flex items-center justify-between gap-2.5 mt-3 pt-2 border-t text-[10px] font-medium ${
                 msg.role === 'user' ? 'border-neutral-800 text-neutral-300' : 'border-neutral-100 text-neutral-500'
               }`}>
+                {msg.role === 'assistant' ? (
+                  <span className="text-[10px] text-neutral-400 font-mono">共 {msg.content.length} 字</span>
+                ) : (
+                  <span></span>
+                )}
                 <button
                   type="button"
                   onClick={() => {
