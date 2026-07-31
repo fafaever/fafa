@@ -1644,13 +1644,6 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                 </span>
               </div>
 
-              {/* Display currently active model name */}
-              <div className="bg-neutral-50 border border-neutral-200/60 rounded-xl p-3 flex items-center justify-between text-xs font-sans">
-                <span className="text-neutral-500 font-medium">当前使用的模型:</span>
-                <span className="font-bold text-neutral-800 bg-white border border-neutral-200/80 px-2.5 py-1 rounded-lg shadow-xs font-mono">
-                  {settings.model || "未设置"}
-                </span>
-              </div>
 
               {/* API Type Select Toggle */}
               <div className="space-y-1.5">
