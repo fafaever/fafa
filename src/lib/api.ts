@@ -219,6 +219,14 @@ export function cleanForbiddenPhrases(text: string): string {
 export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, messages: any[] = [], temperature: number = 0.8, apiFormat?: string) {
   const config = getStoredApiConfig(apiUrl, apiKey, model, apiFormat as any);
 
+  // Force retrieve the latest model from localStorage to override config.model
+  if (typeof window !== "undefined") {
+    const localModel = localStorage.getItem("model");
+    if (localModel) {
+      config.model = localModel.trim();
+    }
+  }
+
   if (!config.apiUrl) {
     throw new Error("API 地址未配置，请在设置中配置。");
   }

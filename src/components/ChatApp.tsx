@@ -1224,6 +1224,8 @@ export default function ChatApp({
   // Action panel & features states
   const [showActionPanel, setShowActionPanel] = useState(false);
   const [activeCall, setActiveCall] = useState<null | "voice" | "video">(null);
+  const videoScrollRef = useRef<HTMLDivElement>(null);
+
   const [activeModal, setActiveModal] = useState<null | "transfer" | "location" | "redpacket" | "games" | "meet">(null);
   const [transferAmount, setTransferAmount] = useState("");
   const [transferNote, setTransferNote] = useState("");
@@ -2268,6 +2270,17 @@ ${existingCommentsText || "暂无评论"}
     : null;
 
   const allMessages = activeSession?.messages || [];
+
+  useEffect(() => {
+    if (activeCall === "video" && videoScrollRef.current) {
+      setTimeout(() => {
+        if (videoScrollRef.current) {
+          videoScrollRef.current.scrollTop = videoScrollRef.current.scrollHeight;
+        }
+      }, 80);
+    }
+  }, [activeCall, activeSession?.messages?.length]);
+
   const hasMoreMessages = allMessages.length > displayMessageLimit;
   const displayedMessages = hasMoreMessages ? allMessages.slice(allMessages.length - displayMessageLimit) : allMessages;
 
@@ -6077,31 +6090,258 @@ ${existingCommentsText || "暂无评论"}
 
       {/* Voice / Video Call Overlay */}
       {activeCall && activeChar && (
-        <div className="fixed inset-0 bg-neutral-950 text-white z-50 flex flex-col items-center justify-between p-8 animate-fade-in select-none">
-          <div className="flex flex-col items-center pt-16 space-y-4">
-            <div className="w-24 h-24 rounded-full bg-neutral-800 border-2 border-neutral-700 flex items-center justify-center text-4xl overflow-hidden shadow-2xl animate-pulse">
-              {activeChar.chatAvatar ? (
-                <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-              ) : (
-                activeChar.avatar || "🤖"
-              )}
+        <>
+          {activeCall === "voice" ? (
+            <div className="fixed inset-0 bg-neutral-950 text-white z-50 flex flex-col items-center justify-between p-8 animate-fade-in select-none">
+              <div className="flex flex-col items-center pt-16 space-y-4">
+                <div className="w-24 h-24 rounded-full bg-neutral-800 border-2 border-neutral-700 flex items-center justify-center text-4xl overflow-hidden shadow-2xl animate-pulse">
+                  {activeChar.chatAvatar ? (
+                    <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    activeChar.avatar || "🤖"
+                  )}
+                </div>
+                <div className="text-center space-y-1">
+                  <h3 className=" font-bold text-lg text-white">{activeChar.name}</h3>
+                  <p className="text-xs text-neutral-400 font-mono">正在呼叫...</p>
+                </div>
+              </div>
+              <div className="pb-12">
+                <button
+                  onClick={() => setActiveCall(null)}
+                  className="bg-red-600 hover:bg-red-700 text-white rounded-full py-3 px-12 text-sm font-bold shadow-2xl active:scale-95 transition-all flex items-center gap-2 animate-bounce"
+                >
+                  <Phone className="w-4 h-4 rotate-[135deg]" />
+                  <span>挂断</span>
+                </button>
+              </div>
             </div>
-            <div className="text-center space-y-1">
-              <h3 className=" font-bold text-lg text-white">{activeChar.name}</h3>
-              <p className="text-xs text-neutral-400 font-mono">
-                {activeCall === "voice" ? "正在呼叫..." : "正在连接视频..."}
-              </p>
+          ) : (
+            // Full screen simulated Video Call Overlay with background, chat bubbles, and narrator notes
+            <div className="fixed inset-0 text-white z-50 flex flex-col justify-between p-4 md:p-6 animate-fade-in overflow-hidden">
+              {/* Simulated Video Background */}
+              {(() => {
+                const videoBgUrl = activeChar.realImage || activeChar.realAvatar || activeChar.chatAvatar || activeChar.avatar;
+                if (videoBgUrl && (videoBgUrl.startsWith("http") || videoBgUrl.startsWith("data:") || videoBgUrl.startsWith("/"))) {
+                  return (
+                    <img 
+                      src={videoBgUrl} 
+                      alt={activeChar.name} 
+                      className="absolute inset-0 w-full h-full object-cover select-none -z-10 brightness-[0.6] scale-105 transition-all duration-700 animate-pulse-slow" 
+                      referrerPolicy="no-referrer"
+                    />
+                  );
+                }
+                return (
+                  <div className="absolute inset-0 bg-gradient-to-tr from-neutral-900 via-neutral-800 to-neutral-950 -z-10 flex items-center justify-center">
+                    <span className="text-9xl opacity-20 filter blur-sm">{activeChar.avatar || "🤖"}</span>
+                  </div>
+                );
+              })()}
+              
+              {/* Soft vignette for maximum text contrast */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-black/60 -z-10" />
+
+              {/* Top Header - Calling Information */}
+              <div className="flex items-center justify-between w-full max-w-md mx-auto pt-4 px-2 shrink-0">
+                <div className="flex items-center gap-3 bg-black/30 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-white/10 shadow-lg">
+                  <div className="w-8 h-8 rounded-full overflow-hidden bg-white/10 flex items-center justify-center border border-white/20">
+                    {activeChar.chatAvatar ? (
+                      <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <span className="text-sm">{activeChar.avatar || "🤖"}</span>
+                    )}
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-extrabold text-white tracking-wide">{activeChar.name}</h4>
+                    <p className="text-[9px] text-green-400 font-bold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-ping inline-block" />
+                      视频通话中...
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-black/30 backdrop-blur-md text-white/80 font-mono text-[10px] px-3 py-1.5 rounded-xl border border-white/10 shadow-md">
+                  00:{activeSession?.messages?.length ? String(Math.min(activeSession.messages.length * 3, 59)).padStart(2, '0') : "02"}
+                </div>
+              </div>
+
+              {/* Chat Dialog Overlay (Scrollable Messages) */}
+              <div 
+                ref={videoScrollRef}
+                className="flex-1 w-full max-w-md mx-auto my-4 overflow-y-auto px-2 space-y-4 flex flex-col scrollbar-none scroll-smooth pb-4"
+                style={{ contentVisibility: 'auto' }}
+              >
+                {(() => {
+                  const visibleMessages = (activeSession?.messages || []).filter(
+                    m => m.role === 'user' || m.role === 'assistant'
+                  );
+                  
+                  if (visibleMessages.length === 0) {
+                    return (
+                      <div className="flex-1 flex items-center justify-center text-center p-8">
+                        <p className="text-xs text-white/40 font-medium font-sans">
+                          与 {activeChar.name} 开启视频对话，向对方倾诉吧...
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  const parseVoiceOrVideoMessage = (text: string) => {
+                    let cleanText = text || "";
+                    if (cleanText.startsWith("[语音消息]")) {
+                      const pipeIndex = cleanText.indexOf("|text:");
+                      if (pipeIndex !== -1) {
+                        cleanText = cleanText.substring(pipeIndex + 6);
+                      } else {
+                        cleanText = cleanText.replace(/^\[语音消息\]\s*\d\d:\d\d\s*\|?/, "");
+                      }
+                    }
+
+                    const blocks: { type: 'dialogue' | 'narrator'; text: string }[] = [];
+                    // Match asterisk-enclosed blocks first or bracket-enclosed blocks
+                    const regex = /(\*[^*]+\*|\([^)]+\)|（[^）]+）|\[[^\]]+\]|【[^】]+】)/g;
+                    
+                    let lastIndex = 0;
+                    let match;
+                    
+                    while ((match = regex.exec(cleanText)) !== null) {
+                      const matchIndex = match.index;
+                      const matchText = match[0];
+                      
+                      if (matchIndex > lastIndex) {
+                        const diag = cleanText.substring(lastIndex, matchIndex).trim();
+                        if (diag) {
+                          blocks.push({ type: 'dialogue', text: diag });
+                        }
+                      }
+                      
+                      const cleanedNarrator = matchText.replace(/^[\*\(\[（【]|[\*\)\]）】]$/g, "").trim();
+                      if (cleanedNarrator) {
+                        blocks.push({ type: 'narrator', text: cleanedNarrator });
+                      }
+                      
+                      lastIndex = regex.lastIndex;
+                    }
+                    
+                    if (lastIndex < cleanText.length) {
+                      const diag = cleanText.substring(lastIndex).trim();
+                      if (diag) {
+                        blocks.push({ type: 'dialogue', text: diag });
+                      }
+                    }
+                    
+                    if (blocks.length === 0) {
+                      blocks.push({ type: 'dialogue', text: cleanText });
+                    }
+                    
+                    return blocks;
+                  };
+
+                  return visibleMessages.map((msg) => {
+                    const isUser = msg.role === 'user';
+                    
+                    if (isUser) {
+                      return (
+                        <div key={msg.id} className="flex gap-2.5 items-start max-w-[85%] self-end animate-fade-in">
+                          <div className="flex flex-col gap-1 items-end">
+                            <span className="text-[9px] text-white/50 font-bold mr-1">我</span>
+                            <div className="bg-black/40 backdrop-blur-md border border-white/10 text-white text-xs px-3.5 py-2.5 rounded-2xl shadow-md leading-relaxed max-w-full font-sans">
+                              {msg.content}
+                            </div>
+                          </div>
+                          <div className="w-7 h-7 rounded-full overflow-hidden bg-white/10 border border-white/20 shrink-0 flex items-center justify-center">
+                            <User className="w-3.5 h-3.5 text-white/80" />
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      const blocks = parseVoiceOrVideoMessage(msg.content);
+                      return (
+                        <div key={msg.id} className="flex gap-2.5 items-start max-w-[85%] self-start animate-fade-in">
+                          <div className="w-7 h-7 rounded-full overflow-hidden bg-neutral-900 border border-white/20 shrink-0">
+                            {activeChar.chatAvatar ? (
+                              <img src={activeChar.chatAvatar} alt={activeChar.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <span className="text-xs flex items-center justify-center h-full bg-neutral-800">{activeChar.avatar || "🤖"}</span>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-1.5 items-start max-w-full">
+                            <span className="text-[9px] text-white/50 font-bold ml-1">{activeChar.name}</span>
+                            {blocks.map((block, bIdx) => {
+                              if (block.type === 'dialogue') {
+                                return (
+                                  <div key={bIdx} className="bg-white/15 backdrop-blur-md border border-white/20 text-white text-xs px-3.5 py-2.5 rounded-2xl shadow-md leading-relaxed max-w-full font-sans">
+                                    {block.text}
+                                  </div>
+                                );
+                              } else {
+                                return (
+                                  <div key={bIdx} className="text-[10px] text-neutral-300 italic opacity-90 max-w-full leading-relaxed font-sans font-medium pl-1 my-0.5">
+                                    * {block.text} *
+                                  </div>
+                                );
+                              }
+                            })}
+                          </div>
+                        </div>
+                      );
+                    }
+                  });
+                })()}
+              </div>
+
+              {/* Bottom Controllers & Interactive Chat Input */}
+              <div className="w-full max-w-md mx-auto space-y-4 pt-2 pb-4 px-2 shrink-0 border-t border-white/10 bg-black/20 backdrop-blur-md rounded-3xl p-3 shadow-2xl">
+                <form 
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!(inputText || '').trim() || isGenerating) return;
+                    await handleSendMessage(e);
+                  }} 
+                  className="flex items-center gap-2"
+                >
+                  <input
+                    type="text"
+                    placeholder={isGenerating ? "生成中..." : "输入消息开始通话..."}
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    disabled={isGenerating}
+                    className="flex-1 text-xs border border-white/10 hover:border-white/20 focus:border-white/40 px-3.5 py-2.5 rounded-xl bg-white/10 backdrop-blur-md text-white placeholder-white/40 outline-none transition-all"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!(inputText || '').trim() || isGenerating}
+                    className="w-10 h-10 bg-white/10 hover:bg-white/20 disabled:bg-transparent disabled:text-white/20 text-white rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 border border-white/10"
+                    title="发送"
+                  >
+                    <Send className="w-4 h-4 stroke-[1.75]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleTriggerAiReply()}
+                    disabled={isGenerating}
+                    className="w-10 h-10 bg-white hover:bg-neutral-100 disabled:bg-white/10 disabled:text-white/25 text-black rounded-xl flex items-center justify-center active:scale-95 transition-all shrink-0 shadow-md"
+                    title="生成回复"
+                  >
+                    <Heart className="w-4 h-4 fill-black stroke-black" />
+                  </button>
+                </form>
+
+                {/* Hang up controller */}
+                <div className="flex justify-center pt-1 pb-1">
+                  <button
+                    onClick={() => setActiveCall(null)}
+                    className="bg-red-600 hover:bg-red-700 hover:scale-105 text-white rounded-full py-2.5 px-8 text-xs font-bold shadow-lg shadow-red-950/40 active:scale-95 transition-all flex items-center gap-2"
+                  >
+                    <Phone className="w-4 h-4 rotate-[135deg]" />
+                    <span>挂断电话</span>
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="pb-12">
-            <button
-              onClick={() => setActiveCall(null)}
-              className="bg-red-600 hover:bg-red-700 text-white rounded-full py-3 px-12 text-sm font-bold shadow-2xl active:scale-95 transition-all flex items-center gap-2"
-            >
-              <span>挂断</span>
-            </button>
-          </div>
-        </div>
+          )}
+        </>
       )}
 
       {/* Modals for Transfer, Location, Red Packet, Games */}

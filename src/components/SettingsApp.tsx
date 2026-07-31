@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { ChevronLeft, Save, Trash2, Upload, RotateCcw, Download, Plus, Check, X, Monitor, Layout, Type, Palette, Package, Smartphone, Image as ImageIcon, Database, Cpu, HardDrive, ChevronDown, ChevronRight, ArrowUp, ArrowDown, Eye, EyeOff, Brain, Wand2 } from "lucide-react";
 import { AppSettings, FontOption, ThemePreset } from "../types";
 import { apiFetchModels } from "../lib/api";
@@ -16,6 +16,14 @@ interface SettingsAppProps {
 const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, onSaveSettings, onClose }) => {
   const [activeSubTab, setActiveSubTab] = useState<'main' | 'api' | 'data' | 'interface' | 'vector' | 'imageGen'>('main');
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['wallpaper', 'icons', 'font']));
+
+  // On mount/activeSubTab load, read model from localStorage if not already selected in settings
+  useEffect(() => {
+    const localModel = localStorage.getItem("model");
+    if (localModel && !settings.model) {
+      handleUpdate({ model: localModel });
+    }
+  }, [activeSubTab, settings.model]);
   
   const [initialSettings] = useState<AppSettings>({ ...settings });
   const [isSavingPreset, setIsSavingPreset] = useState(false);
@@ -1751,7 +1759,11 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                 {fetchedMainModels.length > 0 ? (
                   <select
                     value={settings.model}
-                    onChange={e => handleUpdate({ model: e.target.value })}
+                    onChange={e => {
+                      const val = e.target.value;
+                      localStorage.setItem("model", val);
+                      handleUpdate({ model: val });
+                    }}
                     className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all appearance-none font-sans"
                   >
                     {fetchedMainModels.map(m => (
@@ -1762,7 +1774,11 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
                   <input
                     type="text"
                     value={settings.model}
-                    onChange={e => handleUpdate({ model: e.target.value })}
+                    onChange={e => {
+                      const val = e.target.value;
+                      localStorage.setItem("model", val);
+                      handleUpdate({ model: val });
+                    }}
                     className="w-full bg-white border border-neutral-200 rounded-xl px-4 py-2.5 text-xs outline-none focus:border-black transition-all font-sans"
                     placeholder="请输入或选择模型名称"
                   />
