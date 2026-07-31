@@ -10,9 +10,10 @@ interface MemoryManagerProps {
   sessions: ChatSession[];
   vectorMemoryEnabled?: boolean;
   onUpdateCharacter?: (id: string, updated: Partial<Character>) => void;
+  autoExtractSignal?: number;
 }
 
-export function MemoryManager({ character, settings, sessions, vectorMemoryEnabled = false, onUpdateCharacter }: MemoryManagerProps) {
+export function MemoryManager({ character, settings, sessions, vectorMemoryEnabled = false, onUpdateCharacter, autoExtractSignal }: MemoryManagerProps) {
   const [activeLayer, setActiveLayer] = useState<1 | 2 | 3>(1);
   const [memories, setMemories] = useState<Memory[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
@@ -30,9 +31,11 @@ export function MemoryManager({ character, settings, sessions, vectorMemoryEnabl
   const [isSearchingVector, setIsSearchingVector] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [isExtractingVector, setIsExtractingVector] = useState(false);
+  const [extractionProgress, setExtractionProgress] = useState<{ current: number; total: number; text: string } | null>(null);
 
   const handleExtractAllVectorMemories = async () => {
     setIsExtractingVector(true);
+    setExtractionProgress({ current: 0, total: 0, text: "正在整理可向量化的对话与记忆..." });
     try {
       const itemsToStore: { text: string; source: string }[] = [];
 
@@ -89,25 +92,61 @@ export function MemoryManager({ character, settings, sessions, vectorMemoryEnabl
         } catch (e) {}
       }
 
+      // 5. Lorebook entries
+      const loreList = (character.lorebook || character.lores || []);
+      if (Array.isArray(loreList)) {
+        loreList.forEach((entry: any) => {
+          if (entry && (entry.content || entry.text)) {
+            itemsToStore.push({ text: `[世界书/设定] ${entry.name || entry.title ? (entry.name || entry.title) + ": " : ""}${entry.content || entry.text}`, source: "世界书设定" });
+          }
+        });
+      }
+
       if (itemsToStore.length === 0) {
         alert("暂无可提取的记忆或对话历史。请先与角色进行互动对话！");
         return;
       }
 
       let storedCount = 0;
-      for (const item of itemsToStore) {
-        await storeMemory(character.id, item.text, item.source);
-        storedCount++;
+      let errorCount = 0;
+      let lastErrMsg = "";
+
+      for (let i = 0; i < itemsToStore.length; i++) {
+        const item = itemsToStore[i];
+        setExtractionProgress({
+          current: i + 1,
+          total: itemsToStore.length,
+          text: `正在向量化第 (${i + 1}/${itemsToStore.length}) 条: [${item.source}]`
+        });
+
+        try {
+          await storeMemory(character.id, item.text, item.source, settings);
+          storedCount++;
+        } catch (err: any) {
+          errorCount++;
+          lastErrMsg = err.message || String(err);
+          // If missing API Key or initial network error, break early and throw
+          if (lastErrMsg.includes("API Key") || i === 0) {
+            throw err;
+          }
+        }
       }
 
       localStorage.setItem(`vector_memory_enabled_${character.id}`, "true");
-      alert(`✅ 成功提炼并向量化 ${storedCount} 条已有记忆存入向量库！`);
+
+      if (errorCount > 0) {
+        alert(`⚠️ 向量化完成：成功 ${storedCount} 条，失败 ${errorCount} 条。\n错误原因：${lastErrMsg}`);
+      } else {
+        alert(`✅ 成功提炼并向量化 ${storedCount} 条记忆/记录存入高维向量库！`);
+      }
+
       handleVectorSearch("");
     } catch (e: any) {
       console.error("Vector extraction error:", e);
-      alert("提取失败，请检查 API Key 配置：" + (e.message || e));
+      alert("❌ 向量化请求失败：\n" + (e.message || e));
     } finally {
       setIsExtractingVector(false);
+      setExtractionProgress(null);
     }
   };
 
@@ -124,6 +163,13 @@ export function MemoryManager({ character, settings, sessions, vectorMemoryEnabl
       setIsSearchingVector(false);
     }
   };
+
+  // Automatically trigger vector extraction if signaled from modal confirm
+  useEffect(() => {
+    if (autoExtractSignal && autoExtractSignal > 0) {
+      handleExtractAllVectorMemories();
+    }
+  }, [autoExtractSignal]);
 
   // Auto-run search when vector mode is active or when character ID changes
   useEffect(() => {
@@ -396,15 +442,39 @@ ${combinedText}`;
           </button>
         </div>
         
-        <div className="bg-white px-3 pb-3 border-b border-neutral-100 flex shrink-0">
-           <button
+        <div className="bg-white px-3 pb-3 border-b border-neutral-100 flex flex-col gap-2 shrink-0">
+          <button
             onClick={handleExtractAllVectorMemories}
             disabled={isExtractingVector}
-            className="w-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 border border-emerald-200 font-bold text-xs py-2.5 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 rounded-xl transition-all active:scale-[0.98] disabled:opacity-60 flex items-center justify-center gap-2 cursor-pointer shadow-xs"
           >
-            {isExtractingVector ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-            开始提取并储存记忆
+            {isExtractingVector ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>{extractionProgress?.text || "正在向量化..."}</span>
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+                <span>开始向量化已有记忆与聊天记录</span>
+              </>
+            )}
           </button>
+
+          {isExtractingVector && extractionProgress && extractionProgress.total > 0 && (
+            <div className="space-y-1 px-1">
+              <div className="w-full bg-neutral-100 rounded-full h-1.5 overflow-hidden">
+                <div 
+                  className="bg-emerald-500 h-full transition-all duration-300 rounded-full"
+                  style={{ width: `${Math.round((extractionProgress.current / extractionProgress.total) * 100)}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[10px] text-neutral-500 font-mono">
+                <span>向量化进度: {extractionProgress.current} / {extractionProgress.total}</span>
+                <span>{Math.round((extractionProgress.current / extractionProgress.total) * 100)}%</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">

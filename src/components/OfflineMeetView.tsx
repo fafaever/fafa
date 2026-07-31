@@ -157,7 +157,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
   const [summaryToastMsg, setSummaryToastMsg] = useState<string | null>(null);
 
   // Core settings states
-  const [wordLimit, setWordLimit] = useState<number>(600);
+  const [minWord, setMinWord] = useState<number>(500);
+  const [maxWord, setMaxWord] = useState<number>(3000);
   const [meetMode, setMeetMode] = useState<MeetModeType>(forcedMode || "shared");
   const [showSetupModal, setShowSetupModal] = useState<boolean>(true);
   const [showExitModal, setShowExitModal] = useState<boolean>(false);
@@ -220,7 +221,12 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
       const savedConfig = localStorage.getItem(configKey);
       if (savedConfig) {
         const parsedCfg = JSON.parse(savedConfig);
-        if (parsedCfg.wordLimit) setWordLimit(parsedCfg.wordLimit);
+        if (parsedCfg.minWord !== undefined) setMinWord(parsedCfg.minWord);
+        if (parsedCfg.maxWord !== undefined) setMaxWord(parsedCfg.maxWord);
+        if (parsedCfg.wordLimit !== undefined && parsedCfg.minWord === undefined) {
+          setMinWord(Math.max(100, parsedCfg.wordLimit - 200));
+          setMaxWord(parsedCfg.wordLimit + 400);
+        }
         if (parsedCfg.meetMode) setMeetMode(parsedCfg.meetMode);
         if (parsedCfg.plotMode) setPlotMode(parsedCfg.plotMode);
         if (Array.isArray(parsedCfg.selectedMultiCharIds)) setSelectedMultiCharIds(parsedCfg.selectedMultiCharIds);
@@ -294,7 +300,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
 
   // Helper to save current settings object
   const saveAllConfig = (updated: Partial<{
-    wordLimit: number;
+    minWord: number;
+    maxWord: number;
     meetMode: MeetModeType;
     plotMode: "single" | "multi";
     selectedMultiCharIds: string[];
@@ -310,7 +317,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     customCss: string;
     savedCssPresets: CustomCssPreset[];
   }>) => {
-    const nextLimit = updated.wordLimit !== undefined ? updated.wordLimit : wordLimit;
+    const nextMin = updated.minWord !== undefined ? updated.minWord : minWord;
+    const nextMax = updated.maxWord !== undefined ? updated.maxWord : maxWord;
     const nextMode = updated.meetMode !== undefined ? updated.meetMode : meetMode;
     const nextPlot = updated.plotMode !== undefined ? updated.plotMode : plotMode;
     const nextMultiChars = updated.selectedMultiCharIds !== undefined ? updated.selectedMultiCharIds : selectedMultiCharIds;
@@ -325,7 +333,8 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
       localStorage.setItem(
         configKey,
         JSON.stringify({
-          wordLimit: nextLimit,
+          minWord: nextMin,
+          maxWord: nextMax,
           meetMode: nextMode,
           plotMode: nextPlot,
           selectedMultiCharIds: nextMultiChars,
@@ -347,11 +356,12 @@ export const OfflineMeetView: React.FC<OfflineMeetViewProps> = ({
     }
   };
 
-  // Save config state (mode & limit)
-  const saveConfigState = (mode: MeetModeType, limit: number) => {
+  // Save config state (mode & limits)
+  const saveConfigState = (mode: MeetModeType, min: number, max: number) => {
     setMeetMode(mode);
-    setWordLimit(limit);
-    saveAllConfig({ meetMode: mode, wordLimit: limit });
+    setMinWord(min);
+    setMaxWord(max);
+    saveAllConfig({ meetMode: mode, minWord: min, maxWord: max });
   };
 
   // Archive current active session to history list
@@ -676,7 +686,6 @@ ${intermediateSummaries.join("\n\n")}`;
   // Generate the AI's first opening scene (开场描写 - 不包含任何对话)
   const generateOpeningScene = async (
     currentMode: MeetModeType,
-    currentLimit: number,
     timeStr: string,
     locStr: string,
     reasonStr: string,
@@ -721,8 +730,6 @@ ${recentOnlineStr || "（此前在线上已有熟悉互动与交谈）"}`;
 ${isoBg.trim() || "用户未指定架空背景。请依据你的角色性格（" + (character.description || "") + "）与世界观，完全自由地随机构思一个极具新意、悬念与吸引力的平行时空/独立剧本开场描写。忽略所有线上聊天记录。"}`;
       }
 
-      const minWords = Math.max(150, Math.floor(currentLimit * 0.75));
-      const maxWords = Math.min(2500, Math.floor(currentLimit * 1.25));
       const styleRules = getPromptStyleInstructions();
 
       const openingInstruction = `【线下见面 - 第一段开场描写特别指令】：
@@ -734,7 +741,7 @@ you are generating the 【first opening scene description】 for "offline meetin
 - 所有的“对话内容”必须单独成行，并使用 *斜体* 显示（例如：*“你来了。”*）。虽然此开场描述严禁对话，但此规则适用于后续剧情。
 - 动作描写、环境描写、眼神姿态、感官细节、心理活动，必须合并在自然且连贯的完整段落中进行叙述，绝对不准刻意分行、另起新行、或把一两句零碎描写单独成行。
 - 确保描写自然连贯，像读小说一样，不要出现碎裂的短格或多余的换行。
-3. 【字数控制】：字数必须在 ${currentLimit} 字左右（要求 ${minWords}~${maxWords} 字）。
+3. 【字数控制要求】：请务必将你的每一轮描写控制在 ${minWord}~${maxWord} 字范围内。
 4. 【角色人设】：贴合 ${character.name} 的性格风格（${character.description || ""}）。
 ${styleRules}
 
@@ -803,13 +810,12 @@ ${contextPrompt}`;
     }
 
     setMeetMode(targetMode);
-    saveConfigState(targetMode, wordLimit);
+    saveConfigState(targetMode, minWord, maxWord);
     setMessages([]);
     setViewMode("chat");
 
     generateOpeningScene(
       targetMode,
-      wordLimit,
       timeSetting,
       locationSetting,
       reasonSetting,
@@ -820,12 +826,13 @@ ${contextPrompt}`;
 
   // Save Setup
   const handleSaveSetup = () => {
-    saveConfigState(meetMode, wordLimit);
+    saveConfigState(meetMode, minWord, maxWord);
     try {
       localStorage.setItem(
         configKey,
         JSON.stringify({
-          wordLimit,
+          minWord,
+          maxWord,
           meetMode,
           plotMode,
           selectedMultiCharIds,
@@ -870,13 +877,12 @@ ${contextPrompt}`;
       archiveCurrentSession(messages, meetMode);
     }
 
-    saveConfigState(meetMode, wordLimit);
+    saveConfigState(meetMode, minWord, maxWord);
     setMessages([]);
     setViewMode("chat");
 
     generateOpeningScene(
       meetMode,
-      wordLimit,
       timeSetting,
       locationSetting,
       reasonSetting,
@@ -902,7 +908,6 @@ ${contextPrompt}`;
         // If re-rolling the opening scene
         await generateOpeningScene(
           meetMode,
-          wordLimit,
           timeSetting,
           locationSetting,
           reasonSetting,
@@ -923,8 +928,6 @@ ${contextPrompt}`;
         onlineContextStr = `\n【架空模式 - 完全独立平行时空】：\n忽略所有线上聊天历史，这是一个独立的平行时空剧本。`;
       }
 
-      const minWords = Math.max(150, Math.floor(wordLimit * 0.75));
-      const maxWords = Math.min(2500, Math.floor(wordLimit * 1.25));
       const styleRules = getPromptStyleInstructions();
 
       const systemInstruction = `【线下见面剧情模式特别指令】：
@@ -939,7 +942,7 @@ ${styleRules}
 3. 角色在回应时，必须严格区分“听到的话”和“观察到的动作/心理”，绝对不能把用户的心理描写或未说出口的动作用作直接听到的对话进行回应。
 
 【字数控制要求】：
-请务必将你的每一轮描写控制在约 ${wordLimit} 字左右（范围：${minWords}~${maxWords} 字）。
+请务必将你的每一轮描写控制在 ${minWord}~${maxWord} 字范围内。
 `;
 
       const apiMessages = [
@@ -1026,8 +1029,6 @@ ${styleRules}
         onlineContextStr = `\n【架空模式 - 完全独立平行时空】：\n忽略所有线上聊天历史，这是一个独立的平行时空剧本。`;
       }
 
-      const minWords = Math.max(150, Math.floor(wordLimit * 0.75));
-      const maxWords = Math.min(2500, Math.floor(wordLimit * 1.25));
       const styleRules = getPromptStyleInstructions();
 
       const systemInstruction = `【线下见面剧情模式特别指令】：
@@ -1042,7 +1043,7 @@ ${styleRules}
 3. 角色在回应时，必须严格区分“听到的话”和“观察到的动作/心理”，绝对不能把用户的心理描写或未说出口的动作用作直接听到的对话进行回应。
 
 【字数控制要求】：
-请务必将你的每一轮描写控制在约 ${wordLimit} 字左右（范围：${minWords}~${maxWords} 字）。
+请务必将你的每一轮描写控制在 ${minWord}~${maxWord} 字范围内。
 `;
 
       const apiMessages = [
@@ -1135,7 +1136,7 @@ ${styleRules}
 - 你正在与用户进行面对面的沉浸式剧情互动（线下见面模式）。
 - 写作风格：${writingTone === 'literary' ? '细腻文学风，注重环境烘托与心理描写。' : writingTone === 'cold_restrained' ? '冷淡克制风，用词少，情绪收着。' : writingTone === 'warm_soft' ? '温暖柔和风，语气软，细节暖。' : '日常自然风。'}
 - 视角：${perspective === 'first' ? '第一视角（我）。' : perspective === 'third' ? '第三视角（他/她/名字）。' : '第二视角（你）。'}
-- 目标字数限制：请输出约 ${wordLimit} 字左右的细腻剧情与互动描写。
+- 目标字数限制：请输出 ${minWord}~${maxWord} 字范围内的细腻剧情与互动描写。
 `;
 
       if (meetMode === "isolated") {
@@ -1210,7 +1211,6 @@ ${styleRules}
     if (messages.length === 0) {
       generateOpeningScene(
         meetMode,
-        wordLimit,
         timeSetting,
         locationSetting,
         reasonSetting,
@@ -1795,41 +1795,65 @@ ${styleRules}
                 <Wand2 className="w-4 h-4 text-stone-800" />
                 <h3 className="font-bold text-xs text-stone-800">板块二：开场设定</h3>
               </div>
-              <span className="text-stone-800 font-mono font-bold text-xs">{wordLimit} 字/轮</span>
+              <span className="text-stone-800 font-mono font-bold text-xs">{minWord} ~ {maxWord} 字/轮</span>
             </div>
 
-            {/* 字数限制 */}
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-stone-700 block">生成字数上限：</label>
-              <input
-                type="range"
-                min={200}
-                max={2000}
-                step={50}
-                value={wordLimit}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setWordLimit(val);
-                  saveAllConfig({ wordLimit: val });
-                }}
-                className="w-full accent-black cursor-pointer"
-              />
+            {/* 字数范围限制 */}
+            <div className="space-y-2">
+              <label className="text-[11px] font-bold text-stone-700 block">每轮字数范围 (最大 15000 字)：</label>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[9px] text-stone-500 block mb-0.5">最小字数</label>
+                  <input
+                    type="number"
+                    min={50}
+                    max={15000}
+                    value={minWord}
+                    onChange={(e) => {
+                      const val = Math.max(50, Math.min(15000, Number(e.target.value) || 100));
+                      setMinWord(val);
+                      saveAllConfig({ minWord: val, maxWord });
+                    }}
+                    className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-black font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] text-stone-500 block mb-0.5">最大字数 (最高15000)</label>
+                  <input
+                    type="number"
+                    min={100}
+                    max={15000}
+                    value={maxWord}
+                    onChange={(e) => {
+                      const val = Math.max(100, Math.min(15000, Number(e.target.value) || 3000));
+                      setMaxWord(val);
+                      saveAllConfig({ minWord, maxWord: val });
+                    }}
+                    className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-black font-mono"
+                  />
+                </div>
+              </div>
               <div className="flex items-center gap-1">
-                {[300, 600, 1000, 1500].map((w) => (
+                {[
+                  { min: 300, max: 1000, label: "标准 (300-1k)" },
+                  { min: 1000, max: 5000, label: "长篇 (1k-5k)" },
+                  { min: 5000, max: 15000, label: "巨著 (5k-15k)" },
+                ].map((preset) => (
                   <button
-                    key={w}
+                    key={preset.label}
                     type="button"
                     onClick={() => {
-                      setWordLimit(w);
-                      saveAllConfig({ wordLimit: w });
+                      setMinWord(preset.min);
+                      setMaxWord(preset.max);
+                      saveAllConfig({ minWord: preset.min, maxWord: preset.max });
                     }}
                     className={`flex-1 py-1 text-[10px] rounded-lg font-medium border transition-all cursor-pointer ${
-                      wordLimit === w
+                      minWord === preset.min && maxWord === preset.max
                         ? "bg-black text-white border-black font-bold"
                         : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
                     }`}
                   >
-                    {w}字
+                    {preset.label}
                   </button>
                 ))}
               </div>
@@ -2065,7 +2089,7 @@ ${styleRules}
           >
             <div className="flex items-center gap-1.5">
               <span>{meetMode === "shared" ? "🔗 互通模式" : "🌌 架空模式"}</span>
-              <span>· 字数约 {wordLimit} 字</span>
+              <span>· 字数 {minWord}~{maxWord} 字</span>
               <span>
                 · {perspective === "first" ? "第一人称" : perspective === "second" ? "第二人称" : "第三人称"}
               </span>
@@ -2492,34 +2516,56 @@ ${styleRules}
               </div>
             </div>
 
-            {/* 3. 字数限制 */}
-            <div className="space-y-1.5 pt-1">
+            {/* 3. 字数范围限制 */}
+            <div className="space-y-2 pt-1">
               <div className="flex items-center justify-between text-xs font-bold text-stone-800">
-                <span>3. 生成字数限制</span>
-                <span className="text-stone-800 font-mono font-bold">{wordLimit} 字/轮</span>
+                <span>3. 每轮字数范围限制 (最大 15000 字)</span>
+                <span className="text-stone-800 font-mono font-bold text-xs">{minWord} ~ {maxWord} 字</span>
               </div>
-              <input
-                type="range"
-                min={200}
-                max={2000}
-                step={50}
-                value={wordLimit}
-                onChange={(e) => setWordLimit(Number(e.target.value))}
-                className="w-full accent-black cursor-pointer"
-              />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[9px] text-stone-500 block mb-0.5">最小字数</label>
+                  <input
+                    type="number"
+                    min={50}
+                    max={15000}
+                    value={minWord}
+                    onChange={(e) => setMinWord(Math.max(50, Math.min(15000, Number(e.target.value) || 100)))}
+                    className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-black font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] text-stone-500 block mb-0.5">最大字数 (最高15000)</label>
+                  <input
+                    type="number"
+                    min={100}
+                    max={15000}
+                    value={maxWord}
+                    onChange={(e) => setMaxWord(Math.max(100, Math.min(15000, Number(e.target.value) || 3000)))}
+                    className="w-full text-xs border border-stone-200 rounded-xl p-2 bg-white outline-none focus:border-black font-mono"
+                  />
+                </div>
+              </div>
               <div className="flex items-center gap-1">
-                {[300, 600, 1000, 1500].map((w) => (
+                {[
+                  { min: 300, max: 1000, label: "标准 (300-1k)" },
+                  { min: 1000, max: 5000, label: "长篇 (1k-5k)" },
+                  { min: 5000, max: 15000, label: "巨著 (5k-15k)" },
+                ].map((preset) => (
                   <button
-                    key={w}
+                    key={preset.label}
                     type="button"
-                    onClick={() => setWordLimit(w)}
-                    className={`flex-1 py-1 text-[11px] rounded-lg font-medium border transition-all cursor-pointer ${
-                      wordLimit === w
+                    onClick={() => {
+                      setMinWord(preset.min);
+                      setMaxWord(preset.max);
+                    }}
+                    className={`flex-1 py-1 text-[10px] rounded-lg font-medium border transition-all cursor-pointer ${
+                      minWord === preset.min && maxWord === preset.max
                         ? "bg-black text-white border-black font-bold"
                         : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
                     }`}
                   >
-                    {w}字 {w === 600 ? "(默认)" : ""}
+                    {preset.label}
                   </button>
                 ))}
               </div>

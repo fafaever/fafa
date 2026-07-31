@@ -152,6 +152,18 @@ const SettingsApp: React.FC<SettingsAppProps> = ({ settings, onUpdateSettings, o
     if (updates.temperature !== undefined && updates.temperature !== null) {
       localStorage.setItem("temperature", updates.temperature.toString());
     }
+    if (updates.vectorApiUrl !== undefined && updates.vectorApiUrl !== null) {
+      localStorage.setItem("vectorApiUrl", updates.vectorApiUrl);
+    }
+    if (updates.vectorApiKey !== undefined && updates.vectorApiKey !== null) {
+      localStorage.setItem("vectorApiKey", updates.vectorApiKey);
+    }
+    if (updates.vectorModel !== undefined && updates.vectorModel !== null) {
+      localStorage.setItem("vectorModel", updates.vectorModel);
+    }
+    if (updates.vectorDimension !== undefined && updates.vectorDimension !== null) {
+      localStorage.setItem("vectorDimension", updates.vectorDimension.toString());
+    }
   };
 
   const handleReset = () => {

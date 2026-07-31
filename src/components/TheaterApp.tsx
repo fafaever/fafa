@@ -38,6 +38,7 @@ export interface ActiveTheaterSession {
   id: string;
   charId: string;
   charName: string;
+  participatingCharIds?: string[];
   worldSetting: string;
   mountedLoreIds: string[];
   minWord: number;
@@ -54,6 +55,8 @@ export interface TheaterHistoryCard {
   id: string;
   charId: string;
   charName: string;
+  participatingCharIds?: string[];
+  participatingCharNames?: string[];
   worldSetting: string;
   startTime: number;
   endTime: number;
@@ -84,7 +87,10 @@ export const SetupForm = ({
   generateSetting,
   loreList = [],
   mountedLoreIds,
-  setMountedLoreIds
+  setMountedLoreIds,
+  characters = [],
+  participatingCharIds = [],
+  setParticipatingCharIds
 }: {
   onSave: () => void;
   buttonText?: string;
@@ -105,8 +111,52 @@ export const SetupForm = ({
   loreList?: LoreEntry[];
   mountedLoreIds: string[];
   setMountedLoreIds: (ids: string[]) => void;
+  characters?: Character[];
+  participatingCharIds?: string[];
+  setParticipatingCharIds?: (ids: string[]) => void;
 }) => (
   <div className="space-y-4">
+    {setParticipatingCharIds && characters.length > 0 && (
+      <div className="space-y-1.5">
+        <label className="text-xs font-bold text-neutral-600 flex items-center justify-between">
+          <span>参与角色 (可选 1-5 人，多选即为多人模式)</span>
+          <span className="text-[10px] text-neutral-400 font-medium">{participatingCharIds.length} 人已选</span>
+        </label>
+        <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto bg-neutral-100 p-2 rounded-xl border border-neutral-200/60">
+          {characters.filter(c => !(c as any).isGroup).map(c => {
+            const isSelected = participatingCharIds.includes(c.id);
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => {
+                  if (isSelected) {
+                    if (participatingCharIds.length <= 1) {
+                      alert("至少需保留 1 个参演角色");
+                      return;
+                    }
+                    setParticipatingCharIds(participatingCharIds.filter(id => id !== c.id));
+                  } else {
+                    if (participatingCharIds.length >= 5) {
+                      alert("最多同时参与 5 个角色");
+                      return;
+                    }
+                    setParticipatingCharIds([...participatingCharIds, c.id]);
+                  }
+                }}
+                className={`flex items-center gap-2 p-2 rounded-lg text-left transition-all border ${
+                  isSelected ? 'bg-black text-white border-black font-bold shadow-2xs' : 'bg-white text-neutral-800 border-neutral-200 hover:bg-neutral-50'
+                }`}
+              >
+                <CharacterAvatar character={c} mode="real" size={26} />
+                <span className="text-xs truncate flex-1">{c.name}</span>
+                {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    )}
     <div className="space-y-1">
       <label className="text-xs font-bold text-neutral-600">世界设定关键词</label>
       <div className="flex gap-2">
@@ -303,6 +353,8 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
 
   // Setup form states
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
+  const [participatingCharIds, setParticipatingCharIds] = useState<string[]>([]);
+  const participatingChars = characters.filter(c => participatingCharIds.includes(c.id));
   const [worldSetting, setWorldSetting] = useState<string>("");
   const [mountedLoreIds, setMountedLoreIds] = useState<string[]>([]);
   const [minWord, setMinWord] = useState<number | "">(500);
@@ -337,7 +389,7 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatScrollContainerRef = useRef<HTMLDivElement>(null);
-  const selectedChar = characters.find(c => c.id === (selectedCharId || activeSession?.charId));
+  const selectedChar = participatingChars[0] || characters.find(c => c.id === (selectedCharId || activeSession?.charId)) || characters[0];
 
   // Calculate assistant message rounds
   let assistantCounter = 0;
@@ -522,10 +574,13 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
     if (!selectedChar) return;
     const currentMsgs = updatedMessages || messages;
     const currentSummaries = overrideSettings?.summaries !== undefined ? overrideSettings.summaries : summaries;
+    const pChars = characters.filter(c => participatingCharIds.includes(c.id));
+    const charNameStr = pChars.length > 0 ? pChars.map(c => c.name).join('、') : selectedChar.name;
     const sessionObj: ActiveTheaterSession = {
       id: activeSession?.id || `session-${Date.now()}`,
       charId: selectedChar.id,
-      charName: selectedChar.name,
+      charName: charNameStr,
+      participatingCharIds: participatingCharIds.length > 0 ? participatingCharIds : [selectedChar.id],
       worldSetting: overrideSettings?.worldSetting !== undefined ? overrideSettings.worldSetting : worldSetting,
       mountedLoreIds: overrideSettings?.mountedLoreIds !== undefined ? overrideSettings.mountedLoreIds : mountedLoreIds,
       minWord: Number(overrideSettings?.minWord ?? minWord) || 500,
@@ -544,6 +599,8 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
   // Continue an active session
   const resumeActiveSession = () => {
     if (!activeSession) return;
+    const pIds = activeSession.participatingCharIds || (activeSession.charId ? [activeSession.charId] : []);
+    setParticipatingCharIds(pIds);
     setSelectedCharId(activeSession.charId);
     setWorldSetting(activeSession.worldSetting || "");
     setMountedLoreIds(activeSession.mountedLoreIds || []);
@@ -560,12 +617,15 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
 
   // Continue a history archive card
   const continueHistoryCard = (card: TheaterHistoryCard) => {
+    const pIds = card.participatingCharIds || (card.charId ? [card.charId] : []);
     const targetChar = characters.find(c => c.id === card.charId);
-    if (!targetChar) {
+    if (!targetChar && pIds.length === 0) {
       showToast("无法找不到参演角色人设");
       return;
     }
-    setSelectedCharId(card.charId);
+    const primaryId = targetChar ? targetChar.id : pIds[0];
+    setSelectedCharId(primaryId);
+    setParticipatingCharIds(pIds.length > 0 ? pIds : [primaryId]);
     setWorldSetting(card.worldSetting || "");
     const matchedLoreIds = (loreList || []).filter(l => card.mountedLoreTitles?.includes(l.title)).map(l => l.id);
     setMountedLoreIds(matchedLoreIds);
@@ -574,8 +634,9 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
 
     const sessionObj: ActiveTheaterSession = {
       id: card.id,
-      charId: card.charId,
+      charId: primaryId,
       charName: card.charName,
+      participatingCharIds: pIds.length > 0 ? pIds : [primaryId],
       worldSetting: card.worldSetting || "",
       mountedLoreIds: matchedLoreIds,
       minWord: 500,
@@ -591,7 +652,7 @@ export const TheaterApp: React.FC<TheaterAppProps> = ({
     localStorage.setItem("active_theater_session", JSON.stringify(sessionObj));
 
     setView('theater');
-    showToast(`已加载《${card.charName}》剧场历史存档`);
+    showToast(`已加载剧场历史存档`);
   };
 
   // Handler: Summarize 10 or 20 rounds
@@ -767,10 +828,17 @@ ${sliceText}`;
       summaryText = targetWorldSetting || "自由演练小剧场";
     }
 
+    const pIds = participatingCharIds.length > 0 ? participatingCharIds : (activeSession?.participatingCharIds || [targetChar.id]);
+    const pChars = characters.filter(c => pIds.includes(c.id));
+    const charNameStr = pChars.length > 0 ? pChars.map(c => c.name).join('、') : targetChar.name;
+    const pNames = pChars.map(c => c.name);
+
     const newCard: TheaterHistoryCard = {
       id: `history-${Date.now()}`,
       charId: targetChar.id,
-      charName: targetChar.name,
+      charName: charNameStr,
+      participatingCharIds: pIds,
+      participatingCharNames: pNames,
       worldSetting: targetWorldSetting,
       startTime: targetMessages[0]?.timestamp || Date.now(),
       endTime: Date.now(),
@@ -856,7 +924,9 @@ ${sliceText}`;
   // AI Generation Handler
   const handleGenerateTheater = async (customPrompt?: string, overrideList?: TheaterMessage[], forceStart = false) => {
     console.log('🔴 小剧场生成函数被调用了！');
-    if (!selectedChar) return;
+    const participatingChars = characters.filter(c => participatingCharIds.includes(c.id));
+    const activeChars = participatingChars.length > 0 ? participatingChars : (selectedChar ? [selectedChar] : (characters[0] ? [characters[0]] : []));
+    if (activeChars.length === 0) return;
     if (isGenerating && !forceStart) return;
 
     // Rule 1 & 4: Mandatory check before generation
@@ -874,13 +944,14 @@ ${sliceText}`;
       return;
     }
 
-    if (!selectedChar.description || !selectedChar.description.trim()) {
-      const errReason = "角色人设未读取";
+    const missingChar = activeChars.find(c => !c.description || !c.description.trim());
+    if (missingChar) {
+      const errReason = `角色【${missingChar.name}】人设未读取`;
       showToast(errReason);
       const errorMsgObj: TheaterMessage = {
         id: `err-${Date.now()}`,
         role: "system",
-        content: `【生成失败】${errReason}：当前参演角色的性格与人设数据为空。`,
+        content: `【生成失败】${errReason}：该参演角色的性格与人设数据为空。`,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMsgObj]);
@@ -905,10 +976,14 @@ ${sliceText}`;
     setMessages(newMessages);
 
     try {
-      const charMemories = getCharacterMemories(selectedChar);
-      const memoryText = charMemories.length > 0 
-        ? charMemories.map((m, idx) => `${idx + 1}. ${m}`).join('\n')
-        : '（暂无角色记忆数据）';
+      const isMulti = activeChars.length > 1;
+      const charsPersonaText = activeChars.map((c, idx) => `
+【参演角色 ${idx + 1}：${c.name}】
+- 角色性格与背景：${c.description}
+${c.systemInstruction || ''}
+- 角色独立记忆库（强制结合）：
+${getCharacterMemories(c).length > 0 ? getCharacterMemories(c).map((m, i) => `  ${i+1}. ${m}`).join('\n') : '  （暂无记忆数据）'}
+`).join('\n');
 
       const mountedLores = (loreList || []).filter(l => mountedLoreIds.includes(l.id));
       const mountedLoreText = mountedLores.length > 0 
@@ -920,12 +995,22 @@ ${sliceText}`;
       // Perspective rule
       let perspectiveInstruction = "";
       if (perspective === 'first') {
-        perspectiveInstruction = `第一人称：角色自称用“我”，称呼用户用“你”。`;
+        perspectiveInstruction = `第一人称：各角色自称用“我”，称呼用户用“你”。`;
       } else if (perspective === 'second') {
-        perspectiveInstruction = `第二人称：角色自称用角色姓名（“${selectedChar.name}”），称呼用户用“你”。`;
+        perspectiveInstruction = isMulti
+          ? `第二人称：各角色自称用各自姓名（如 ${activeChars.map(c => c.name).join('、')}），称呼用户用“你”。`
+          : `第二人称：角色自称用角色姓名（“${activeChars[0].name}”），称呼用户用“你”。`;
       } else {
-        perspectiveInstruction = `第三人称：角色使用姓名（“${selectedChar.name}”），称呼用户亦使用姓名。`;
+        perspectiveInstruction = isMulti
+          ? `第三人称：各角色均使用各自姓名，称呼用户亦使用姓名。`
+          : `第三人称：角色使用姓名（“${activeChars[0].name}”），称呼用户亦使用姓名。`;
       }
+
+      const multiFormattingRule = isMulti ? `
+【多人模式分段与排版规则（核心强制）】：
+1. 每一轮生成必须包含所有参与角色（${activeChars.map(c => c.name).join('、')}）的登场、互动、对话或行为表现。
+2. 【段落清晰，独立成段】：严禁将不同角色的动作、对话或心理描写混杂在同一个段落中。每个角色登场、发言或发生行为时，必须【独立成段】、段落分明（中间用空行隔开），确保各角色的独立人设与出场清晰不混杂。
+` : '';
 
       const systemInstruction = `
 你现在正在进行【小剧场独立架空演绎模式】。这是一个纯文学小说/剧本演绎环境。用户是故事的【观看者/旁观者】，而不是对话对象，角色绝对不能对用户说话。
@@ -938,16 +1023,12 @@ ${worldSetting}
 3. 【已挂载的世界书内容】：
 ${mountedLoreText}
 
-4. 【参演角色人设】：
-- 角色姓名：${selectedChar.name}
-- 角色性格与背景：${selectedChar.description}
-${selectedChar.systemInstruction || ''}
+4. 【参演角色人设与独立记忆（已全员加载）】：
+${charsPersonaText}
 
-5. 【角色记忆库（强制读取）】：
-${memoryText}
-
-6. 【人称规则（最高级别强制，仅对 AI 生成的剧情描述生效）】：
+5. 【人称与排版规则（最高级别强制，仅对 AI 生成的剧情描述生效）】：
 - ${perspectiveInstruction}
+${multiFormattingRule}
 - 注意：用户发送的剧情描述不受限制，不影响角色的人称变化。
 
 【第二部分：严格执行的演绎规则与剧情推进逻辑】：
@@ -956,12 +1037,7 @@ ${memoryText}
    - 严禁跳过剧情直接跳到结果，必须专注于当下的交互过程。
 
 2. 【强制保持“进行中”状态（Turn-Ending Rules）】：
-   - 每一段落的末尾必须停留在“正在进行中”的状态，留下明确的推进点（Hook），等待下一轮互动。
-   - 推进点示例：
-     * 角色做出一个动作后停下（有后续空间的动作，如：他站在晨光里，像是在等你说什么）。
-     * 环境出现新变化（如：灯忽然灭了、有人在敲门、远处传来奇怪的声音）。
-     * 角色说了一句需要回应的话（如：他停顿了一下，像是在等你开口；或者话说到一半被打断）。
-     * 一个新的物品或线索出现（如：你看到窗外有个人影一闪而过；或者桌子上多了一封信）。
+   - 每一段落的末尾必须停留在“进行中”的状态，留下明确的推进点（Hook），等待下一轮互动。
 
 3. 【视角统一】：必须严格根据人称规则进行文学描写与叙述。
 4. 【用户输入描写规则】：
@@ -970,10 +1046,6 @@ ${memoryText}
 5. 【绝对禁止出现 AI 身份】：严禁提及“我是AI”、“加载中”、“服务器”等任何现代科技或AI术语。
 6. 【排版与格式】：
    - 对话必须使用全角双引号（“ ”），单独成行。
-   - 示例格式：
-     他站在窗边，外面的雨刚停。
-     “你来了。”
-     她推开门，水珠从伞尖滴落。
 
 7. 每轮生成字数要求在【${minWord || 500}-${maxWord || 3000}字】左右。
 8. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
@@ -991,11 +1063,12 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
 
       const apiUrl = localStorage.getItem('apiUrl') || settings?.apiUrl || '';
       const apiKey = localStorage.getItem('apiKey') || settings?.apiKey || '';
-      const model = localStorage.getItem('model') || selectedChar.model || settings?.model || 'gpt-3.5-turbo';
+      const model = localStorage.getItem('model') || activeChars[0]?.model || settings?.model || 'gpt-3.5-turbo';
       const temperature = parseFloat(localStorage.getItem('temperature') || String(settings?.temperature) || '0.8');
 
       if (!apiUrl || !apiKey) {
         showToast('请先在设置页配置 API');
+        setIsGenerating(false);
         return;
       }
 
@@ -1018,9 +1091,6 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
           content: m.content || ''
         }))
       ];
-
-      console.log('🔴 小剧场请求URL:', endpoint);
-      console.log('🔴 API Key 是否存在:', !!apiKey);
 
       const fetchRes = await fetch(endpoint, {
         method: 'POST',
@@ -1077,7 +1147,9 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
 
   // Re-roll (Regenerate) specific card content
   const handleRerollCard = async (targetMsgId: string) => {
-    if (!selectedChar || isGenerating) return;
+    const participatingChars = characters.filter(c => participatingCharIds.includes(c.id));
+    const activeChars = participatingChars.length > 0 ? participatingChars : (selectedChar ? [selectedChar] : (characters[0] ? [characters[0]] : []));
+    if (activeChars.length === 0) return;
 
     // Rule 1 & 4: Mandatory check before generation
     if (!worldSetting || !worldSetting.trim()) {
@@ -1093,13 +1165,14 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       return;
     }
 
-    if (!selectedChar.description || !selectedChar.description.trim()) {
-      const errReason = "角色人设未读取";
+    const missingChar = activeChars.find(c => !c.description || !c.description.trim());
+    if (missingChar) {
+      const errReason = `角色【${missingChar.name}】人设未读取`;
       showToast(errReason);
       const errorMsgObj: TheaterMessage = {
         id: `err-${Date.now()}`,
         role: "system",
-        content: `【生成失败】${errReason}：当前参演角色的性格与人设数据为空。`,
+        content: `【生成失败】${errReason}：该参演角色的性格与人设数据为空。`,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMsgObj]);
@@ -1116,10 +1189,14 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
     showToast("正在重新生成该段剧情...");
 
     try {
-      const charMemories = getCharacterMemories(selectedChar);
-      const memoryText = charMemories.length > 0 
-        ? charMemories.map((m, idx) => `${idx + 1}. ${m}`).join('\n')
-        : '（暂无角色记忆数据）';
+      const isMulti = activeChars.length > 1;
+      const charsPersonaText = activeChars.map((c, idx) => `
+【参演角色 ${idx + 1}：${c.name}】
+- 角色性格与背景：${c.description}
+${c.systemInstruction || ''}
+- 角色独立记忆库（强制结合）：
+${getCharacterMemories(c).length > 0 ? getCharacterMemories(c).map((m, i) => `  ${i+1}. ${m}`).join('\n') : '  （暂无记忆数据）'}
+`).join('\n');
 
       const mountedLores = (loreList || []).filter(l => mountedLoreIds.includes(l.id));
       const mountedLoreText = mountedLores.length > 0 
@@ -1131,12 +1208,22 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       // Perspective rule
       let perspectiveInstruction = "";
       if (perspective === 'first') {
-        perspectiveInstruction = `第一人称：角色自称用“我”，称呼用户用“你”。`;
+        perspectiveInstruction = `第一人称：各角色自称用“我”，称呼用户用“你”。`;
       } else if (perspective === 'second') {
-        perspectiveInstruction = `第二人称：角色自称用角色姓名（“${selectedChar.name}”），称呼用户用“你”。`;
+        perspectiveInstruction = isMulti
+          ? `第二人称：各角色自称用各自姓名（如 ${activeChars.map(c => c.name).join('、')}），称呼用户用“你”。`
+          : `第二人称：角色自称用角色姓名（“${activeChars[0].name}”），称呼用户用“你”。`;
       } else {
-        perspectiveInstruction = `第三人称：角色使用姓名（“${selectedChar.name}”），称呼用户亦使用姓名。`;
+        perspectiveInstruction = isMulti
+          ? `第三人称：各角色均使用各自姓名，称呼用户亦使用姓名。`
+          : `第三人称：角色使用姓名（“${activeChars[0].name}”），称呼用户亦使用姓名。`;
       }
+
+      const multiFormattingRule = isMulti ? `
+【多人模式分段与排版规则（核心强制）】：
+1. 每一轮生成必须包含所有参与角色（${activeChars.map(c => c.name).join('、')}）的登场、互动、对话或行为表现。
+2. 【段落清晰，独立成段】：严禁将不同角色的动作、对话或心理描写混杂在同一个段落中。每个角色登场、发言或发生行为时，必须【独立成段】、段落分明（中间用空行隔开），确保各角色的独立人设与出场清晰不混杂。
+` : '';
 
       const systemInstruction = `
 你现在正在进行【小剧场独立架空演绎模式】。这是一个纯文学小说/剧本演绎环境。用户是故事的【观看者/旁观者】，而不是对话对象，角色绝对不能对用户说话。
@@ -1149,16 +1236,12 @@ ${worldSetting}
 3. 【已挂载的世界书内容】：
 ${mountedLoreText}
 
-4. 【参演角色人设】：
-- 角色姓名：${selectedChar.name}
-- 角色性格与背景：${selectedChar.description}
-${selectedChar.systemInstruction || ''}
+4. 【参演角色人设与独立记忆（已全员加载）】：
+${charsPersonaText}
 
-5. 【角色记忆库（强制读取）】：
-${memoryText}
-
-6. 【人称规则（最高级别强制，仅对 AI 生成的剧情描述生效）】：
+5. 【人称与排版规则（最高级别强制，仅对 AI 生成的剧情描述生效）】：
 - ${perspectiveInstruction}
+${multiFormattingRule}
 - 注意：用户发送的剧情描述不受限制，不影响角色的人称变化。
 
 【第二部分：严格执行的演绎规则与剧情推进逻辑】：
@@ -1167,26 +1250,16 @@ ${memoryText}
    - 严禁跳过剧情直接跳到结果，必须专注于当下的交互过程。
 
 2. 【强制保持“进行中”状态（Turn-Ending Rules）】：
-   - 每一段落的末尾必须停留在“正在进行中”的状态，留下明确的推进点（Hook），等待下一轮互动。
-   - 推进点示例：
-     * 角色做出一个动作后停下（有后续空间的动作，如：他站在晨光里，像是在等你说什么）。
-     * 环境出现新变化（如：灯忽然灭了、有人在敲门、远处传来奇怪的声音）。
-     * 角色说了一句需要回应的话（如：他停顿了一下，像是在等你开口；或者话说到一半被打断）。
-     * 一个新的物品或线索出现（如：你看到窗外有个人影一闪而过；或者桌子上多了一封信）。
+   - 每一段落的末尾必须停留在“进行中”的状态，留下明确的推进点（Hook），等待下一轮互动。
 
 3. 【视角统一】：必须严格根据人称规则进行文学描写与叙述。
 4. 【结合上下文重新生成】：请结合上下文重新生成一段【不同角度/不同细节】的全新剧情描写，严禁敷衍。
 5. 【绝对禁止出现 AI 身份】：严禁提及“我是AI”、“加载中”、“服务器”等任何现代科技或AI术语。
 6. 【排版与格式】：
    - 对话必须使用全角双引号（“ ”），单独成行。
-   - 示例格式：
-     他站在窗边，外面的雨刚停。
-     “你来了。”
-     她推开门，水珠从伞尖滴落。
 
 7. 每轮生成字数要求在【${minWord || 500}-${maxWord || 3000}字】左右。
 8. 文风偏好：${writingTone === 'literary' ? '文艺细腻' : writingTone === 'cold_restrained' ? '冷淡克制' : writingTone === 'warm_soft' ? '温暖柔和' : '日常白描'}。
-${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘生动的环境、气氛与情境引入。' : ''}
 `;
 
       let payloadMessages = buildPayloadMessages(contextBefore, summaries);
@@ -1204,11 +1277,12 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
 
       const apiUrl = localStorage.getItem('apiUrl') || settings?.apiUrl || '';
       const apiKey = localStorage.getItem('apiKey') || settings?.apiKey || '';
-      const model = localStorage.getItem('model') || selectedChar.model || settings?.model || 'gpt-3.5-turbo';
+      const model = localStorage.getItem('model') || activeChars[0]?.model || settings?.model || 'gpt-3.5-turbo';
       const temperature = parseFloat(localStorage.getItem('temperature') || String(settings?.temperature) || '0.8');
 
       if (!apiUrl || !apiKey) {
         showToast('请先在设置页配置 API');
+        setIsGenerating(false);
         return;
       }
 
@@ -1232,9 +1306,6 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
         }))
       ];
 
-      console.log('🔴 小剧场请求URL:', endpoint);
-      console.log('🔴 API Key 是否存在:', !!apiKey);
-
       const fetchRes = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -1256,33 +1327,22 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       const data = await fetchRes.json();
       const reply = data.choices?.[0]?.message?.content || '';
 
-      const newAiMsg: TheaterMessage = {
+      const aiMsg: TheaterMessage = {
         id: `ai-${Date.now()}`,
         role: "assistant",
         content: reply || "...",
         timestamp: Date.now(),
       };
 
-      let finalMsgs: TheaterMessage[];
-      if (targetMsg.role === 'user') {
-        if (index + 1 < messages.length && messages[index + 1].role === 'assistant') {
-          finalMsgs = [...messages.slice(0, index + 1), newAiMsg, ...messages.slice(index + 2)];
-        } else {
-          finalMsgs = [...messages.slice(0, index + 1), newAiMsg, ...messages.slice(index + 1)];
-        }
-      } else {
-        finalMsgs = [...contextBefore, newAiMsg, ...messages.slice(index + 1)];
-      }
-
+      const finalMsgs = [...contextBefore, aiMsg];
       setMessages(finalMsgs);
       saveCurrentSession(finalMsgs);
-      showToast("已重roll生成新剧情");
     } catch (err: any) {
-      console.error("[Theater Reroll Error]:", err);
-      let errMsg = err?.message || "重roll失败";
+      console.error("[Theater Generation Error]:", err);
+      let errMsg = err?.message || (typeof err === "string" ? err : "请求失败");
       if (errMsg.toLowerCase().includes("timeout") || errMsg.toLowerCase().includes("aborted")) {
         errMsg = "API 请求超时";
-      } else if (!errMsg.includes("API 返回错误")) {
+      } else if (!errMsg.includes("API 返回错误") && !errMsg.includes("世界设定缺失") && !errMsg.includes("角色人设未读取")) {
         errMsg = `API 请求超时或网络异常 (${errMsg})`;
       }
       const displayMsg = errMsg.includes("API 返回错误") || errMsg.includes("API 请求超时") ? errMsg : `API 返回错误：${errMsg}`;
@@ -1298,6 +1358,8 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
       setIsGenerating(false);
     }
   };
+
+
 
   // Generate AI World Setting keyword inspiration
   const generateSetting = async () => {
@@ -1708,6 +1770,9 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
                 loreList={loreList}
                 mountedLoreIds={mountedLoreIds}
                 setMountedLoreIds={setMountedLoreIds}
+                characters={characters}
+                participatingCharIds={participatingCharIds}
+                setParticipatingCharIds={setParticipatingCharIds}
               />
             </div>
           </div>
@@ -2290,6 +2355,9 @@ ${isOpeningScene ? '- 当前是故事的第一段开场描写，请直接描绘�
               loreList={loreList}
               mountedLoreIds={mountedLoreIds}
               setMountedLoreIds={setMountedLoreIds}
+              characters={characters}
+              participatingCharIds={participatingCharIds}
+              setParticipatingCharIds={setParticipatingCharIds}
             />
           </div>
         </div>

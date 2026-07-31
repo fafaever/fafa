@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { ChevronLeft, Plus, Minus, RotateCcw, Edit2, Check, X, Users, HelpCircle, User, ArrowRight } from "lucide-react";
 import { Character, BoundNPC, AppSettings } from "../types";
+import { CharacterAvatar } from "./CharacterAvatar";
 
 interface RelationshipNetworkAppProps {
   characters: Character[];
@@ -36,6 +37,7 @@ export default function RelationshipNetworkApp({
     type: "center" | "character" | "npc" | "user";
     avatar: string;
     desc: string;
+    realId?: string;
   } | null>(null);
 
   // Default to the first character on mount
@@ -62,7 +64,7 @@ export default function RelationshipNetworkApp({
     nodes.push({
       id: centerChar.id,
       name: centerChar.name,
-      avatar: centerChar.avatar || "🤖",
+      avatar: centerChar.realAvatar || centerChar.realImage || centerChar.avatar || "🤖",
       type: "center",
       realId: centerChar.id,
       desc: centerChar.description || "中心角色",
@@ -90,7 +92,7 @@ export default function RelationshipNetworkApp({
           surroundingItems.push({
             id: `char-${id}`,
             name: other.name,
-            avatar: other.avatar || "🤖",
+            avatar: other.realAvatar || other.realImage || other.avatar || "🤖",
             type: "character",
             realId: other.id,
             desc: other.description || "另一个 AI 角色",
@@ -447,35 +449,32 @@ export default function RelationshipNetworkApp({
                       }
                       onMouseLeave={() => setHoveredNode(null)}
                     >
-                      {/* Node Circle Border Ring */}
-                      <circle
-                        r={isCenter ? 26 : 21}
-                        fill={isCenter ? "#000000" : "#ffffff"}
-                        stroke={isCenter ? "#000000" : isHovered ? "#000000" : "#e5e5e5"}
-                        strokeWidth={isCenter ? 2 : 1.5}
-                        strokeDasharray={node.type === "npc" ? "3 3" : "none"}
-                        className="transition-colors duration-200 shadow-md"
-                      />
-
-                      {/* Double ring effect for user */}
-                      {node.type === "user" && (
-                        <circle
-                          r={18}
-                          fill="none"
-                          stroke="#e5e5e5"
-                          strokeWidth={1}
-                        />
-                      )}
-
-                      {/* Avatar Text/Emoji inside node */}
-                      <text
-                        textAnchor="middle"
-                        y={isCenter ? 6 : 5}
-                        fontSize={isCenter ? 18 : 15}
-                        className="select-none pointer-events-none"
-                      >
-                        {node.avatar}
-                      </text>
+                      {/* Node Circle Border Ring & Avatar via foreignObject */}
+                      {(() => {
+                        const r = isCenter ? 26 : 21;
+                        const matchChar = characters.find(c => c.id === node.realId);
+                        return (
+                          <foreignObject
+                            x={-r}
+                            y={-r}
+                            width={r * 2}
+                            height={r * 2}
+                            className="overflow-visible pointer-events-none"
+                          >
+                            <div className={`w-full h-full rounded-full overflow-hidden border-2 ${isCenter ? 'border-black bg-black' : isHovered ? 'border-black bg-white' : 'border-neutral-200 bg-white'} shadow-md flex items-center justify-center pointer-events-auto`}>
+                              {node.type === "user" ? (
+                                <span className="text-sm">👤</span>
+                              ) : node.type === "npc" ? (
+                                <span className="text-sm">{node.avatar || "👥"}</span>
+                              ) : matchChar ? (
+                                <CharacterAvatar character={matchChar} mode="real" size={r * 2} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-xs">{node.avatar || "🤖"}</span>
+                              )}
+                            </div>
+                          </foreignObject>
+                        );
+                      })()}
 
                       {/* Outer Name Tag Badge */}
                       <g transform={`translate(0, ${isCenter ? 38 : 31})`}>
@@ -516,7 +515,14 @@ export default function RelationshipNetworkApp({
           {hoveredNode && (
             <div className="absolute bottom-3 left-3 right-3 bg-white border border-neutral-200 p-3 rounded-xl shadow-md z-10 animate-fade-in pointer-events-none">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-xl">{hoveredNode.avatar}</span>
+                {(() => {
+                  const matchHoverChar = hoveredNode.realId ? characters.find(c => c.id === hoveredNode.realId) : null;
+                  return matchHoverChar ? (
+                    <CharacterAvatar character={matchHoverChar} mode="real" size={32} className="w-8 h-8 rounded-full object-cover shrink-0" />
+                  ) : (
+                    <span className="text-xl">{hoveredNode.avatar}</span>
+                  );
+                })()}
                 <div className="flex flex-col">
                   <span className="text-xs font-bold text-neutral-900">{hoveredNode.name}</span>
                   <span className="text-[9px] text-neutral-400 font-mono font-bold uppercase">
@@ -548,10 +554,15 @@ export default function RelationshipNetworkApp({
                 <div className="space-y-2 max-w-lg mx-auto">
                   {nodes.filter(n => n.type !== "center").map(node => {
                     const isEditingThis = editingTargetId === node.id;
+                    const matchNodeChar = node.realId ? characters.find(c => c.id === node.realId) : null;
                     return (
                       <div key={node.id} className="flex items-center justify-between border border-neutral-100 p-2 rounded-xl text-xs bg-white hover:border-neutral-200 transition-colors">
                         <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <span className="text-lg shrink-0">{node.avatar}</span>
+                          {matchNodeChar ? (
+                            <CharacterAvatar character={matchNodeChar} mode="real" size={28} className="w-7 h-7 rounded-full object-cover shrink-0" />
+                          ) : (
+                            <span className="text-lg shrink-0">{node.avatar}</span>
+                          )}
                           <div className="flex flex-col min-w-0 flex-1 pr-2">
                             <span className="font-bold text-neutral-800 truncate">{node.name}</span>
                             {!isEditingThis ? (

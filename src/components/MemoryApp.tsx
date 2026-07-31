@@ -16,6 +16,7 @@ interface MemoryAppProps {
 export default function MemoryApp({ characters, settings, sessions, onClose, onUpdateCharacter }: MemoryAppProps) {
   const [selectedCharacterId, setSelectedCharacterId] = useState<string | null>(null);
   const [showScopeModal, setShowScopeModal] = useState(false);
+  const [autoExtractSignal, setAutoExtractSignal] = useState<number>(0);
 
   // Read vectorMemoryEnabled state from localStorage for the active character
   const [vectorMemoryEnabled, setVectorMemoryEnabled] = useState<boolean>(false);
@@ -32,28 +33,27 @@ export default function MemoryApp({ characters, settings, sessions, onClose, onU
   const handleToggleVectorMemory = () => {
     if (!selectedCharacterId) return;
 
-    const confirmSwitch = window.confirm("切换记忆模式将重新加载记忆系统，确定继续吗？");
-    if (!confirmSwitch) return;
-
     const nextVal = !vectorMemoryEnabled;
     
     if (nextVal) {
       setShowScopeModal(true);
     } else {
+      const confirmSwitch = window.confirm("确定要关闭向量记忆模式吗？");
+      if (!confirmSwitch) return;
       setVectorMemoryEnabled(false);
       localStorage.setItem(`vector_memory_enabled_${selectedCharacterId}`, "false");
     }
   };
 
   const handleConfirmScope = (scope: ExtractionSettings["vectorScope"]) => {
-    if (!selectedCharacterId || !onUpdateCharacter) return;
+    if (!selectedCharacterId) return;
     
     setVectorMemoryEnabled(true);
     localStorage.setItem(`vector_memory_enabled_${selectedCharacterId}`, "true");
     
     // Save scope to character extraction settings
     const activeChar = characters.find(c => c.id === selectedCharacterId);
-    if (activeChar) {
+    if (activeChar && onUpdateCharacter) {
       const updatedSettings: ExtractionSettings = {
         ...(activeChar.extractionSettings || {}),
         vectorScope: scope
@@ -62,6 +62,7 @@ export default function MemoryApp({ characters, settings, sessions, onClose, onU
     }
     
     setShowScopeModal(false);
+    setAutoExtractSignal(prev => prev + 1);
   };
 
   const activeChar = selectedCharacterId ? characters.find(c => c.id === selectedCharacterId) : null;
@@ -71,7 +72,7 @@ export default function MemoryApp({ characters, settings, sessions, onClose, onU
       <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-neutral-100 shrink-0 shadow-sm z-10 relative">
         <button
           onClick={() => selectedCharacterId ? setSelectedCharacterId(null) : onClose()}
-          className="p-1 -ml-1 text-neutral-500 hover:text-black rounded-lg active:scale-95 transition-all"
+          className="p-1 -ml-1 text-neutral-500 hover:text-black rounded-lg active:scale-95 transition-all cursor-pointer"
         >
           <ChevronLeft className="w-6 h-6" />
         </button>
@@ -83,13 +84,13 @@ export default function MemoryApp({ characters, settings, sessions, onClose, onU
           {selectedCharacterId && (
             <button
               onClick={handleToggleVectorMemory}
-              className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-all active:scale-95 select-none ${
+              className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border transition-all active:scale-95 select-none cursor-pointer ${
                 vectorMemoryEnabled
                   ? "bg-neutral-900 text-white border-neutral-900 shadow-sm"
-                  : "bg-neutral-100 text-neutral-500 border-neutral-200"
+                  : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
               }`}
             >
-              <span>向量记忆</span>
+              <span>{vectorMemoryEnabled ? "向量记忆 (已开启)" : "开启向量记忆"}</span>
               <div className={`w-1.5 h-1.5 rounded-full ${vectorMemoryEnabled ? "bg-emerald-400 animate-pulse" : "bg-neutral-300"}`} />
             </button>
           )}
@@ -105,6 +106,8 @@ export default function MemoryApp({ characters, settings, sessions, onClose, onU
             settings={settings}
             sessions={sessions}
             vectorMemoryEnabled={vectorMemoryEnabled}
+            onUpdateCharacter={onUpdateCharacter}
+            autoExtractSignal={autoExtractSignal}
           />
         ) : (
           <MemoryDashboard characters={characters} onSelectCharacter={setSelectedCharacterId} />

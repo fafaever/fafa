@@ -1549,6 +1549,7 @@ export default function App() {
             settings={settings}
             sessions={sessions}
             onClose={() => setCurrentScreen("home")}
+            onUpdateCharacter={handleUpdateCharacter}
           />
         );
       case "network":

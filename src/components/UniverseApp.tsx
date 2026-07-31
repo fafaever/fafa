@@ -130,6 +130,10 @@ export interface TransmigrationWorld {
   createdAt: number;
   updatedAt: number;
   
+  // Word limit settings
+  minWord?: number;
+  maxWord?: number;
+
   // Expanded roleplay gameplay fields
   userRoleTag?: "攻略者" | "攻略对象";
   userIdentity?: IdentityDetails;
@@ -265,6 +269,8 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
   // Expanded Transmigration States
   const [newWorldPresetId, setNewWorldPresetId] = useState<string>("");
   const [newWorldUserTag, setNewWorldUserTag] = useState<"攻略者" | "攻略对象">("攻略者");
+  const [newMinWord, setNewMinWord] = useState<number>(300);
+  const [newMaxWord, setNewMaxWord] = useState<number>(1500);
   const [factionAName, setFactionAName] = useState("明光");
   const [factionBName, setFactionBName] = useState("暗影");
   const [characterFactionMap, setCharacterFactionMap] = useState<Record<string, 'faction_a' | 'faction_b'>>({});
@@ -279,9 +285,13 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
   const [editWorldBg, setEditWorldBg] = useState("");
   const [editUserName, setEditUserName] = useState("");
   const [editUserThought, setEditUserThought] = useState("");
+  const [editMinWord, setEditMinWord] = useState<number>(300);
+  const [editMaxWord, setEditMaxWord] = useState<number>(1500);
   const [editCharacterStates, setEditCharacterStates] = useState<Record<string, CharacterTransmigrationState>>({});
   const [editTasks, setEditTasks] = useState<TransmigrationTask[]>([]);
   const [selectedShareCharId, setSelectedShareCharId] = useState<string>("");
+  const [showEndWorldConfirm, setShowEndWorldConfirm] = useState(false);
+  const [worldListTab, setWorldListTab] = useState<"active" | "archived">("active");
   
   // Custom Confirmation States
   const [worldToDelete, setWorldToDelete] = useState<string | null>(null);
@@ -752,6 +762,10 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       createdAt: Date.now(),
       updatedAt: Date.now(),
       
+      // Word limit settings
+      minWord: newMinWord || 300,
+      maxWord: Math.min(15000, newMaxWord || 1500),
+
       // Extended fields
       userRoleTag: newWorldUserTag,
       userIdentity: generatedUserIdentity,
@@ -957,10 +971,13 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       .map((id) => getCharacterById(id))
       .filter(Boolean) as Character[];
 
+    const minW = activeWorld.minWord || 300;
+    const maxW = Math.min(15000, activeWorld.maxWord || 1500);
+
     const chatHistory = updatedMessages.slice(-8).map((m) => `${m.senderName || m.role}: ${m.content}`).join("\n");
 
     const prompt = `你现在是快穿游戏《${activeWorld.name}》的叙事主宰（Narrator）与角色扮演者。
-这是一个双线系统的快穿设定，玩家和伙伴们都被投放入新身份，并各自拥有秘密攻略标签。
+这是一个双线系统的快穿设定，玩家和伙伴们都被投放入新身份，各自在当前世界扮演新角色。
 世界背景：${activeWorld.background}
     ${activeWorld.activeEvent ? `\n【当前突发事件】：${activeWorld.activeEvent.description}` : ""}
 
@@ -972,38 +989,32 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
 各伙伴在本世界的扮演身份及属性：
 ${activeChars.map(c => {
   const state = activeWorld.characterStates?.[c.id];
-  return `- 伙伴 [${c.name}] (扮演姓名: ${state?.identity?.name}, 年龄: ${state?.identity?.age}):
+  return `- 伙伴 [${c.name}] (本世界扮演姓名: ${state?.identity?.name}, 年龄: ${state?.identity?.age}):
     * 职业与背景: ${state?.identity?.profession}。${state?.identity?.background}
-    * 攻略标签: 你作为主宰知道他们的角色标签 is [${state?.roleTag}]
-    * 好感度: ${state?.favorability}/100, 怀疑度: ${state?.suspicion}/100
-    * 他们的原世界细节破绽: ${state?.flaws?.[0] || "容易在听到原世界歌谣时失神"}`;
+    * 真实属性: 核心性格保持原样，好感度 ${state?.favorability || 50}/100${(state?.favorability || 50) >= 100 ? " (🎉已攻略)" : ""}
+    * 扮演状态: 知道自己在扮演该身份，但不知道玩家是攻略者！扮演认真度因人而异（可能偶有失误或露马脚）`;
 }).join("\n")}
 
 任务清单：
 ${activeWorld.tasks.map((t) => `${t.id}. [${t.completed ? "已完成" : "未完成"}] ${t.description}`).join("\n")}
 
-最新玩家发言/行动（可能使用了特殊道具/技能）：
+最新玩家发言/行动：
 "${userMsg.content}"
 
 对话历史记录：
 ${chatHistory}
 
-请以极度简洁、口语化、直白的语言描写场景进展以及参与角色（${activeChars.map((c) => c.name).join("、")}）的表情台词。
+请根据剧情走向，生成参与角色（${activeChars.map((c) => c.name).join("、")}）的场景描写与台词。
 
-【核心文风与描写规范（极其重要）】：
-1. 必须使用口语化、简洁直白的表达方式。绝对不使用词藻堆砌、文艺化修饰或复杂句式。
-2. 使用短句，一句话只说一件事。多用名词和动词，少用形容词。
-3. 不渲染氛围，不铺垫情绪，不加文学修饰。直接说“是什么”，不说“像什么”。
-4. 让用户一眼看懂当前发生了什么，绝对不制造信息过载。例如：不写“暮色低垂，公馆的轮廓在灰蓝的天际线里显得沉重而沉默”，应写“天快黑了。公馆很安静”。
+【快穿世界完整玩法规则与描写规范】：
+1. 角色保留原有名字与核心性格特质，但在本世界获得新身份卡并进行扮演。角色知道自己在扮演该身份，但**绝对不知道**用户是攻略者！角色扮演程度因人而异（有的认真严谨，有的敷衍拉胯，偶尔露出破绽）。
+2. 吃醋与互动规则：角色可以吃醋（例如当用户与其他角色亲近或偏向他人时），表现为语气变酸、短暂冷淡或轻微抱怨，**但绝不能**因为吃醋而拒绝互动、退出游戏或中断剧情进程！吃醋必须增添剧情乐趣，不能阻碍互动与游戏推进。
+3. 好感度结算：每个角色好感度 0-100。用户通过对话和行动提升/改变好感度。好感度达到 100 时攻略完成。每轮剧情结束后输出 [FAVORABILITY: 角色真实名字, +数或-数] 标签结算好感度变化。
+4. 字数控制要求：请务必将你的每一轮剧情描写与角色回应控制在 ${minW}~${maxW} 字范围内（单轮生成最高上限 15000 字）。
+5. 文风要求：使用口语化、简洁直白的表达方式，短句为主，多用名词和动词。
+6. **绝对禁止**代替玩家进行任何言行、表情或心理活动描写。所有玩家的行动必须由玩家自己决定。
 
-【重要扮演规则】：
-1. 角色必须扮演本世界的人设，绝不能主动承认自己是穿越者。
-2. 角色在言行中，会隐秘地露出设定的“细节破绽”（例如：提及现代科技、流行文化、特定地名等专属信息。请注意：不检测“AI、系统、模型、回复、界面、按钮”等元对话词汇为破绽），给玩家提供怀疑线索。
-3. 玩家如果使用了技能或道具，请在场景中展现奇幻或剧情效果。
-4. **绝对禁止**代替玩家进行任何行动、言语、表情、情绪、动机或心理活动描写。你只能描写环境、其他角色的言行，以及对玩家已做出的客观行动的反应。
-5. 禁止描写“你心想...”、“你正要...”、“你脸上闪过...”等任何涉及玩家主观层面的内容。所有玩家的行动必须由玩家自己决定。
-
-请在叙述文本的**最末尾**，严格以以下标签格式输出更新数据（每行一个标签，必须在中括号内，用于引擎状态同步。这些标签不会被显示给用户，不要输出多余格式）：
+请在叙述文本的**最末尾**，严格以以下标签格式输出更新数据（每行一个标签，必须在中括号内，用于引擎状态同步）：
 [TASK_COMPLETE: 任务ID] (如果某项任务在此轮得到了达成，输出如 [TASK_COMPLETE: 1])
 [FAVORABILITY: 伙伴真实名字, +数或-数] (调整该伙伴的好感度，例如 [FAVORABILITY: ${activeChars[0]?.name || "角色"}, +10])
 [SUSPICION: 伙伴真实名字, +数或-数] (调整该伙伴对玩家是否为穿越者的怀疑度，每次建议 5 到 15 点)
@@ -1213,7 +1224,14 @@ ${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字
       
       const favNames = Object.keys(favorChanges);
       if (favNames.length > 0) {
-        systemStatusMsg += `💖 好感变化：${favNames.map(name => `${name} ${favorChanges[name] > 0 ? "+" : ""}${favorChanges[name]}`).join(", ")}\n`;
+        systemStatusMsg += `💖 好感度变化：${favNames.map(name => {
+          const cObj = activeChars.find(c => c.name === name);
+          const cId = cObj?.id;
+          const currentFav = cId ? updatedCharStates[cId]?.favorability : 50;
+          const diff = favorChanges[name];
+          const isCompleted = currentFav >= 100 ? " 🎉【攻略完成】" : "";
+          return `${name} ${diff > 0 ? "+" : ""}${diff} (当前好感度: ${currentFav}/100${isCompleted})`;
+        }).join("、")}\n`;
       }
 
       const suspNames = Object.keys(suspicionChanges);
@@ -1591,11 +1609,85 @@ ${chatHistory}
     }
   };
 
+  const handleEndAndArchiveWorld = () => {
+    if (!activeWorld) return;
+
+    const activeChars = activeWorld.characterIds
+      .map((id) => getCharacterById(id))
+      .filter(Boolean) as Character[];
+
+    const completedTasksCount = activeWorld.tasks.filter((t) => t.completed).length;
+    const totalTasksCount = activeWorld.tasks.length;
+    
+    const favorSummary = activeChars.map((c) => {
+      const st = activeWorld.characterStates?.[c.id];
+      const fav = st?.favorability || 50;
+      return `${c.name}(${fav}/100${fav >= 100 ? " 🎉已达成攻略" : ""})`;
+    }).join("、");
+
+    const summaryContent = `快穿世界《${activeWorld.name}》旅程结算完成。
+- 任务完成进度：${completedTasksCount}/${totalTasksCount}
+- 角色好感度：${favorSummary || "无"}
+- 历经剧情回合：共 ${activeWorld.currentTurnCount || 0} 轮
+- 身份暴露值：${activeWorld.exposureLevel || 0}%`;
+
+    const endingCard: MemoryCard = {
+      title: `《${activeWorld.name}》快穿存档卡片`,
+      content: summaryContent,
+      status: completedTasksCount === totalTasksCount ? "perfect" : "partial",
+      shared: false,
+    };
+
+    const updatedWorld: TransmigrationWorld = {
+      ...activeWorld,
+      status: "completed",
+      memoryCard: endingCard,
+      updatedAt: Date.now(),
+    };
+
+    const updatedWorldsList = worlds.map((w) => (w.id === activeWorld.id ? updatedWorld : w));
+    setWorlds(updatedWorldsList);
+    persistWorlds(updatedWorldsList);
+    setActiveWorld(updatedWorld);
+    setShowEndWorldConfirm(false);
+
+    alert(`✨ 快穿世界《${activeWorld.name}》已结束！已生成快穿存档卡片，存入历史存档列表。`);
+    setActiveTab("transmigration_list");
+    setWorldListTab("archived");
+  };
+
+  const handleResumeWorld = (world: TransmigrationWorld) => {
+    const resumedWorld: TransmigrationWorld = {
+      ...world,
+      status: "in_progress",
+      updatedAt: Date.now(),
+    };
+    const updatedWorldsList = worlds.map((w) => (w.id === world.id ? resumedWorld : w));
+    setWorlds(updatedWorldsList);
+    persistWorlds(updatedWorldsList);
+    setActiveWorld(resumedWorld);
+    setActiveTab("transmigration_play");
+    setActivePlayTab("history");
+  };
+
+  const handleDeleteWorld = (worldId: string, worldName: string) => {
+    if (window.confirm(`确定要删除快穿世界/存档《${worldName}》吗？删除后不可恢复。`)) {
+      const filtered = worlds.filter((item) => item.id !== worldId);
+      setWorlds(filtered);
+      persistWorlds(filtered);
+      if (activeWorld?.id === worldId) {
+        setActiveWorld(null);
+      }
+    }
+  };
+
   const handleSaveWorldSettings = () => {
     if (!activeWorld) return;
     const updatedWorld: TransmigrationWorld = {
       ...activeWorld,
       background: editWorldBg,
+      minWord: editMinWord,
+      maxWord: Math.min(15000, editMaxWord),
       userIdentity: {
         ...(activeWorld.userIdentity || { name: "我", avatar: "👤", thought: "", role: "攻略者" }),
         name: editUserName,
@@ -1607,6 +1699,7 @@ ${chatHistory}
     };
     const newWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
     persistWorlds(newWorlds);
+    setActiveWorld(updatedWorld);
     alert("✨ 快穿世界设定已成功更新！");
     setActivePlayTab("history");
   };
@@ -2424,6 +2517,67 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 </div>
               </div>
             </div>
+
+            {/* Unified Cards Section */}
+            {(() => {
+              const items = getUnifiedUniverseItems();
+              if (items.length === 0) return null;
+              return (
+                <div className="space-y-3 pt-2">
+                  <div className="flex items-center justify-between px-1">
+                    <h2 className="text-xs font-semibold text-[#78716C] uppercase tracking-wider">
+                      宇宙记录
+                    </h2>
+                    <div className="flex items-center gap-1">
+                      {[
+                        { id: "all", label: "全部" },
+                        { id: "transmigration", label: "快穿" },
+                        { id: "rules", label: "怪谈" },
+                        { id: "suspense", label: "剧场" },
+                      ].map((cat) => (
+                        <button
+                          key={cat.id}
+                          onClick={() => setCatalogCategory(cat.id as any)}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition cursor-pointer ${
+                            catalogCategory === cat.id
+                              ? "bg-[#1A1A1A] text-white"
+                              : "bg-[#F5F3F0] text-[#78716C] hover:bg-[#EFECE8]"
+                          }`}
+                        >
+                          {cat.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {items.map((item) => (
+                      <div
+                        key={`${item.typeKey}-${item.id}`}
+                        onClick={() => handleOpenUniverseCard(item)}
+                        className="p-3.5 rounded-[14px] bg-white border border-[#EFECE8] hover:border-[#1A1A1A] shadow-[0_2px_8px_rgba(0,0,0,0.02)] transition cursor-pointer flex items-center justify-between group"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="w-8 h-8 rounded-full bg-[#F5F3F0] flex items-center justify-center text-sm shrink-0">
+                            {item.typeKey === "transmigration" ? "🌸" : item.typeKey === "rules" ? "👁️" : "🎭"}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-sm text-[#1A1A1A] truncate">{item.name}</span>
+                              <span className="px-1.5 py-0.2 rounded text-[10px] bg-[#F5F3F0] text-[#78716C] border border-[#EFECE8] shrink-0">
+                                {item.category}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-[#78716C] truncate mt-0.5">{item.progressText}</p>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-[#A8A39A] group-hover:translate-x-0.5 transition-transform shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -2443,23 +2597,61 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             <h1 className=" font-semibold text-base text-[#1A1A1A]">快穿 · 世界列表</h1>
             <button
               onClick={() => setShowCreateWorldModal(true)}
-              className="px-3 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs  font-medium transition flex items-center gap-1 cursor-pointer shadow-2xs border border-[#1A1A1A]"
+              className="px-3 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs font-medium transition flex items-center gap-1 cursor-pointer shadow-2xs border border-[#1A1A1A]"
             >
               <Plus className="w-3.5 h-3.5 stroke-[1.5]" />
               <span>新建世界</span>
             </button>
           </div>
 
+          {/* Tab Switcher: Active Worlds vs Historical Archives */}
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-white border-b border-[#EFECE8] shrink-0">
+            <button
+              onClick={() => setWorldListTab("active")}
+              className={`flex-1 py-1.5 rounded-full text-xs font-medium transition cursor-pointer text-center ${
+                worldListTab === "active"
+                  ? "bg-[#1A1A1A] text-white shadow-2xs"
+                  : "bg-[#F5F3F0] text-[#78716C] hover:bg-[#EFECE8]"
+              }`}
+            >
+              🚀 进行中世界 ({worlds.filter((w) => w.status !== "completed").length})
+            </button>
+            <button
+              onClick={() => setWorldListTab("archived")}
+              className={`flex-1 py-1.5 rounded-full text-xs font-medium transition cursor-pointer text-center ${
+                worldListTab === "archived"
+                  ? "bg-[#1A1A1A] text-white shadow-2xs"
+                  : "bg-[#F5F3F0] text-[#78716C] hover:bg-[#EFECE8]"
+              }`}
+            >
+              📜 历史存档 ({worlds.filter((w) => w.status === "completed").length})
+            </button>
+          </div>
+
           {/* List Area */}
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {worlds.length === 0 ? (
-              <div className="py-16 text-center space-y-3 text-[#A8A39A]">
-                <Sparkles className="w-10 h-10 mx-auto opacity-30 text-[#1A1A1A]" />
-                <p className="text-xs text-[#78716C]">暂无世界，点击下方创建你的第一个快穿世界。</p>
-              </div>
-            ) : (
-              worlds.map((world) => {
+            {(() => {
+              const displayWorlds =
+                worldListTab === "active"
+                  ? worlds.filter((w) => w.status !== "completed")
+                  : worlds.filter((w) => w.status === "completed");
+
+              if (displayWorlds.length === 0) {
+                return (
+                  <div className="py-16 text-center space-y-3 text-[#A8A39A]">
+                    <Sparkles className="w-10 h-10 mx-auto opacity-30 text-[#1A1A1A]" />
+                    <p className="text-xs text-[#78716C]">
+                      {worldListTab === "active"
+                        ? "暂无进行中的快穿世界，点击下方创建你的第一个新世界。"
+                        : "暂无历史存档，在世界中点击“结束该世界”即可自动生成快穿存档卡片。"}
+                    </p>
+                  </div>
+                );
+              }
+
+              return displayWorlds.map((world) => {
                 const statusObj = getStatusLabel(world.status);
+                const isArchived = world.status === "completed";
 
                 return (
                   <div
@@ -2470,11 +2662,11 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                       <div className="space-y-1 flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <h3 className=" font-semibold text-sm text-[#1A1A1A] truncate">{world.name}</h3>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full border  ${statusObj.color}`}>
-                            {statusObj.text}
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${statusObj.color}`}>
+                            {isArchived ? "已完结 / 快穿存档" : statusObj.text}
                           </span>
                         </div>
-                        <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed ">
+                        <p className="text-xs text-[#78716C] line-clamp-2 leading-relaxed">
                           {world.background || "暂无背景描述"}
                         </p>
                       </div>
@@ -2482,19 +2674,27 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (window.confirm(`确定要删除快穿世界《${world.name}》吗？删除后不可恢复。`)) {
-                            persistWorlds(worlds.filter((item) => item.id !== world.id));
-                          }
+                          handleDeleteWorld(world.id, world.name);
                         }}
                         className="p-1.5 text-[#A8A39A] hover:text-rose-600 rounded-full hover:bg-rose-50 transition cursor-pointer shrink-0"
-                        title="删除世界"
+                        title={isArchived ? "删除存档" : "删除世界"}
                       >
                         <Trash2 className="w-4 h-4 stroke-[1.5]" />
                       </button>
                     </div>
 
+                    {/* Archive Card Summary if completed */}
+                    {isArchived && world.memoryCard && (
+                      <div className="p-3 bg-[#F9F8F6] border border-[#EFECE8] rounded-[12px] text-xs text-[#78716C] whitespace-pre-wrap leading-relaxed font-mono">
+                        <div className="font-bold text-[#1A1A1A] mb-1 flex items-center gap-1.5">
+                          <span>🎴 快穿存档摘要</span>
+                        </div>
+                        {world.memoryCard.content}
+                      </div>
+                    )}
+
                     <div className="space-y-2 pt-2 border-t border-[#EFECE8]">
-                      <div className="flex items-center justify-between text-xs  text-[#78716C]">
+                      <div className="flex items-center justify-between text-xs text-[#78716C]">
                         <div className="flex items-center gap-1.5">
                           <Users className="w-3.5 h-3.5 text-[#A8A39A]" />
                           <span>参与角色: {world.characterIds?.length || 0} 位</span>
@@ -2505,24 +2705,34 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-end pt-1">
-                        <button
-                          onClick={() => {
-                            setActiveWorld(world);
-                            setActiveTab("transmigration_play");
-                            setActivePlayTab("history");
-                          }}
-                          className="px-3.5 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs  font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-2xs border border-[#1A1A1A]"
-                        >
-                          <Play className="w-3.5 h-3.5 stroke-[1.5]" />
-                          <span>进入世界</span>
-                        </button>
+                      <div className="flex items-center justify-end pt-1 gap-2">
+                        {isArchived ? (
+                          <button
+                            onClick={() => handleResumeWorld(world)}
+                            className="px-3.5 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-2xs border border-[#1A1A1A]"
+                          >
+                            <Play className="w-3.5 h-3.5 stroke-[1.5]" />
+                            <span>恢复存档 / 继续游戏</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              setActiveWorld(world);
+                              setActiveTab("transmigration_play");
+                              setActivePlayTab("history");
+                            }}
+                            className="px-3.5 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-2xs border border-[#1A1A1A]"
+                          >
+                            <Play className="w-3.5 h-3.5 stroke-[1.5]" />
+                            <span>进入世界</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
                 );
-              })
-            )}
+              });
+            })()}
           </div>
 
           {/* Bottom Button */}
@@ -2530,7 +2740,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             <button
               type="button"
               onClick={() => setShowCreateWorldModal(true)}
-              className="w-full py-2.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs  font-medium transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-[0.99] border border-[#1A1A1A]"
+              className="w-full py-2.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white rounded-full text-xs font-medium transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs active:scale-[0.99] border border-[#1A1A1A]"
             >
               <Plus className="w-4 h-4 stroke-[1.5]" />
               <span>创建新世界</span>
@@ -2557,29 +2767,40 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
             <span className=" font-semibold text-base text-[#1A1A1A] truncate max-w-[180px]">
               {activeWorld.name}
             </span>
-            <button
-              onClick={() => {
-                if (activeWorld) {
-                  setEditWorldBg(activeWorld.background || "");
-                  setEditUserName(activeWorld.userIdentity?.name || "");
-                  setEditUserThought((activeWorld.userIdentity as any)?.thought || "");
-                  setEditCharacterStates(activeWorld.characterStates || {});
-                  setEditTasks(activeWorld.tasks || []);
-                  if (activeWorld.characterIds?.[0]) {
-                    setSelectedShareCharId(activeWorld.characterIds[0]);
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowEndWorldConfirm(true)}
+                className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-medium rounded-full transition cursor-pointer border border-rose-200 shrink-0"
+                title="结束该世界并生成快穿存档卡片"
+              >
+                🏁 结束该世界
+              </button>
+              <button
+                onClick={() => {
+                  if (activeWorld) {
+                    setEditWorldBg(activeWorld.background || "");
+                    setEditUserName(activeWorld.userIdentity?.name || "");
+                    setEditUserThought((activeWorld.userIdentity as any)?.thought || "");
+                    setEditMinWord(activeWorld.minWord || 300);
+                    setEditMaxWord(activeWorld.maxWord || 1500);
+                    setEditCharacterStates(activeWorld.characterStates || {});
+                    setEditTasks(activeWorld.tasks || []);
+                    if (activeWorld.characterIds?.[0]) {
+                      setSelectedShareCharId(activeWorld.characterIds[0]);
+                    }
                   }
-                }
-                setActivePlayTab("settings");
-              }}
-              className={`p-2 rounded-full transition cursor-pointer border ${
-                activePlayTab === "settings"
-                  ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
-                  : "bg-white text-[#1A1A1A] border-[#EFECE8] hover:bg-[#F5F3F0]"
-              }`}
-              title="世界设置"
-            >
-              <Settings className="w-4 h-4 stroke-[1.5]" />
-            </button>
+                  setActivePlayTab("settings");
+                }}
+                className={`p-2 rounded-full transition cursor-pointer border ${
+                  activePlayTab === "settings"
+                    ? "bg-[#1A1A1A] text-white border-[#1A1A1A]"
+                    : "bg-white text-[#1A1A1A] border-[#EFECE8] hover:bg-[#F5F3F0]"
+                }`}
+                title="世界设置"
+              >
+                <Settings className="w-4 h-4 stroke-[1.5]" />
+              </button>
+            </div>
           </div>
           
           {/* Sub Navigation Tabs */}
@@ -2666,6 +2887,30 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                           value={editUserThought}
                           onChange={(e) => setEditUserThought(e.target.value)}
                           className="w-full p-2.5 text-xs rounded-xl bg-[#F5F3F0] border border-[#EFECE8] text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-[#78716C] mb-1">每轮生成的字数范围 (最小值 ~ 最大值，最高15000字)</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={50}
+                          max={15000}
+                          value={editMinWord}
+                          onChange={(e) => setEditMinWord(Math.max(50, parseInt(e.target.value) || 50))}
+                          className="w-full p-2.5 text-xs rounded-xl bg-[#F5F3F0] border border-[#EFECE8] text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition"
+                          placeholder="最小字数 (默认300)"
+                        />
+                        <span className="text-xs text-[#78716C] font-semibold shrink-0">至</span>
+                        <input
+                          type="number"
+                          min={100}
+                          max={15000}
+                          value={editMaxWord}
+                          onChange={(e) => setEditMaxWord(Math.min(15000, parseInt(e.target.value) || 1500))}
+                          className="w-full p-2.5 text-xs rounded-xl bg-[#F5F3F0] border border-[#EFECE8] text-[#1A1A1A] outline-none focus:border-[#1A1A1A] transition"
+                          placeholder="最大字数 (默认1500)"
                         />
                       </div>
                     </div>
@@ -3963,6 +4208,32 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 />
               </div>
 
+              {/* Word Count Range Selection */}
+              <div>
+                <label className="text-xs text-[#1A1A1A] block mb-1.5 font-medium">每轮生成的字数范围 (最小值 ~ 最大值，最高15000字)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={50}
+                    max={15000}
+                    value={newMinWord}
+                    onChange={(e) => setNewMinWord(Math.max(50, parseInt(e.target.value) || 50))}
+                    className="w-full bg-white border border-[#EFECE8] rounded-[12px] px-3 py-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A]"
+                    placeholder="最小字数 (例如 300)"
+                  />
+                  <span className="text-xs text-[#78716C] font-semibold shrink-0">至</span>
+                  <input
+                    type="number"
+                    min={100}
+                    max={15000}
+                    value={newMaxWord}
+                    onChange={(e) => setNewMaxWord(Math.min(15000, parseInt(e.target.value) || 1500))}
+                    className="w-full bg-white border border-[#EFECE8] rounded-[12px] px-3 py-2 text-xs text-[#1A1A1A] outline-none focus:border-[#1A1A1A]"
+                    placeholder="最大字数 (例如 1500，上限15000)"
+                  />
+                </div>
+              </div>
+
               {/* User Identity Role preference selection */}
               <div>
                 <label className="text-xs  text-[#1A1A1A] block mb-2 font-medium">您的穿越身份标签</label>
@@ -4478,6 +4749,46 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs  font-medium rounded-full transition cursor-pointer"
               >
                 确定删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* End World Confirmation Modal */}
+      {showEndWorldConfirm && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-[#EFECE8] rounded-[20px] p-6 w-full max-w-md space-y-4 animate-fade-in text-[#1A1A1A] shadow-xl">
+            <div className="flex items-center justify-between border-b border-[#EFECE8] pb-3">
+              <h3 className="font-bold text-base text-[#1A1A1A] flex items-center gap-2">
+                <span>🏁 结束快穿世界与存档生成</span>
+              </h3>
+              <button onClick={() => setShowEndWorldConfirm(false)} className="text-[#A8A39A] hover:text-[#1A1A1A] cursor-pointer p-1">
+                <X className="w-4 h-4 stroke-[1.5]" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#78716C] leading-relaxed">
+              您确定要手动结算并结束当前快穿世界《{activeWorld?.name}》吗？
+              <br /><br />
+              结束之后将：
+              <br />• 自动统计任务达成数、角色最终好感度与暴露值
+              <br />• 生成一张【快穿存档卡片】保存到历史存档列表中
+              <br />• 您可以随时在历史存档中点击“恢复存档 / 继续游戏”重新进入世界
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#EFECE8]">
+              <button
+                onClick={() => setShowEndWorldConfirm(false)}
+                className="px-4 py-2 rounded-full text-xs font-medium text-[#78716C] bg-[#F5F3F0] hover:bg-[#EFECE8] transition cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleEndAndArchiveWorld}
+                className="px-4 py-2 rounded-full text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 transition cursor-pointer shadow-xs"
+              >
+                确认结束并归档
               </button>
             </div>
           </div>

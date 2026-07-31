@@ -1669,10 +1669,10 @@ export async function performVectorRetrieval(characterId: string, query: string,
   }
   if (!settings) settings = {};
 
-  const vectorApiUrl = String(settings.vectorApiUrl || "https://api.siliconflow.cn/v1").trim();
-  const vectorApiKey = String(settings.vectorApiKey || settings.apiKey || "").trim();
-  const vectorModel = String(settings.vectorModel || "BAAI/bge-m3").trim();
-  const rerankModel = String(settings.rerankModel || "").trim();
+  const vectorApiUrl = String(settings.vectorApiUrl || localStorage.getItem("vectorApiUrl") || "https://api.siliconflow.cn/v1").trim();
+  const vectorApiKey = String(settings.vectorApiKey || localStorage.getItem("vectorApiKey") || settings.apiKey || localStorage.getItem("apiKey") || "").trim();
+  const vectorModel = String(settings.vectorModel || localStorage.getItem("vectorModel") || "BAAI/bge-m3").trim();
+  const rerankModel = String(settings.rerankModel || localStorage.getItem("rerankModel") || "").trim();
 
   // Find character to check extraction settings/vector scope
   let character: any = null;

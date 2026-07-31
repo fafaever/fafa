@@ -41,6 +41,7 @@ export interface Character {
   bustQuestionsCount?: number; // Count of persistent questioning
   memories?: any[]; // Character long term memories
   lores?: any[]; // Character world book settings
+  lorebook?: any[]; // Character world book settings
   userPersonaId?: string; // Bound User Persona ID
   boundNpcs?: BoundNPC[]; // 角色专属绑定的 NPC 好友列表 (至少 3 个)
   associatedCharacterIds?: string[]; // 关联角色 ID 列表
