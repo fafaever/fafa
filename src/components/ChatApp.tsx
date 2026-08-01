@@ -1679,33 +1679,57 @@ export default function ChatApp({
     // 2. 触发朋友圈动态自动回复评论
     handleGenerateCommentsForPost(newPost.id, updated);
 
-    // 3. 概率触发可见角色的主动私信询问（随机挑选1个可见角色，约 35% 概率触发）
+    // 3. 概率触发可见角色的主动私信询问（随机挑选1个可见角色，约 35% 概率触发，现在使用AI生成个性化私信）
     if (visibleChars.length > 0 && Math.random() < 0.35) {
       const randomChar = visibleChars[Math.floor(Math.random() * visibleChars.length)];
-      const dmPrompts = [
-        "刚才看到你发的朋友圈了，感觉挺有意思的～",
-        "刷到你刚才发的那条朋友圈了，今天心情看起来不错呀。",
-        "你刚才发的那条朋友圈说的什么呀？好有氛围感。",
-        "看见你朋友圈发的那个了，是在哪拍的呀？"
-      ];
-      const dmText = dmPrompts[Math.floor(Math.random() * dmPrompts.length)];
+      setTimeout(async () => {
+        try {
+          if (settings && (settings.apiKey || settings.apiUrl)) {
+            let session = sessions.find((s) => s.characterId === randomChar.id);
+            const currentMsgs = session ? session.messages : [];
+            
+            const prompt = `用户刚刚发布了一条朋友圈动态：
+内容：“${newPost.content || '(图片动态)'}”
+时间：${new Date().toLocaleDateString()}
 
-      setTimeout(() => {
-        let session = sessions.find((s) => s.characterId === randomChar.id);
-        const currentMsgs = session ? session.messages : [];
-        const proactiveMsg: Message = {
-          id: `msg-${Date.now()}-proactive-moment`,
-          role: "assistant",
-          content: dmText,
-          timestamp: Date.now(),
-        };
-        onUpdateSessionMessages(randomChar.id, [...currentMsgs, proactiveMsg]);
-        setUnreads(prev => ({ ...prev, [randomChar.id]: true }));
-      }, 1500);
+请你作为角色“${randomChar.name}”（人设：${randomChar.description}），先在内心分析这条朋友圈的内容、配文语气和所传达的情感，形成对该内容的真实理解。
+然后，根据你的人设以及和用户的关系，主动发起一条私聊消息。
+要求：
+1. 消息内容必须基于对这条朋友圈的个性化解读，切忌套话。
+2. 符合你的人设和当前关系阶段，可以是关心、调侃、好奇、共鸣或追问。
+3. 绝对不能使用“你发的朋友圈我看到了”这类模板式或老套的开头，要显得自然。
+4. 你的分析作为内部逻辑，不要展示出来，只需输出最终发给用户的私聊消息文本即可（不要输出任何心理描写、动作或括号内的分析内容）。
+`;
+            
+            const res = await apiChat({
+              character: randomChar,
+              messages: [{ role: "user", content: prompt }],
+              settings,
+              systemInstruction: "你现在是该角色，根据用户发布的朋友圈，主动发起一条生动自然的私聊回复。只输出要发送的文本，不要带任何其他格式或前缀文字。"
+            });
+            
+            let dmText = res.text || "";
+            dmText = dmText.replace(/^["']|["']$/g, '').trim();
+            
+            if (dmText) {
+              const proactiveMsg: Message = {
+                id: `msg-${Date.now()}-proactive-moment`,
+                role: "assistant",
+                content: dmText,
+                timestamp: Date.now(),
+              };
+                            if (session) {
+                onUpdateSessionMessages(session.id, [...session.messages, proactiveMsg], undefined, { lastActive: Date.now() });
+              } else {
+                onUpdateSessionMessages(randomChar.id, [proactiveMsg], undefined, { lastActive: Date.now() });
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Failed to generate proactive DM for moment:", e);
+        }
+      }, 500); // Wait a bit before generating
     }
-
-    setNewMomentContent("");
-    setNewMomentImage(null);
     setNewMomentVisibility("all");
     setSelectedCharIdsForVisibility([]);
     setIsPublishMomentOpen(false);
@@ -2042,19 +2066,21 @@ ${boundNpcs.map(n => `- 名字: "${n.name}", 身份: "${n.relationship || '朋�
 ${existingCommentsText || "暂无评论"}
 
 【评论互动与角色约束规则 (严格遵从)】：
-1. 多个可见角色/NPC可以在评论区互动，能看到对方评论并相互回复 (正确填写 replyToName)。
-2. 允许的交互语气风格：吃醋、互呛、嘲讽、调侃、攀比。
-3. 【禁止动作描写（最高级别红线）】：
+1. 多个可见角色/NPC可以在评论区互动交流，但交流内容必须围绕用户发布的【朋友圈主题】展开，绝不涉及对其他角色私人事务的打探或表态。
+2. 角色【绝对不能】替用户回应NPC的问题或评论！也不能对NPC与用户之间的互动做出“我知道了”、“我会处理”等越位式回应。
+3. 角色在评论区的交流对象主要应为【用户或帖子本身】，而非直接对NPC的评论进行指挥、安排或回应。
+4. 如果NPC给用户说了某件事，角色可以发表自己的看法和感慨，但【不能代表用户】做出任何回应或承诺。
+5. 【禁止动作描写（最高级别红线）】：
    - 所有评论（包括角色、NPC、用户的评论）中，**严禁出现任何动作描写**（如“他笑了一下”、“她低下头”、“拍了拍对方的肩膀”等）。
    - 评论内容必须且仅限于纯文字表达，不包含任何 *动作*、（动作）或描述肢体行为、神态、表情的词句。
    - 如需表达情绪，请用文字直接陈述（如“我笑死了”、“哈哈哈哈哈”），禁止使用任何动作描述格式。
-4. 【三大绝对禁止项】：
+6. 【三大绝对禁止项】：
    - 严禁质问对方身份（绝对不能问“你是谁”、“不认识你”）。
    - 严禁询问对方与发布者/用户的关系（绝对不能问“你和TA什么关系”）。
    - 严禁追问对方隐私。
-5. 所有互动停留在评论区，绝不因评论而在私信中找用户对质。
-5. NPC评论可先于或与角色同时出现，角色看到NPC评论可接茬回应，但绝不暴露与用户的私密关系。
-6. 【核心绝对禁用项】：绝对禁止 AI 代表“用户”（或用户使用的账号昵称如：${momentsUserNickname || '用户'}）发表任何评论或回复！所有生成的评论必须仅来自于可见角色或绑定NPC！
+7. 所有互动停留在评论区，绝不因评论而在私信中找用户对质。
+8. NPC评论可先于或与角色同时出现，角色看到NPC评论可接茬回应（遵守上述越位规则），但绝不暴露与用户的私密关系。
+9. 【核心绝对禁用项】：绝对禁止 AI 代表“用户”（或用户使用的账号昵称如：${momentsUserNickname || '用户'}）发表任何评论或回复！所有生成的评论必须仅来自于可见角色或绑定NPC！
 
 请生成 1~3 条符合人设的生动新评论，必须返回纯 JSON 数组：
 [

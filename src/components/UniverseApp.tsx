@@ -870,29 +870,6 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
     const input = customAction || inputText.trim();
     if (!input && !customAction) return;
 
-    // Keyword detection for Exposure Level mechanism - only for character roleplay, not meta-talk
-    const SENSITIVE_KEYWORDS = [
-      "手机", "电脑", "互联网", "穿越者", "微信", "现代", "高科技", "服务器", "视频", 
-      "攻略者", "攻略对象", "百度", "搜一下", "抖音", "B站", "微博", "外卖", "快递",
-      "淘宝", "支付宝", "扫码", "现代人", "原世界", "现代社会"
-    ];
-    const META_IGNORE_TERMS = ["AI", "模型", "回复", "聊天", "发送", "输入", "提交", "按钮", "界面", "设置", "系统"];
-    
-    let exposureAdded = 0;
-    let exposureReason = "";
-    
-    // Only check for flaws if not meta-dialogue
-    const isMetaInteraction = META_IGNORE_TERMS.some(term => input.toUpperCase().includes(term.toUpperCase()));
-    
-    if (!isMetaInteraction) {
-      SENSITIVE_KEYWORDS.forEach(kw => {
-        if (input.includes(kw)) {
-          exposureAdded = 10;
-          exposureReason = `言行中提及了暴露穿越者身份的敏感词汇「${kw}」`;
-        }
-      });
-    }
-
     // Check if we are resolving an active event
     let eventResolved = false;
     if (activeWorld.activeEvent) {
@@ -917,28 +894,13 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       nextActiveEvent = generateRandomEvent();
     }
 
-    let currentExposure = (activeWorld.exposureLevel || 0) + exposureAdded;
-    if (currentExposure > 100) currentExposure = 100;
-
     let updatedWorld: TransmigrationWorld = {
       ...activeWorld,
       messages: updatedMessages,
       currentTurnCount: newTurnCount,
-      exposureLevel: currentExposure,
       activeEvent: eventResolved ? null : nextActiveEvent, // Update active event
       updatedAt: Date.now(),
     };
-
-    if (exposureAdded > 0) {
-      const logEntry = { desc: exposureReason, suspicionAdded: exposureAdded, timestamp: Date.now() };
-      updatedWorld.flawsHistory = [logEntry, ...(updatedWorld.flawsHistory || [])];
-      updatedWorld.messages.push({
-        id: `msg-exposure-${Date.now()}`,
-        role: "system",
-        content: `⚠️ 【破绽警告】你在行动中不慎露出了破绽：${exposureReason}！你的身份暴露值提升了 ${exposureAdded}% （当前暴露值：${currentExposure}%）。`,
-        timestamp: Date.now()
-      });
-    }
 
     setActiveWorld(updatedWorld);
     if (!customAction) setInputText("");
@@ -951,6 +913,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
     const minW = activeWorld.minWord || 300;
     const maxW = Math.min(15000, activeWorld.maxWord || 1500);
 
+    const currentExposure = activeWorld.exposureLevel || 0;
     const chatHistory = updatedMessages.slice(-8).map((m) => `${m.senderName || m.role}: ${m.content}`).join("\n");
 
     const prompt = `你现在是快穿游戏《${activeWorld.name}》的叙事主宰（Narrator）与角色扮演者。
@@ -984,7 +947,7 @@ ${chatHistory}
 请根据剧情走向，生成参与角色（${activeChars.map((c) => c.name).join("、")}）的场景描写与台词。
 
 【快穿世界完整玩法规则与描写规范】：
-1. 角色保留原有名字与核心性格特质，但在本世界获得新身份卡并进行扮演。角色知道自己在扮演该身份，但**绝对不知道**用户是攻略者！角色扮演程度因人而异（有的认真严谨，有的敷衍拉胯，偶尔露出破绽）。
+1. 角色保留原有名字与核心性格特质，但在本世界获得新身份卡并进行扮演。角色知道自己在扮演该身份，但**绝对不知道**用户是攻略者！角色会沉浸式扮演当前身份，**绝对不会**主动怀疑用户或其他人“换人了”。
 2. 吃醋与互动规则：角色可以吃醋（例如当用户与其他角色亲近或偏向他人时），表现为语气变酸、短暂冷淡或轻微抱怨，**但绝不能**因为吃醋而拒绝互动、退出游戏或中断剧情进程！吃醋必须增添剧情乐趣，不能阻碍互动与游戏推进。
 3. 好感度结算：每个角色好感度 0-100。用户通过对话和行动提升/改变好感度。好感度达到 100 时攻略完成。每轮剧情结束后输出 [FAVORABILITY: 角色真实名字, +数或-数] 标签结算好感度变化。
 4. 字数控制要求：请务必将你的每一轮剧情描写与角色回应控制在 ${minW}~${maxW} 字范围内（单轮生成最高上限 15000 字）。
@@ -1002,10 +965,10 @@ ${chatHistory}
 请在叙述文本的**最末尾**，严格以以下标签格式输出更新数据（每行一个标签，必须在中括号内，用于引擎状态同步）：
 [TASK_COMPLETE: 任务ID] (如果某项任务在此轮得到了达成，输出如 [TASK_COMPLETE: 1])
 [FAVORABILITY: 伙伴真实名字, +数或-数] (调整该伙伴的好感度，例如 [FAVORABILITY: ${activeChars[0]?.name || "角色"}, +10])
-[SUSPICION: 伙伴真实名字, +数或-数] (调整该伙伴对玩家是否为穿越者的怀疑度，每次建议 5 到 15 点)
-[USER_SUSPICION: +数或-数] (调整玩家当前的暴露度（当前为 ${currentExposure}%）。仅当玩家在角色扮演中提及现代专属信息如科技产品、流行文化、原世界地名时增加。请务必忽略用户提及的“AI、模型、系统、界面操作”等元对话内容。)
-[INNER_THOUGHT: 伙伴真实名字, 心声文本] (提供该伙伴的最新隐秘心声。说明他对当前局势的猜测、对玩家的怀疑、或对暴露自身破绽的遮掩。字数40-80字)
-[CHARACTER_FLAW_LEAKED: 伙伴真实名字, 破绽说明] (若该伙伴在此轮对话里露出了习惯破绽，输出此标签，字数20-45字)
+[SUSPICION: 伙伴真实名字, +数或-数] (仅当玩家主动做出明显不符合当前世界设定或人设的异常行为时，才调整该伙伴对玩家的怀疑度。正常剧情互动绝对不要增加怀疑度！)
+[USER_SUSPICION: +数或-数] (调整玩家当前的暴露度（当前为 ${currentExposure}%）。仅当玩家主动做出明显不符合设定的行为（如故意说出不属于该世界的词汇）时才有概率增加。日常剧情推进绝不增加暴露度！请务必忽略用户提及的“AI、模型、系统、界面操作”等内容。)
+[INNER_THOUGHT: 伙伴真实名字, 心声文本] (提供该伙伴的最新隐秘心声。说明他对当前局势的猜测或对玩家的情感变化。字数40-80字)
+[CHARACTER_FLAW_LEAKED: 伙伴真实名字, 破绽说明] (极低概率触发：若该伙伴在此轮对话里不慎露出了不属于本世界的习惯破绽，输出此标签，字数20-45字)
 [GAME_ENDING: perfect 或 partial 或 failed] (如果满足结束条件：全部任务完成且暴露度低于70%触发perfect；部分任务完成或暴露度高于70%触发partial；暴露度满100%或全任务失败触发failed。没有触发结局千万别输出)
 [ACTION_OPTION: 选项具体可执行内容] (请生成 4 到 6 个玩家下一步具体可执行的操作选项，例如“走过去和她说话”、“检查书桌抽屉”、“躲在门后观察”等，涵盖不同尝试方向。每行输出一个 [ACTION_OPTION: ...] 标签)
 [CHAR_CARD: 角色名字 | 动作描述 | 对话内容] (为参与此轮对话的每个角色分别输出1条卡片标签。如 [CHAR_CARD: 剧情描写 | 窗外的冷雨敲打着玻璃，气氛瞬间凝固了。 | ]，或 [CHAR_CARD: 苏墨 | 缓缓放下茶盏，抬眼看着你 | 你真的以为能瞒过我吗])
@@ -3044,7 +3007,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                 <div className="bg-[#FFFBF0] border-b border-[#FDE68A] px-4 py-2 flex items-center justify-center shrink-0">
                   <p className="text-[10px] sm:text-[11px] text-[#B45309] font-medium text-center flex items-center gap-1.5 leading-tight">
                     <Shield className="w-3.5 h-3.5 shrink-0" />
-                    <span>【破绽检测】请沉浸式扮演原住民。发言含有“手机、现代、网络”等词汇将增加暴露度！</span>
+                    <span>【角色扮演】请尽量沉浸式扮演原住民，明显脱离世界设定的言行会增加暴露度！</span>
                   </p>
                 </div>
 
