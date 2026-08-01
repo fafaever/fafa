@@ -18,6 +18,7 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
+  Share2,
   X,
   BookOpen,
   Check,
@@ -64,6 +65,7 @@ export interface IdentityDetails {
   relationship: string;
   personality: string;
   background: string;
+  memories?: string[];
 }
 
 export interface CharacterTransmigrationState {
@@ -256,12 +258,15 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
 
   // Create Modals
   const [showCreateWorldModal, setShowCreateWorldModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState<{ worldId: string; content: string } | null>(null);
   const [showCreateInstanceModal, setShowCreateInstanceModal] = useState(false);
   const [showCreateScriptModal, setShowCreateScriptModal] = useState(false);
 
   // Form States for Creation
   const [newWorldName, setNewWorldName] = useState("");
+  const [newWorldKeywords, setNewWorldKeywords] = useState("");
   const [selectedCharIds, setSelectedCharIds] = useState<string[]>([]);
+  const [selectedShareCharIds, setSelectedShareCharIds] = useState<string[]>([]);
   
   const [newInstanceName, setNewInstanceName] = useState("");
 
@@ -592,6 +597,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
     const charNames = selectedChars.map(c => c.name).join("、");
 
     let generatedBackground = "";
+    let generatedInitialScene = "";
     let generatedTasks: string[] = [];
     let generatedUserIdentity: IdentityDetails | undefined;
     let generatedCharIdentities: Record<string, any> = {};
@@ -601,9 +607,10 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
     const customPromptPart = presetObj 
       ? `【世界基础背景】：${presetObj.description}\n【核心预设任务】：${presetObj.tasks.join("\n")}`
       : `【世界名】：${worldName}`;
+    const keywordPart = newWorldKeywords.trim() ? `【设定关键词】：${newWorldKeywords.trim()}` : "";
 
     const prompt = "你是一个快穿世界剧情架构师。请为快穿世界《" + worldName + "》设计完整的背景、攻略者与攻略对象角色矩阵。\n" +
-      customPromptPart + "\n" +
+      customPromptPart + "\n" + keywordPart + "\n" +
       "玩家穿越后的身份与标签为：【攻略者】。\n" +
       "参与穿越的位面攻略对象：" + charNames + "（身份全为【攻略对象】）。\n\n" +
       "【核心文风与描写规范】：\n" +
@@ -614,6 +621,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       "请严格基于上述设定，生成JSON格式数据（不要包含markdown标记）：\n" +
       "{\n" +
       "  \"background\": \"世界宏观背景（150-200字）\",\n" +
+      "  \"initial_scene\": \"初始场景描述（50-100字）\",\n" +
       "  \"tasks\": [\"任务目标1\", \"任务目标2\", \"任务目标3\"],\n" +
       "  \"user_identity\": {\n" +
       "    \"name\": \"玩家在本世界的扮演姓名\",\n" +
@@ -635,6 +643,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       const parsed = JSON.parse(cleanJson);
 
       generatedBackground = parsed.background;
+      generatedInitialScene = parsed.initial_scene;
       generatedTasks = parsed.tasks;
       generatedUserIdentity = parsed.user_identity;
       generatedNpcs = parsed.npcs || [];
@@ -721,13 +730,19 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
           content: `🌌 【穿梭虚空 · 位面降临】
 你已成功降落于快穿世界《${worldName}》！
 
+📜 【世界背景】：${generatedBackground}
+🎬 【初始场景】：${generatedInitialScene}
+
 🎭 我的新身份：【${generatedUserIdentity?.name || "未知"}】 (年龄: ${generatedUserIdentity?.age || "未知"})
 🏷️ 穿越标签：【攻略者】
 💼 扮演职业：${generatedUserIdentity?.profession}
 ✨ 容貌外形：${generatedUserIdentity?.appearance}
 📜 背景与使命：${generatedUserIdentity?.background}
 
-🔮 参与穿梭的攻略对象已隐秘就位。点击角色头像可以查看他们的【扮演身份】并洞察其真实的【内心心声】。
+👥 【参与攻略对象】：
+${selectedChars.map(c => `- ${c.name} (${generatedCharIdentities[c.id]?.identity?.relationship})`).join("\n")}
+
+🔮 攻略对象已隐秘就位。点击角色头像查看他们的【扮演身份】并洞察其真实的【内心心声】。
 请努力提升各攻略对象的好感度并达成位面任务。`,
           timestamp: Date.now(),
         },
@@ -1270,7 +1285,38 @@ ${favNames.map(name => {
   const handleRulesUserSend = (text?: string) => {};
   const handleAdvanceAct = () => {};
   const handleSuspenseUserSend = () => {};
-  const renderCharacterSelector = () => <></>;
+  const renderCharacterSelector = () => (
+    <div>
+      <label className="text-xs text-[#1A1A1A] block mb-2 font-medium">选择参与角色 (至少选择1位)</label>
+      <div className="grid grid-cols-2 gap-2">
+        {characters.map(char => (
+          <button
+            key={char.id}
+            type="button"
+            onClick={() => {
+              setSelectedCharIds(prev => 
+                prev.includes(char.id) 
+                  ? prev.filter(id => id !== char.id) 
+                  : [...prev, char.id]
+              );
+            }}
+            className={`p-2 rounded-[8px] border text-xs flex items-center gap-2 transition cursor-pointer ${
+              selectedCharIds.includes(char.id)
+                ? "bg-[#1A1A1A] border-[#1A1A1A] text-white"
+                : "bg-white border-[#EFECE8] text-[#1A1A1A] hover:border-[#1A1A1A]"
+            }`}
+          >
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
+              selectedCharIds.includes(char.id) ? "bg-white text-[#1A1A1A]" : "bg-[#F5F3F0]"
+            }`}>
+              {selectedCharIds.includes(char.id) ? <Check className="w-3 h-3" /> : <User className="w-3 h-3" />}
+            </div>
+            {char.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
   const handleCreateInstance = () => {};
   const handleCreateScript = () => {};
   const handleEndAndArchiveWorld = () => {};
@@ -1588,6 +1634,18 @@ ${favNames.map(name => {
                       </div>
 
                       <div className="flex items-center justify-end pt-1 gap-2">
+                        {isArchived && (
+                          <button
+                            onClick={() => {
+                              setShowShareModal({ worldId: world.id, content: world.memoryCard?.content || "" });
+                              setSelectedShareCharIds(world.characterIds || []);
+                            }}
+                            className="px-3.5 py-1.5 text-[#78716C] hover:text-[#1A1A1A] hover:bg-[#EFECE8] text-xs font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer border border-transparent hover:border-[#EFECE8]"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                            <span>分享</span>
+                          </button>
+                        )}
                         {isArchived ? (
                           <button
                             onClick={() => handleResumeWorld(world.id)}
@@ -2934,6 +2992,88 @@ ${favNames.map(name => {
 
       {/* ==================== CREATE MODALS ==================== */}
 
+      {showShareModal && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white border border-[#EFECE8] rounded-[16px] p-6 w-full max-w-lg space-y-5 animate-fade-in text-[#1A1A1A] shadow-[0_4px_20px_rgba(0,0,0,0.06)]">
+            <div className="flex items-center justify-between border-b border-[#EFECE8] pb-3">
+              <h3 className="text-lg text-[#1A1A1A] flex items-center gap-2">
+                <Share2 className="w-4 h-4 stroke-[1.5] text-[#1A1A1A]" />
+                分享存档到角色记忆
+              </h3>
+              <button onClick={() => setShowShareModal(null)} className="text-[#A8A39A] hover:text-[#1A1A1A] cursor-pointer p-1">
+                <X className="w-4 h-4 stroke-[1.5]" />
+              </button>
+            </div>
+            
+            <p className="text-sm text-[#78716C]">选择要分享该存档记忆的角色：</p>
+            
+            <div className="grid grid-cols-2 gap-2">
+              {worlds.find(w => w.id === showShareModal.worldId)?.characterIds?.map(charId => {
+                const char = characters.find(c => c.id === charId);
+                const isSelected = selectedShareCharIds.includes(charId);
+                return char ? (
+                  <button
+                    key={charId}
+                    type="button"
+                    onClick={() => {
+                      setSelectedShareCharIds(prev => 
+                        prev.includes(charId) 
+                          ? prev.filter(id => id !== charId) 
+                          : [...prev, charId]
+                      );
+                    }}
+                    className={`p-2 rounded-[8px] border text-xs flex items-center gap-2 transition cursor-pointer ${
+                      isSelected
+                        ? "bg-[#1A1A1A] border-[#1A1A1A] text-white"
+                        : "bg-white border-[#EFECE8] text-[#1A1A1A] hover:border-[#1A1A1A]"
+                    }`}
+                  >
+                    <User className={`w-3 h-3 ${isSelected ? "text-white" : "text-[#A8A39A]"}`} />
+                    {char.name}
+                  </button>
+                ) : null;
+              })}
+            </div>
+
+            <div className="flex justify-end pt-4">
+               <button
+                 onClick={() => {
+                    const world = worlds.find(w => w.id === showShareModal.worldId);
+                    if (world) {
+                      const updatedWorld = {
+                        ...world,
+                        memoryCard: { ...world.memoryCard!, shared: true },
+                        characterStates: {
+                          ...world.characterStates,
+                        }
+                      };
+                      
+                      selectedShareCharIds.forEach(id => {
+                        if (updatedWorld.characterStates && updatedWorld.characterStates[id]) {
+                          updatedWorld.characterStates[id] = {
+                            ...updatedWorld.characterStates[id],
+                            identity: {
+                              ...updatedWorld.characterStates[id].identity,
+                              memories: [...(updatedWorld.characterStates[id].identity.memories || []), showShareModal.content]
+                            }
+                          };
+                        }
+                      });
+                      
+                      persistWorlds(worlds.map(w => w.id === showShareModal.worldId ? updatedWorld : w));
+                    }
+                    setShowShareModal(null);
+                    setSelectedShareCharIds([]);
+                 }}
+                 className="px-4 py-2 bg-[#1A1A1A] text-white text-xs rounded-full cursor-pointer"
+               >
+                 确认分享
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1. Create World Modal */}
       {showCreateWorldModal && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
@@ -3005,6 +3145,17 @@ ${favNames.map(name => {
                   placeholder="如：修仙破妄界 / 废土避难所"
                   value={newWorldName}
                   onChange={(e) => setNewWorldName(e.target.value)}
+                  className="w-full bg-white border border-[#EFECE8] rounded-[12px] px-4 py-2.5 text-[15px]  text-[#1A1A1A] outline-none focus:border-[#1A1A1A]"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs  text-[#1A1A1A] block mb-1.5 font-medium">自定义设定关键词 (可选)</label>
+                <input
+                  type="text"
+                  placeholder="如：赛博朋克、雨夜、宿命感"
+                  value={newWorldKeywords}
+                  onChange={(e) => setNewWorldKeywords(e.target.value)}
                   className="w-full bg-white border border-[#EFECE8] rounded-[12px] px-4 py-2.5 text-[15px]  text-[#1A1A1A] outline-none focus:border-[#1A1A1A]"
                 />
               </div>
