@@ -982,14 +982,10 @@ ${chatHistory}
    - 吃醋必须增添剧情乐趣，绝不能阻碍互动与游戏推进，也不能因吃醋而拒绝互动、退出游戏或中断剧情进程。
 3. 好感度结算：每个角色好感度 0-100。用户通过对话和行动提升/改变好感度。每轮剧情结束后输出 [FAVORABILITY: 角色真实名字, +数或-数] 标签结算好感度变化。
 4. 字数控制要求：请务必将你的每一轮剧情描写与角色回应控制在 ${minW}~${maxW} 字范围内（单轮生成最高上限 15000 字）。
-5. 剧情卡片展示规范：剧情生成必须以结构化的卡片形式展示，包含：
-   - 【环境事件】：环境变化或事件推进描述。
-   - 【角色反应】：参与角色的行为反应（动作/神态）。
-   - 【对话内容】：角色的对话内容（单独成行）。
-   - 【当前悬念】：当前剧情状态、悬念收尾或冲突点。
+5. 剧情卡片展示规范（强制执行）：剧情生成必须以结构化的卡片形式展示，包含环境变化、角色行为、对话、冲突点。
 6. 文风要求：使用口语化、简洁直白的表达方式，短句为主，多用名词和动词。
 7. **绝对禁止**代替玩家进行任何言行、表情或心理活动描写。所有玩家的行动必须由玩家自己决定。
-8. 剧情描写与对话的隔离：请使用 [CHAR_CARD: ...] 格式输出，剧情描写独立成卡。
+8. 叙事结构：必须始终包含完整的叙事描写，将叙事动作、环境、对话逻辑放入 [CHAR_CARD: ...] 标签中，确保每轮回复都有完整的剧情卡片展示，而不只是好感度变动。好感度变动作为剧情展示的辅助信息在底部显示。
 
 请在叙述文本的**最末尾**，严格以以下标签格式输出更新数据（每行一个标签，必须在中括号内，用于引擎状态同步）：
 [TASK_COMPLETE: 任务ID] (如果某项任务在此轮得到了达成，输出如 [TASK_COMPLETE: 1])
@@ -1017,7 +1013,14 @@ ${chatHistory}
         response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: fullPrompt }], 0.8, settings.apiFormat);
         
         console.log("[Transmigration] API Response:", response);
-        const cleanContent = response.replace(/\[[A-Z_]+:.*?\]/g, "").trim();
+        
+        // Validation: Ensure we got some content that isn't just tags
+        const contentWithoutTags = response.replace(/\[[A-Z_]+:.*?\]/g, "").trim();
+        if (contentWithoutTags.length < 50) {
+            throw new Error("剧情生成内容过短或缺失，请尝试重试。");
+        }
+
+        const cleanContent = contentWithoutTags;
         const lastAssistantMsgs = updatedMessages.filter(m => m.role === "assistant").slice(-2);
         
         isRepetitive = false;
@@ -1279,7 +1282,32 @@ ${favNames.map(name => {
   );
   const handleCreateInstance = () => {};
   const handleCreateScript = () => {};
-  const handleEndAndArchiveWorld = () => {};
+  const handleEndAndArchiveWorld = () => {
+    if (!activeWorld) return;
+    
+    const updatedWorld: TransmigrationWorld = {
+      ...activeWorld,
+      status: "completed",
+      updatedAt: Date.now(),
+      messages: [
+        ...activeWorld.messages,
+        {
+          id: `msg-${Date.now()}`,
+          role: "system",
+          content: `🏁 【世界结算 · 位面归档】
+世界《${activeWorld.name}》已结束。
+任务达成情况：${activeWorld.tasks.filter(t => t.completed).length}/${activeWorld.tasks.length}
+感谢您的参与。您可以随时在历史存档中查看本世界的羁绊历程。`,
+          timestamp: Date.now()
+        }
+      ]
+    };
+    
+    const updatedWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
+    persistWorlds(updatedWorlds);
+    setActiveWorld(updatedWorld);
+    setShowEndWorldConfirm(false);
+  };
 
   useEffect(() => {
     if (
