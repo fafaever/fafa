@@ -318,6 +318,7 @@ export async function callLLM(apiUrl?: string, apiKey?: string, model?: string, 
       const json = JSON.parse(errorText);
       parsedErr = json.error?.message || json.message || json.error || errorText;
     } catch (e) {}
+    console.error(`[callLLM] API 请求失败 (${response?.status || 500}): ${parsedErr || "未知错误"}`);
     throw new Error(`API 请求失败 (${response?.status || 500}): ${parsedErr || "未知错误"}`);
   }
 

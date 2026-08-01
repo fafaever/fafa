@@ -611,8 +611,8 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
 
     const prompt = "你是一个快穿世界剧情架构师。请为快穿世界《" + worldName + "》设计完整的背景、攻略者与攻略对象角色矩阵。\n" +
       customPromptPart + "\n" + keywordPart + "\n" +
-      "玩家穿越后的身份与标签为：【攻略者】。\n" +
-      "参与穿越的位面攻略对象：" + charNames + "（身份全为【攻略对象】）。\n\n" +
+      "【玩家角色设定】：玩家穿越后的身份是该世界原本的【恶毒女配/反派】。玩家知道原剧情设定，但真实性格与原角色不同，且玩家不知道自己穿越了，以为自己是这个世界的人，只需扮演好原角色，但因真实性格不同，行为会与原角色有反差。\n" +
+      "参与穿越的位面攻略对象：" + charNames + "（身份全为【攻略对象】，原剧情中讨厌玩家角色，但会因玩家的行为反差而逐步疑惑、好奇、在意，最终被吸引）。\n\n" +
       "【核心文风与描写规范】：\n" +
       "1. 必须使用口语化、简洁直白的表达方式。不使用词藻堆砌、文艺化修饰或复杂句式。\n" +
       "2. 使用短句，一句话只说一件事。多用名词和动词，少用形容词。\n" +
@@ -624,13 +624,13 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
       "  \"initial_scene\": \"初始场景描述（50-100字）\",\n" +
       "  \"tasks\": [\"任务目标1\", \"任务目标2\", \"任务目标3\"],\n" +
       "  \"user_identity\": {\n" +
-      "    \"name\": \"玩家在本世界的扮演姓名\",\n" +
+      "    \"name\": \"玩家在本世界的扮演姓名（原著中的反派名）\",\n" +
       "    \"age\": 20,\n" +
       "    \"appearance\": \"外貌衣着\",\n" +
       "    \"profession\": \"职业\",\n" +
       "    \"relationship\": \"社会关系\",\n" +
-      "    \"personality\": \"性格\",\n" +
-      "    \"background\": \"背景故事与攻略使命\"" +
+      "    \"personality\": \"性格（玩家真实性格与原角色的反差）\",\n" +
+      "    \"background\": \"背景故事与攻略使命（原著恶毒女配设定）\"" +
       "  },\n" +
       "  \"character_identities\": {}\n" +
       "}\n\n" +
@@ -663,7 +663,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
               personality: idData.personality || "心思沉稳",
               background: idData.background || "本地势力核心人物"
             },
-            favorability: 50,
+            favorability: Math.floor(Math.random() * 11) - 20, // -20 to -10
             suspicion: 10,
             innerThought: idData.innerThought || "总觉得眼前这人眼神很特别...",
             flaws: idData.flaw ? [idData.flaw] : ["言语间有些戒备"],
@@ -706,7 +706,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
             personality: "神秘内敛",
             background: "在这个快穿位面有着特殊身份。"
           },
-          favorability: 50,
+          favorability: Math.floor(Math.random() * 11) - 20, // -20 to -10
           suspicion: 10,
           innerThought: "对眼前的陌生人保留戒心……",
           flaws: ["偶尔露出不适感"],
@@ -1011,7 +1011,13 @@ ${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字
       let retryCount = 0;
       
       while (isRepetitive && retryCount < 2) {
-        response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt + (retryCount > 0 ? "【系统警告：请注意！你上一次生成的内容与历史重复度过高，请立即更换全新的剧情事件、对话走向或冲突点，切勿重复！】" : "") }], 0.8, settings.apiFormat);
+        const fullPrompt = prompt + (retryCount > 0 ? "【系统警告：请注意！你上一次生成的内容与历史重复度过高，请立即更换全新的剧情事件、对话走向或冲突点，切勿重复！】" : "");
+        console.log("========== [Transmigration Generation Request] ==========");
+        console.log("Full Prompt Length:", fullPrompt.length);
+        console.log("Full Prompt:", fullPrompt);
+        console.log("========================================================");
+        
+        response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: fullPrompt }], 0.8, settings.apiFormat);
         
         // Repetition check against last 2 assistant messages
         const cleanContent = response.replace(/\[[A-Z_]+:.*?\]/g, "").trim();
@@ -1160,7 +1166,7 @@ ${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字
           let flawsList = [...state.flaws];
 
           if (favorChanges[char.name] !== undefined) {
-            fav = Math.max(0, Math.min(100, fav + favorChanges[char.name].diff));
+            fav = Math.max(-100, Math.min(100, fav + favorChanges[char.name].diff));
           }
           if (innerThoughts[char.name] !== undefined) {
             thought = innerThoughts[char.name];
@@ -1243,9 +1249,18 @@ ${favNames.map(name => {
       setTimeout(() => {
         scrollTransmigrationToBottom(true);
       }, 100);
-    } catch (e) {
-      console.error(e);
-      setActiveWorld({ ...activeWorld, messages: [...updatedMessages, { id: Date.now().toString(), role: "system", content: "引擎响应异常，请重试。", timestamp: Date.now() }] });
+    } catch (e: any) {
+      console.error("[Transmigration Error]", e);
+      const errorMessage = e instanceof Error ? e.message : "未知错误";
+      setActiveWorld({ 
+        ...activeWorld, 
+        messages: [...updatedMessages, { 
+          id: Date.now().toString(), 
+          role: "system", 
+          content: `引擎响应异常: ${errorMessage}，请重试。`, 
+          timestamp: Date.now() 
+        }] 
+      });
     } finally {
       setIsGenerating(false);
     }
@@ -1747,16 +1762,7 @@ ${favNames.map(name => {
           {/* Sub Navigation Tabs */}
           {activePlayTab !== "settings" && (
             <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-[#EFECE8] overflow-x-auto no-scrollbar shrink-0">
-               <button
-                 onClick={() => setActivePlayTab("history")}
-                 className={`text-xs font-medium whitespace-nowrap px-4 py-1.5 rounded-full transition cursor-pointer flex items-center gap-1.5 ${
-                   activePlayTab === "history"
-                     ? "bg-[#1A1A1A] text-white border border-[#1A1A1A] shadow-xs"
-                     : "bg-[#F5F3F0] text-[#78716C] border border-[#EFECE8] hover:text-[#1A1A1A]"
-                 }`}
-               >
-                 <span>📖 剧情推进区</span>
-               </button>
+
             </div>
           )}
           
@@ -1985,13 +1991,7 @@ ${favNames.map(name => {
                   );
                 })()}
 
-                {/* 固定规则提示区 */}
-                <div className="bg-[#FFFBF0] border-b border-[#FDE68A] px-4 py-2 flex items-center justify-center shrink-0">
-                  <p className="text-[10px] sm:text-[11px] text-[#B45309] font-medium text-center flex items-center gap-1.5 leading-tight">
-                    <Shield className="w-3.5 h-3.5 shrink-0" />
-                    <span>【角色扮演】请尽量沉浸式扮演原住民，明显脱离世界设定的言行会增加暴露度！</span>
-                  </p>
-                </div>
+
 
                 {/* 剧情消息历史滚动区 */}
                 <div ref={transmigrationHistoryScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -2231,7 +2231,7 @@ ${favNames.map(name => {
                         className="p-2.5 bg-[#1A1A1A] hover:bg-neutral-800 disabled:bg-[#F5F3F0] disabled:text-[#A8A39A] text-white rounded-full transition cursor-pointer flex items-center justify-center shrink-0 border border-[#1A1A1A]"
                         title="发送自定义行动"
                       >
-                        <Send className="w-4 h-4 stroke-[1.5]" />
+                        {isGenerating ? <RefreshCw className="w-4 h-4 stroke-[1.5] animate-spin" /> : <Send className="w-4 h-4 stroke-[1.5]" />}
                       </button>
                     </div>
                   </div>
