@@ -408,6 +408,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
     setItemToDelete(null);
   };
 
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const transmigrationHistoryScrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -598,7 +599,7 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
 
     const presetObj = PRESET_WORLDS.find(p => p.id === newWorldPresetId);
     const customPromptPart = presetObj 
-      ? `【世界基础背景】：${presetObj.description}\n【核心预设任务】：${presetObj.tasks.join("、")}`
+      ? `【世界基础背景】：${presetObj.description}\n【核心预设任务】：${presetObj.tasks.join("\n")}`
       : `【世界名】：${worldName}`;
 
     const prompt = "你是一个快穿世界剧情架构师。请为快穿世界《" + worldName + "》设计完整的背景、攻略者与攻略对象角色矩阵。\n" +
@@ -865,6 +866,22 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
     return result;
   };
 
+function calculateSimilarity(str1: string, str2: string) {
+  const getNgrams = (s: string, n: number) => {
+    const ngrams = new Set<string>();
+    for (let i = 0; i <= s.length - n; i++) ngrams.add(s.substring(i, i + n));
+    return ngrams;
+  };
+  const set1 = getNgrams(str1, 5);
+  const set2 = getNgrams(str2, 5);
+  if (set1.size === 0 || set2.size === 0) return 0;
+  let intersection = 0;
+  for (const gram of set1) {
+    if (set2.has(gram)) intersection++;
+  }
+  return intersection / (set1.size + set2.size - intersection);
+}
+
   const handleTransmigrationUserSend = async (customAction?: string, forceItemOrSkill?: string) => {
     if (!activeWorld || isGenerating) return;
     const input = customAction || inputText.trim();
@@ -912,15 +929,13 @@ export default function UniverseApp({ characters, settings, onClose }: UniverseA
 
     const minW = activeWorld.minWord || 300;
     const maxW = Math.min(15000, activeWorld.maxWord || 1500);
-
-    const currentExposure = activeWorld.exposureLevel || 0;
     const chatHistory = updatedMessages.slice(-8).map((m) => `${m.senderName || m.role}: ${m.content}`).join("\n");
 
     const prompt = `你现在是快穿游戏《${activeWorld.name}》的叙事主宰（Narrator）与角色扮演者。
 这是一个双线系统的快穿设定，玩家和伙伴们都被投放入新身份，各自在当前世界扮演新角色。
 世界背景：${activeWorld.background}
-    ${activeWorld.activeEvent ? `\n【当前突发事件】：${activeWorld.activeEvent.description}` : ""}
-
+    ${activeWorld.activeEvent ? `
+【当前突发事件】：${activeWorld.activeEvent.description}` : ""}
 玩家的快穿扮演身份：
 - 姓名：${activeWorld.userIdentity?.name} (年龄: ${activeWorld.userIdentity?.age})
 - 职业与背景：${activeWorld.userIdentity?.profession}。${activeWorld.userIdentity?.background}
@@ -937,9 +952,9 @@ ${activeChars.map(c => {
 
 任务清单：
 ${activeWorld.tasks.map((t) => `${t.id}. [${t.completed ? "已完成" : "未完成"}] ${t.description}`).join("\n")}
+")}
 
-最新玩家发言/行动：
-"${userMsg.content}"
+最新玩家发言/行动："${userMsg.content}"
 
 对话历史记录：
 ${chatHistory}
@@ -965,18 +980,38 @@ ${chatHistory}
 请在叙述文本的**最末尾**，严格以以下标签格式输出更新数据（每行一个标签，必须在中括号内，用于引擎状态同步）：
 [TASK_COMPLETE: 任务ID] (如果某项任务在此轮得到了达成，输出如 [TASK_COMPLETE: 1])
 [FAVORABILITY: 伙伴真实名字, +数或-数] (调整该伙伴的好感度，例如 [FAVORABILITY: ${activeChars[0]?.name || "角色"}, +10])
-[SUSPICION: 伙伴真实名字, +数或-数] (仅当玩家主动做出明显不符合当前世界设定或人设的异常行为时，才调整该伙伴对玩家的怀疑度。正常剧情互动绝对不要增加怀疑度！)
-[USER_SUSPICION: +数或-数] (调整玩家当前的暴露度（当前为 ${currentExposure}%）。仅当玩家主动做出明显不符合设定的行为（如故意说出不属于该世界的词汇）时才有概率增加。日常剧情推进绝不增加暴露度！请务必忽略用户提及的“AI、模型、系统、界面操作”等内容。)
 [INNER_THOUGHT: 伙伴真实名字, 心声文本] (提供该伙伴的最新隐秘心声。说明他对当前局势的猜测或对玩家的情感变化。字数40-80字)
 [CHARACTER_FLAW_LEAKED: 伙伴真实名字, 破绽说明] (极低概率触发：若该伙伴在此轮对话里不慎露出了不属于本世界的习惯破绽，输出此标签，字数20-45字)
-[GAME_ENDING: perfect 或 partial 或 failed] (如果满足结束条件：全部任务完成且暴露度低于70%触发perfect；部分任务完成或暴露度高于70%触发partial；暴露度满100%或全任务失败触发failed。没有触发结局千万别输出)
+[GAME_ENDING: perfect 或 partial 或 failed] (如果满足结束条件：全部任务完成触发perfect；部分任务完成触发partial；全任务失败触发failed。没有触发结局千万别输出)
 [ACTION_OPTION: 选项具体可执行内容] (请生成 4 到 6 个玩家下一步具体可执行的操作选项，例如“走过去和她说话”、“检查书桌抽屉”、“躲在门后观察”等，涵盖不同尝试方向。每行输出一个 [ACTION_OPTION: ...] 标签)
 [CHAR_CARD: 角色名字 | 动作描述 | 对话内容] (为参与此轮对话的每个角色分别输出1条卡片标签。如 [CHAR_CARD: 剧情描写 | 窗外的冷雨敲打着玻璃，气氛瞬间凝固了。 | ]，或 [CHAR_CARD: 苏墨 | 缓缓放下茶盏，抬眼看着你 | 你真的以为能瞒过我吗])
-${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字, 消息内容] (为阵营【${f.name}】(使命:${f.goal})生成1条群聊消息：队友对当前局势的分析、建议或对敌方的猜想策略)`).join("\n")}
+${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字, 消息内容] (为阵营【${f.name}】(使命:${f.goal})生成1条群聊消息：队友对当前局势的分析、建议或对敌方的猜想策略)`).join("\n")
+})
 `;
 
     try {
-      const response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
+      let response = "";
+      let isRepetitive = true;
+      let retryCount = 0;
+      
+      while (isRepetitive && retryCount < 2) {
+        response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt + (retryCount > 0 ? "【系统警告：请注意！你上一次生成的内容与历史重复度过高，请立即更换全新的剧情事件、对话走向或冲突点，切勿重复！】" : "") }], 0.8, settings.apiFormat);
+        
+        // Repetition check against last 2 assistant messages
+        const cleanContent = response.replace(/\[[A-Z_]+:.*?\]/g, "").trim();
+        const lastAssistantMsgs = updatedMessages.filter(m => m.role === "assistant").slice(-2);
+        
+        isRepetitive = false;
+        for (const msg of lastAssistantMsgs) {
+          const sim = calculateSimilarity(cleanContent, msg.content.replace(/\[[A-Z_]+:.*?\]/g, "").trim());
+          if (sim > 0.15) { // If more than 15% 5-grams overlap, consider it repetitive
+            isRepetitive = true;
+            break;
+          }
+        }
+        retryCount++;
+      }
+
       
       // Parse tags from assistant response
       let cleanResponse = response.trim();
@@ -984,7 +1019,7 @@ ${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字
       let userSuspicionDiff = 0;
       
       const taskCompletedIds: number[] = [];
-      const favorChanges: Record<string, number> = {};
+      const favorChanges: Record<string, { diff: number, reason: string }> = {};
       const suspicionChanges: Record<string, number> = {};
       const innerThoughts: Record<string, string> = {};
       const leakedFlaws: Record<string, string> = {};
@@ -1007,27 +1042,11 @@ ${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字
           if (!isNaN(tId)) taskCompletedIds.push(tId);
         } else if (tagType === "FAVORABILITY") {
           const parts = valStr.split(",");
-          if (parts.length === 2) {
+          if (parts.length >= 2) {
             const charName = parts[0].trim();
             const val = parseInt(parts[1].trim(), 10);
-            if (!isNaN(val)) favorChanges[charName] = val;
-          }
-        } else if (tagType === "SUSPICION") {
-          const parts = valStr.split(",");
-          if (parts.length === 2) {
-            const charName = parts[0].trim();
-            const val = parseInt(parts[1].trim(), 10);
-            if (!isNaN(val)) suspicionChanges[charName] = val;
-          }
-        } else if (tagType === "USER_SUSPICION") {
-          const val = parseInt(valStr.replace("+", ""), 10);
-          if (!isNaN(val)) userSuspicionDiff += val;
-        } else if (tagType === "INNER_THOUGHT") {
-          const firstComma = valStr.indexOf(",");
-          if (firstComma !== -1) {
-            const charName = valStr.slice(0, firstComma).trim();
-            const thought = valStr.slice(firstComma + 1).trim();
-            innerThoughts[charName] = thought;
+            const reason = parts.slice(2).join(",").trim() || "";
+            if (!isNaN(val)) favorChanges[charName] = { diff: val, reason };
           }
         } else if (tagType === "CHARACTER_FLAW_LEAKED") {
           const firstComma = valStr.indexOf(",");
@@ -1125,17 +1144,13 @@ ${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字
           let flawsList = [...state.flaws];
 
           if (favorChanges[char.name] !== undefined) {
-            fav = Math.max(0, Math.min(100, fav + favorChanges[char.name]));
-          }
-          if (suspicionChanges[char.name] !== undefined) {
-            susp = Math.max(0, Math.min(100, susp + suspicionChanges[char.name]));
+            fav = Math.max(0, Math.min(100, fav + favorChanges[char.name].diff));
           }
           if (innerThoughts[char.name] !== undefined) {
             thought = innerThoughts[char.name];
           }
           if (leakedFlaws[char.name] !== undefined) {
             flawsList = [leakedFlaws[char.name], ...flawsList];
-            // Log in global flaws history list
             const flawEntry = {
               desc: `发现【${state.identity.name}】露出破绽：${leakedFlaws[char.name]}`,
               suspicionAdded: 0,
@@ -1154,1189 +1169,111 @@ ${(activeWorld.factions || []).map(f => `[FACTION_CHAT: ${f.id}, 说话者名字
         }
       });
 
-      let nextExposure = Math.max(0, Math.min(100, (updatedWorld.exposureLevel || 0) + userSuspicionDiff));
-      if (nextExposure >= 100) {
-        gameEnding = "failed";
-      }
-
-      // If all tasks done manually or automatically, check for perfect/partial ending
-      const allDone = updatedTasks.every(t => t.completed);
-      if (allDone && !gameEnding) {
-        gameEnding = nextExposure < 50 ? "perfect" : "partial";
-      }
-
+      const nextExposure = 0;
       let systemStatusMsg = "";
-      if (taskCompletedIds.length > 0) {
-        systemStatusMsg += `🎯 任务达成！你完成了任务目标：${taskCompletedIds.map(id => `目标 ${id}`).join("、")}\n`;
-      }
-      
       const favNames = Object.keys(favorChanges);
       if (favNames.length > 0) {
-        systemStatusMsg += `💖 好感度变化：${favNames.map(name => {
+        systemStatusMsg += `💖 好感度变化：
+${favNames.map(name => {
           const cObj = activeChars.find(c => c.name === name);
           const cId = cObj?.id;
           const currentFav = cId ? updatedCharStates[cId]?.favorability : 50;
-          const diff = favorChanges[name];
+          const { diff, reason } = favorChanges[name];
           const isCompleted = currentFav >= 100 ? " 🎉【攻略完成】" : "";
-          return `${name} ${diff > 0 ? "+" : ""}${diff} (当前好感度: ${currentFav}/100${isCompleted})`;
-        }).join("、")}\n`;
+          const reasonStr = reason ? `（${reason}）` : "";
+          return `  - ${name} 好感度 ${diff > 0 ? "+" : ""}${diff}${reasonStr} (当前好感度: ${currentFav}/100${isCompleted})`;
+        }).join("\n")}
+`;
       }
-
-      const suspNames = Object.keys(suspicionChanges);
-      if (suspNames.length > 0) {
-        systemStatusMsg += `🔍 嫌疑变化：${suspNames.map(name => `${name} ${suspicionChanges[name] > 0 ? "+" : ""}${suspicionChanges[name]}`).join(", ")}\n`;
+      let factionProgMap = "";
+      if (Object.keys(factionChatUpdates).length > 0) {
+        factionProgMap = `📡 阵营频段已更新（${Object.keys(factionChatUpdates).length}条新情报）`;
       }
-
-      let factionProgMap = { ...(updatedWorld.factionProgress || {}) };
-      const myF = updatedWorld.factions?.find(f => f.memberIds.includes("user")) || updatedWorld.factions?.[0];
-      const oppF = updatedWorld.factions?.find(f => !f.memberIds.includes("user")) || updatedWorld.factions?.[1];
-
-      if (myF && oppF) {
-        const completedCount = updatedTasks.filter(t => t.completed).length;
-        const totalTasks = updatedTasks.length || 1;
-        const baseMy = Math.min(100, Math.max(0, Math.round(30 + (completedCount / totalTasks) * 50 + newTurnCount * 4)));
-        const baseOpp = Math.min(100, Math.max(0, Math.round(35 + newTurnCount * 3 - (nextExposure / 10))));
-        factionProgMap[myF.id] = baseMy;
-        factionProgMap[oppF.id] = baseOpp;
-      }
-
-      let finalMessages = [...updatedWorld.messages];
       
-      // Push AI reply
-      finalMessages.push({
-        id: `msg-${Date.now() + 1}`,
-        role: "assistant",
-        content: cleanResponse,
-        timestamp: Date.now(),
-        charCards: charCards.length > 0 ? charCards : undefined
-      });
-
-      if (systemStatusMsg) {
-        finalMessages.push({
-          id: `msg-system-status-${Date.now() + 2}`,
-          role: "system",
-          content: `📊 【位面法则判定】\n${systemStatusMsg.trim()}`,
-          timestamp: Date.now()
-        });
-      }
-
-      // Check ending trigger
-      let finalStatus = updatedWorld.status;
-      let endingType = updatedWorld.endingType;
-      let memoryCardObj = updatedWorld.memoryCard;
-
+      let finalSysStr = [systemStatusMsg, factionProgMap].filter(Boolean).join("\n");
+      
+      let nextActionOptions = actionOptions;
       if (gameEnding) {
-        finalStatus = "completed";
-        endingType = gameEnding;
+         nextActionOptions = [];
+         if (gameEnding === "perfect") finalSysStr += `\n\n✨ 【世界结局达成：Perfect Ending】✨\n所有任务均已完美完成。`;
+         else if (gameEnding === "failed") finalSysStr += `\n\n☠️ 【世界结局：Failed】☠️\n任务失败或暴露度过高，世界线崩溃。`;
+         else finalSysStr += `\n\n⚠️ 【世界结局：Partial】⚠️\n部分任务完成，世界线已强行收束。`;
+      }
 
-        const endingTitle = gameEnding === "perfect" 
-          ? `完美契合 · 飞升回归` 
-          : gameEnding === "partial" 
-          ? `部分重构 · 记忆遗失` 
-          : `位面崩塌 · 身份崩解`;
-
-        const endingDesc = gameEnding === "perfect"
-          ? `你与伙伴成功在暴露度极低的情况下完成了《${updatedWorld.name}》的所有因果律任务。两人的灵魂完美契合神识，在一片绚丽的极光中冲上云霄，返回主神殿。你不仅保留了完整记忆，还收获了与同伴在异世共生死的绝对默契。`
-          : gameEnding === "partial"
-          ? `虽然完成了世界线的大部分指标，但你的真实身份遭到高度怀疑。在位面重组的拉扯过程中，时空法则剥夺了你们的部分神识。虽然返回了现实，但伙伴眼中闪烁着迷茫，需要依靠记忆卡片去慢慢唤醒……`
-          : `由于你在《${updatedWorld.name}》中做出了严重违背本土原住民人设的举动，或者身陷绝境导致身份暴露值达到100%，被这个世界的法则判定为“天外异端”。天地雷劫轰然落下，位面崩塌，你与伙伴被弹出此界，任务宣告失败。`;
-
-        memoryCardObj = {
-          title: `《${updatedWorld.name}》羁绊回忆录`,
-          content: `在穿越至《${updatedWorld.name}》的因果线中，你扮演了【${updatedWorld.userIdentity?.name}】。伙伴们化身为异世原住民同你相守。在第 ${newTurnCount} 轮决胜对决里，你们见证了命运的纠葛，达成了「${endingTitle}」结局。`,
-          status: gameEnding,
-          shared: false
-        };
-
-        finalMessages.push({
-          id: `msg-ending-${Date.now() + 3}`,
+      if (finalSysStr.trim()) {
+        updatedMessages.push({
+          id: Date.now().toString() + "_sys",
           role: "system",
-          content: `🏆 【世界线判定完结】
-【最终结局】：${endingTitle}
-
-📖 结局详情：
-${endingDesc}
-
-🎁 恭喜！此世界探索已结束，系统已为你生成了独一无二的【时光羁绊记忆卡片】，你可以在“任务与卡包”中选择将其分享给角色！`,
-          timestamp: Date.now()
-        });
-      }
-
-      const finalWorld: TransmigrationWorld = {
-        ...updatedWorld,
-        status: finalStatus,
-        messages: finalMessages,
-        tasks: updatedTasks,
-        factionChats: factionChatUpdates,
-        
-        characterStates: updatedCharStates,
-        exposureLevel: nextExposure,
-        endingType: endingType,
-        memoryCard: memoryCardObj,
-        actionOptions: actionOptions.length > 0 ? actionOptions : updatedWorld.actionOptions,
-        factionProgress: factionProgMap,
-        updatedAt: Date.now()
-      };
-
-      setActiveWorld(finalWorld);
-      const newWorlds = worlds.map((w) => (w.id === finalWorld.id ? finalWorld : w));
-      persistWorlds(newWorlds);
-      
-      try {
-        if (gameEnding) {
-           storeMemory("universe", `【快穿世界】在世界“${finalWorld.name}”中，达成结局：${gameEnding}`, "宇宙");
-        }
-      } catch(e) {}
-    } catch (e: any) {
-      alert("AI 推进剧情失败: " + (e.message || "请检查网络"));
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleRefreshActionOptions = async () => {
-    if (!activeWorld || isGenerating || isRefreshingOptions) return;
-    setIsRefreshingOptions(true);
-    try {
-      const activeChars = activeWorld.characterIds
-        .map((id) => getCharacterById(id))
-        .filter(Boolean) as Character[];
-
-      const chatHistory = activeWorld.messages.slice(-6).map((m) => `${m.senderName || m.role}: ${m.content}`).join("\n");
-
-      const prompt = `你现在是快穿游戏《${activeWorld.name}》的叙事主宰。
-世界背景：${activeWorld.background}
-玩家身份：${activeWorld.userIdentity?.name || "玩家"} (${activeWorld.userIdentity?.profession || "未知"})
-参与角色：${activeChars.map(c => c.name).join("、")}
-
-最新剧情历史：
-${chatHistory}
-
-请为玩家重新生成 4 到 6 个具体可执行的下一步行动选项（例如：“走过去和她说话”、“检查书桌抽屉”、“躲在门后观察”、“向同伴打听情报”等），涵盖不同动作与尝试策略。
-
-请严格按以下标签格式输出 4-6 行，不要输出其他文字或说明：
-[ACTION_OPTION: 选项1内容]
-[ACTION_OPTION: 选项2内容]
-[ACTION_OPTION: 选项3内容]
-[ACTION_OPTION: 选项4内容]
-[ACTION_OPTION: 选项5内容]
-`;
-
-      const response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
-      
-      const newOptions: string[] = [];
-      const tagRegex = /\[ACTION_OPTION:\s*([^\]]+)\]/g;
-      let match;
-      while ((match = tagRegex.exec(response)) !== null) {
-        if (match[1].trim()) {
-          newOptions.push(match[1].trim());
-        }
-      }
-
-      // Fallback line parsing
-      if (newOptions.length === 0) {
-        const lines = response.split("\n")
-          .map(l => l.replace(/^[\d\.\-\*•\s\[\]ACTION_OPTION:]+/g, "").trim())
-          .filter(Boolean);
-        if (lines.length > 0) {
-          newOptions.push(...lines.slice(0, 6));
-        }
-      }
-
-      if (newOptions.length > 0) {
-        const updatedWorld: TransmigrationWorld = {
-          ...activeWorld,
-          actionOptions: newOptions,
-          updatedAt: Date.now()
-        };
-        setActiveWorld(updatedWorld);
-        const newWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
-        persistWorlds(newWorlds);
-      }
-    } catch (e: any) {
-      console.error("Refresh options failed:", e);
-      alert("刷新选项失败: " + (e.message || "请检查网络"));
-    } finally {
-      setIsRefreshingOptions(false);
-    }
-  };
-
-  const handleAccuseCharacter = async (targetId: string, text: string) => {
-    if (!activeWorld || isGenerating) return;
-    const charState = activeWorld.characterStates?.[targetId];
-    const character = getCharacterById(targetId);
-    if (!charState || !character) return;
-
-    if (!text.trim()) {
-      alert("请输入你的试探或相认说辞！");
-      return;
-    }
-
-    setIsGenerating(true);
-    setShowAccuseModal(false);
-    setInspectingCharId(null);
-
-    const userMsg = {
-      id: `msg-accuse-${Date.now()}`,
-      role: "user" as const,
-      senderName: activeWorld.userIdentity?.name || "我",
-      content: `【试探相认】我当面与【${charState.identity.name}】试探摊牌！\n对白：“${text}”`,
-      timestamp: Date.now(),
-    };
-
-    let updatedWorld = {
-      ...activeWorld,
-      messages: [...activeWorld.messages, userMsg],
-      updatedAt: Date.now()
-    };
-    setActiveWorld(updatedWorld);
-    setAccuseText("");
-
-    const prompt = `你现在是快穿游戏《${activeWorld.name}》的叙事主宰。
-玩家（攻略者）选择当场对攻略目标【${character.name}】（本世界扮演身份：${charState.identity.name}，扮演职业：${charState.identity.profession}）进行情感试探与灵魂对质！
-玩家与该伙伴的当前好感度是：${charState.favorability}/100，怀疑度是：${charState.suspicion}/100。
-玩家当前的言辞：
-"${text}"
-
-请根据上述条件判定这次“情感摊牌与真实试探”的反应。
-1. 判定标准：好感度 >= 50 时，对方会真情流露、卸下心防，好感度上升、怀疑度下降。如果好感度过低（<50），对方会戒备自保或冷淡回避。
-2. 试探成功：对方情绪被触动，对白极具张力，心门进一步打开。
-3. 试探失败：对方警惕回避，认为你在言语过界或动机不明。
-
-请以极其精彩、戏剧化、扣人心弦的快穿小说互动场景，写出这精彩的一幕微表情和对白！
-【描写限制】：
-1. **绝对禁止**代替玩家进行任何心理活动、动机、表情或行动描写。
-2. 你只能描写【${character.name}】的反应、言行以及周围的环境变化。
-3. 禁止描写“你感到...”、“你深吸一口气...”等任何涉及玩家主观层面的内容。
-
-请在文本的最末尾，输出以下状态更新标签（每行一个，必须在中括号内，用于引擎同步）：
-[ACCUSE_RESULT: ${charState.favorability >= 50 ? "success" : "failed"}]
-[FAVORABILITY_CHANGE: ${charState.favorability >= 50 ? "+15" : "-10"}]
-[SUSPICION_CHANGE: ${charState.favorability >= 50 ? "-10" : "+15"}]
-[EXPOSURE_CHANGE: 0]
-[ACCUSE_INNER_THOUGHT: ${charState.favorability >= 50 ? "总觉得和这个人的感情越来越难以自拔了……" : "这个人突然说这些，到底有什么目的？"}]
-`;
-
-    try {
-      const response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
-      
-      let cleanResponse = response.trim();
-      let accuseResult: "success" | "failed" = "failed";
-      let favDiff = -20;
-      let suspDiff = 35;
-      let expDiff = 20;
-      let innerT = "";
-
-      // Parse tags
-      const tagRegex = /\[([A-Z_]+):\s*([^\]]+)\]/g;
-      let match;
-      while ((match = tagRegex.exec(response)) !== null) {
-        const type = match[1];
-        const val = match[2].trim();
-
-        if (type === "ACCUSE_RESULT") {
-          accuseResult = val === "success" ? "success" : "failed";
-        } else if (type === "FAVORABILITY_CHANGE") {
-          favDiff = parseInt(val, 10) || -20;
-        } else if (type === "SUSPICION_CHANGE") {
-          suspDiff = parseInt(val, 10) || 35;
-        } else if (type === "EXPOSURE_CHANGE") {
-          expDiff = parseInt(val, 10) || 20;
-        } else if (type === "ACCUSE_INNER_THOUGHT") {
-          innerT = val;
-        }
-      }
-
-      cleanResponse = cleanResponse.replace(/\[[A-Z_]+:\s*[^\]]+\]/g, "").trim();
-
-      // Implement states updates
-      const updatedStates = { ...(updatedWorld.characterStates || {}) };
-      const cState = updatedStates[targetId];
-      if (cState) {
-        const updatedFav = Math.max(0, Math.min(100, cState.favorability + favDiff));
-        const updatedSusp = Math.max(0, Math.min(100, cState.suspicion + suspDiff));
-        
-        updatedStates[targetId] = {
-          ...cState,
-          favorability: updatedFav,
-          suspicion: updatedSusp,
-          innerThought: innerT || cState.innerThought
-        };
-      }
-
-      const nextExposure = Math.max(0, Math.min(100, (updatedWorld.exposureLevel || 0) + expDiff));
-      let currentStatus = updatedWorld.status;
-      let endingType = updatedWorld.endingType;
-      let memoryCardObj = updatedWorld.memoryCard;
-
-      let finalMsgs = [...updatedWorld.messages];
-      finalMsgs.push({
-        id: `msg-accuse-reply-${Date.now()}`,
-        role: "assistant",
-        content: cleanResponse,
-        timestamp: Date.now()
-      });
-
-      // System result box
-      finalMsgs.push({
-        id: `msg-accuse-sys-${Date.now() + 1}`,
-        role: "system",
-        content: accuseResult === "success" 
-          ? `🎉 【指控相认大成功！】\n你与伙伴【${charState.identity.name}】成功揭开了穿越者的面纱，灵魂频率达到绝对共鸣！好感度增加 30，怀疑度降低 40！`
-          : `❌ 【指控失败 / 遭遇掩饰】\n伙伴【${charState.identity.name}】对你露出了看疯子一样的神色，并将防备提到了最高！好感度降低 20，怀疑度暴涨 35！你的暴露度上升了 20% （当前：${nextExposure}%）`,
-        timestamp: Date.now()
-      });
-
-
-      // If exposure is max, trigger ending
-      if (nextExposure >= 100) {
-        currentStatus = "completed";
-        endingType = "failed";
-        memoryCardObj = {
-          title: `《${updatedWorld.name}》· 身份瓦解`,
-          content: `你强行在《${updatedWorld.name}》指证伙伴失败并暴露出滔天违和，惨遭世界意志无情抹杀。`,
-          status: "failed",
-          shared: false
-        };
-
-        finalMsgs.push({
-          id: `msg-accuse-ending-${Date.now() + 3}`,
-          role: "system",
-          content: `🏆 【世界因果线彻底崩溃】\n由于你的暴露值达到100%，你在大庭广众之下指证时空法则。天道神罚落下，身份彻底瓦解，本世界任务宣告失败！`,
-          timestamp: Date.now()
-        });
-      }
-
-      const finalWorld: TransmigrationWorld = {
-        ...updatedWorld,
-        status: currentStatus,
-        endingType: endingType,
-        memoryCard: memoryCardObj,
-        characterStates: updatedStates,
-        exposureLevel: nextExposure,
-        
-        messages: finalMsgs,
-        updatedAt: Date.now()
-      };
-
-      setActiveWorld(finalWorld);
-      persistWorlds(worlds.map(w => w.id === finalWorld.id ? finalWorld : w));
-      
-      try {
-        if (endingType === "failed") {
-          storeMemory("universe", `【快穿世界】在世界“${finalWorld.name}”中，达成结局：${endingType} (指证失败导致身份暴露)`, "宇宙");
-        }
-      } catch(e) {}
-    } catch (e: any) {
-      alert("对质指控判定失败: " + (e.message || "请检查网络"));
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleShareMemoryCard = (worldId: string) => {
-    const world = worlds.find(w => w.id === worldId);
-    if (!world || !world.memoryCard) return;
-
-    // Set memory shared to true
-    const updatedMemory = { ...world.memoryCard, shared: true };
-    const updatedWorld = { ...world, memoryCard: updatedMemory };
-    
-    // Reward: increase base favorability of characters or log a heartwarming message
-    const characterNames = world.characterIds.map(id => getCharacterById(id)?.name).filter(Boolean).join("、");
-    alert(`💌 已将《${world.name}》的羁绊记忆卡片分享给角色【${characterNames}】！他们接收了这份宿世记忆，跨次元好感与现实羁绊得到了深深固化！`);
-
-    // Persist
-    const newWorlds = worlds.map(w => w.id === worldId ? updatedWorld : w);
-    persistWorlds(newWorlds);
-    if (activeWorld?.id === worldId) {
-      setActiveWorld(updatedWorld);
-    }
-  };
-
-  const handleEndAndArchiveWorld = () => {
-    if (!activeWorld) return;
-
-    const activeChars = activeWorld.characterIds
-      .map((id) => getCharacterById(id))
-      .filter(Boolean) as Character[];
-
-    const completedTasksCount = activeWorld.tasks.filter((t) => t.completed).length;
-    const totalTasksCount = activeWorld.tasks.length;
-    
-    const favorSummary = activeChars.map((c) => {
-      const st = activeWorld.characterStates?.[c.id];
-      const fav = st?.favorability || 50;
-      return `${c.name}(${fav}/100${fav >= 100 ? " 🎉已达成攻略" : ""})`;
-    }).join("、");
-
-    const summaryContent = `快穿世界《${activeWorld.name}》旅程结算完成。
-- 任务完成进度：${completedTasksCount}/${totalTasksCount}
-- 角色好感度：${favorSummary || "无"}
-- 历经剧情回合：共 ${activeWorld.currentTurnCount || 0} 轮
-- 身份暴露值：${activeWorld.exposureLevel || 0}%`;
-
-    const endingCard: MemoryCard = {
-      title: `《${activeWorld.name}》快穿存档卡片`,
-      content: summaryContent,
-      status: completedTasksCount === totalTasksCount ? "perfect" : "partial",
-      shared: false,
-    };
-
-    const updatedWorld: TransmigrationWorld = {
-      ...activeWorld,
-      status: "completed",
-      memoryCard: endingCard,
-      updatedAt: Date.now(),
-    };
-
-    const updatedWorldsList = worlds.map((w) => (w.id === activeWorld.id ? updatedWorld : w));
-    setWorlds(updatedWorldsList);
-    persistWorlds(updatedWorldsList);
-    setActiveWorld(updatedWorld);
-    setShowEndWorldConfirm(false);
-
-    alert(`✨ 快穿世界《${activeWorld.name}》已结束！已生成快穿存档卡片，存入历史存档列表。`);
-    setActiveTab("transmigration_list");
-    setWorldListTab("archived");
-  };
-
-  const handleResumeWorld = (world: TransmigrationWorld) => {
-    const resumedWorld: TransmigrationWorld = {
-      ...world,
-      status: "in_progress",
-      updatedAt: Date.now(),
-    };
-    const updatedWorldsList = worlds.map((w) => (w.id === world.id ? resumedWorld : w));
-    setWorlds(updatedWorldsList);
-    persistWorlds(updatedWorldsList);
-    setActiveWorld(resumedWorld);
-    setActiveTab("transmigration_play");
-    setActivePlayTab("history");
-  };
-
-  const handleDeleteWorld = (worldId: string, worldName: string) => {
-    if (window.confirm(`确定要删除快穿世界/存档《${worldName}》吗？删除后不可恢复。`)) {
-      const filtered = worlds.filter((item) => item.id !== worldId);
-      setWorlds(filtered);
-      persistWorlds(filtered);
-      if (activeWorld?.id === worldId) {
-        setActiveWorld(null);
-      }
-    }
-  };
-
-  const handleSaveWorldSettings = () => {
-    if (!activeWorld) return;
-    const updatedWorld: TransmigrationWorld = {
-      ...activeWorld,
-      background: editWorldBg,
-      minWord: editMinWord,
-      maxWord: Math.min(15000, editMaxWord),
-      userIdentity: {
-        ...(activeWorld.userIdentity || { name: "我", avatar: "👤", thought: "", role: "攻略者" }),
-        name: editUserName,
-        thought: editUserThought,
-      } as any,
-      characterStates: editCharacterStates,
-      tasks: editTasks,
-      updatedAt: Date.now()
-    };
-    const newWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
-    persistWorlds(newWorlds);
-    setActiveWorld(updatedWorld);
-    alert("✨ 快穿世界设定已成功更新！");
-    setActivePlayTab("history");
-  };
-
-  const handleGenerateMemoryCard = () => {
-    if (!activeWorld) return;
-    const participantNames = activeWorld.characterIds.map(id => getCharacterById(id)?.name || id).join("、");
-    const cardObj = {
-      title: `《${activeWorld.name}》剧情记忆卡片`,
-      content: `世界名称：${activeWorld.name}\n参与角色：${participantNames}\n背景摘要：${activeWorld.background?.substring(0, 120) || "无"}...\n关键事件数：${activeWorld.messages?.length || 0}条\n生成时间：${new Date().toLocaleString()}`,
-      status: activeWorld.status,
-      shared: false
-    };
-    const updatedWorld = { ...activeWorld, memoryCard: cardObj, updatedAt: Date.now() } as any;
-    const newWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
-    persistWorlds(newWorlds);
-    alert("🎁 剧情记忆卡片已成功生成！");
-  };
-
-  const handleSendMemoryCardToChar = () => {
-    if (!activeWorld || !activeWorld.memoryCard) {
-      alert("请先生成记忆卡片！");
-      return;
-    }
-    const char = getCharacterById(selectedShareCharId);
-    const charName = char?.name || "角色";
-    const updatedCard = { ...activeWorld.memoryCard, shared: true };
-    const updatedWorld = { ...activeWorld, memoryCard: updatedCard, updatedAt: Date.now() };
-    const newWorlds = worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w);
-    persistWorlds(newWorlds);
-    alert(`💌 已将《${activeWorld.name}》的记忆卡片发送给【${charName}】！对方已接收并记住了这段宿世记忆。`);
-  };
-
-  const handleSendFactionMessage = async () => {
-    if (!activeWorld || !factionChatInput.trim() || !viewingFactionId) return;
-    
-    // User can only send to their own faction
-    const myFaction = activeWorld.factions?.find(f => f.memberIds.includes("user"));
-    if (viewingFactionId !== myFaction?.id) {
-        alert("偷看模式下无法发送消息！");
-        return;
-    }
-
-    const newMessage: FactionChatMessage = {
-      id: `fchat-${Date.now()}`,
-      senderId: "user",
-      senderName: activeWorld.userIdentity?.name || "玩家",
-      content: factionChatInput.trim(),
-      timestamp: Date.now()
-    };
-
-    const updatedChats = {
-      ...(activeWorld.factionChats || {}),
-      [viewingFactionId]: [...(activeWorld.factionChats?.[viewingFactionId] || []), newMessage]
-    };
-
-    const updatedWorld: TransmigrationWorld = {
-      ...activeWorld,
-      factionChats: updatedChats,
-      updatedAt: Date.now()
-    };
-
-    setActiveWorld(updatedWorld);
-    persistWorlds(worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w));
-    const sentText = factionChatInput.trim();
-    setFactionChatInput("");
-
-    // Trigger AI teammate response based on user message
-    try {
-      const factionMembers = myFaction.memberIds.filter(id => id !== "user");
-      if (factionMembers.length > 0) {
-        const membersInfo = factionMembers.map(id => {
-          const char = getCharacterById(id);
-          const state = activeWorld.characterStates?.[id];
-          return `- 角色ID: ${id}, 真实姓名: ${char?.name || id}, 世界扮演身份: ${state?.identity?.name || char?.name || "未知"}`;
-        }).join("\n");
-
-        const prompt = `你现在是快穿游戏《${activeWorld.name}》的群聊主宰。
-世界背景：${activeWorld.background}
-我方阵营：【${myFaction.name}】（目标：${myFaction.goal}）
-阵营成员：
-${membersInfo}
-
-玩家刚刚在群里发言说：“${sentText}”
-
-请根据玩家的发言，让阵营中的 1 到 2 位队友针对该发言给出即时回应、战术分析或配合建议。
-请严格按以下格式输出每条消息，不要输出其他文字：
-[FACTION_MSG: 角色ID | 角色名称 | 消息内容]
-`;
-
-        const res = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
-        const newReplies: FactionChatMessage[] = [];
-        const regex = /\[FACTION_MSG:\s*([^\|]+)\|\s*([^\|]+)\|\s*([^\]]+)\]/g;
-        let match;
-        let timeOffset = 100;
-        while ((match = regex.exec(res)) !== null) {
-          const sId = match[1].trim();
-          const sName = match[2].trim();
-          const content = match[3].trim();
-          if (content) {
-            newReplies.push({
-              id: `fchat-reply-${Date.now() + timeOffset++}`,
-              senderId: sId,
-              senderName: sName,
-              content: content,
-              timestamp: Date.now() + timeOffset
-            });
-          }
-        }
-
-        if (newReplies.length === 0 && factionMembers.length > 0) {
-          const randomMemberId = factionMembers[0];
-          const memberState = activeWorld.characterStates?.[randomMemberId];
-          newReplies.push({
-            id: `fchat-reply-${Date.now()}`,
-            senderId: randomMemberId,
-            senderName: memberState?.identity?.name || "队友",
-            content: "收到你的消息，我们会严格按此计划暗中配合，随时保持联络。",
-            timestamp: Date.now()
-          });
-        }
-
-        const latestWorld = worlds.find(w => w.id === activeWorld.id) || updatedWorld;
-        const finalChats = {
-          ...(latestWorld.factionChats || {}),
-          [viewingFactionId]: [...(latestWorld.factionChats?.[viewingFactionId] || []), ...newReplies]
-        };
-        const finalWorld: TransmigrationWorld = {
-          ...latestWorld,
-          factionChats: finalChats,
-          updatedAt: Date.now()
-        };
-        setActiveWorld(finalWorld);
-        persistWorlds(worlds.map(w => w.id === finalWorld.id ? finalWorld : w));
-      }
-    } catch (e) {
-      console.error("AI teammate reply failed:", e);
-    }
-  };
-
-  const handleAIGenerateFactionChat = async () => {
-    if (!activeWorld || isGenerating || !viewingFactionId) return;
-    const myFaction = activeWorld.factions?.find(f => f.memberIds.includes("user"));
-    if (viewingFactionId !== myFaction?.id) {
-      alert("偷看模式下无法主动生成讨论！");
-      return;
-    }
-
-    setIsGenerating(true);
-    try {
-      const chatHistory = (activeWorld.messages || []).slice(-4).map(m => `${m.senderName || m.role}: ${m.content}`).join("\n");
-      const memberIds = myFaction.memberIds.filter(id => id !== "user");
-      const membersInfo = memberIds.map(id => {
-        const char = getCharacterById(id);
-        const state = activeWorld.characterStates?.[id];
-        return `- 角色ID: ${id}, 真实姓名: ${char?.name || id}, 世界扮演身份: ${state?.identity?.name || char?.name || "未知"}`;
-      }).join("\n");
-
-      const prompt = `你现在是快穿游戏《${activeWorld.name}》的群聊主宰。
-世界背景：${activeWorld.background}
-我方阵营：【${myFaction.name}】（目标：${myFaction.goal}）
-阵营成员：
-${membersInfo}
-
-最新剧情进展：
-${chatHistory}
-
-请根据当前剧情，让阵营中的 2 到 3 位成员在群里展开一轮讨论。讨论内容包括对当前剧情的分析、给玩家（主角）的战术建议、或对接下来的行动规划。
-请严格按以下格式输出每条消息，不要输出其他文字：
-[FACTION_MSG: 角色ID | 角色名称 | 消息内容]
-`;
-
-      const res = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
-      const newMsgs: FactionChatMessage[] = [];
-      const regex = /\[FACTION_MSG:\s*([^\|]+)\|\s*([^\|]+)\|\s*([^\]]+)\]/g;
-      let match;
-      let timeOffset = 100;
-      while ((match = regex.exec(res)) !== null) {
-        const sId = match[1].trim();
-        const sName = match[2].trim();
-        const content = match[3].trim();
-        if (content) {
-          newMsgs.push({
-            id: `fchat-gen-${Date.now() + timeOffset++}`,
-            senderId: sId,
-            senderName: sName,
-            content: content,
-            timestamp: Date.now() + timeOffset
-          });
-        }
-      }
-
-      if (newMsgs.length === 0 && memberIds.length > 0) {
-        const rId = memberIds[0];
-        const char = getCharacterById(rId);
-        const state = activeWorld.characterStates?.[rId];
-        newMsgs.push({
-          id: `fchat-gen-${Date.now()}`,
-          senderId: rId,
-          senderName: state?.identity?.name || char?.name || "队友",
-          content: "根据目前形势，我们需要步步为营，随时保持暗中联动。",
-          timestamp: Date.now()
-        });
-      }
-
-      const updatedChats = {
-        ...(activeWorld.factionChats || {}),
-        [viewingFactionId]: [...(activeWorld.factionChats?.[viewingFactionId] || []), ...newMsgs]
-      };
-
-      const updatedWorld: TransmigrationWorld = {
-        ...activeWorld,
-        factionChats: updatedChats,
-        updatedAt: Date.now()
-      };
-
-      setActiveWorld(updatedWorld);
-      persistWorlds(worlds.map(w => w.id === updatedWorld.id ? updatedWorld : w));
-    } catch (e: any) {
-      alert("AI 生成讨论失败: " + (e.message || "请检查网络"));
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const toggleTaskCompletion = (taskId: number) => {
-    if (!activeWorld) return;
-    const task = activeWorld.tasks.find(t => t.id === taskId);
-    const wasCompleted = !!task?.completed;
-
-    const updatedTasks = activeWorld.tasks.map((t) =>
-      t.id === taskId ? { ...t, completed: !t.completed } : t
-    );
-    const allCompleted = updatedTasks.every((t) => t.completed);
-    
-    // Skill point bonus on completing tasks manually
-    let skillDiff = 0;
-    if (!wasCompleted) {
-      skillDiff = 5;
-    }
-
-    const updatedWorld: TransmigrationWorld = {
-      ...activeWorld,
-      tasks: updatedTasks,
-      
-      status: allCompleted ? "completed" : activeWorld.status,
-      updatedAt: Date.now(),
-    };
-
-    if (skillDiff > 0) {
-      updatedWorld.messages.push({
-        id: `msg-task-manual-${Date.now()}`,
-        role: "system",
-        content: `🎯 【任务判定】您手动完成了任务 ${taskId}：[${task?.description}]，获得 5 技能点奖励！`,
-        timestamp: Date.now()
-      });
-    }
-
-    setActiveWorld(updatedWorld);
-    persistWorlds(worlds.map((w) => (w.id === updatedWorld.id ? updatedWorld : w)));
-  };
-
-  // ==================== 2. RULES HORROR LOGIC ==================== //
-
-  const handleCreateInstance = async () => {
-    if (!newInstanceName.trim()) {
-      alert("请输入副本名称！");
-      return;
-    }
-    if (selectedCharIds.length === 0) {
-      alert("请至少选择一位参与角色！");
-      return;
-    }
-
-    setIsGenerating(true);
-    const selectedChars = selectedCharIds.map((id) => getCharacterById(id)).filter(Boolean) as Character[];
-    const charNames = selectedChars.map((c) => c.name).join("、");
-
-    const prompt = `你是一个专业的规则怪谈（Creepypasta Rules Horror）设计大师。
-请为怪谈副本【${newInstanceName}】设计背景、规则与多重结局。
-参与角色的姓名：${charNames}。
-
-请生成：
-1. 怪谈世界背景（100-200字）：诡异、悬疑、压迫感。
-2. 5-7条怪谈规则（如：“规则1：如果在走廊听到猫叫声，请立刻闭上眼睛倒数三秒”）。
-3. 3个不同结局的触发条件描述（如：“安全逃出”、“永远困住”、“隐藏结局：成为规则管理者”）。
-
-请严格按以下 JSON 格式返回，不要包含 markdown 代码块：
-{
-  "background": "背景描述...",
-  "rules": ["规则1...", "规则2...", "规则3...", "规则4...", "规则5..."],
-  "endings": [
-    {"type": "escape", "title": "安全逃出", "condition": "遵守全部生存法则并找到隐藏出口"},
-    {"type": "trapped", "title": "永远困住", "condition": "触发3条以上红线或直接违反核心规则"},
-    {"type": "hidden", "title": "隐藏结局：融为一体", "condition": "发现规则背后的造物者并达成契约"}
-  ]
-}`;
-
-    let genBackground = "";
-    let genRules: string[] = [];
-    let genEndings: { type: string; title: string; condition: string }[] = [];
-
-    try {
-      const resText = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
-      const cleanJson = resText.replace(/```json/g, "").replace(/```/g, "").trim();
-      const parsed = JSON.parse(cleanJson);
-      genBackground = parsed.background || `【${newInstanceName}】被一片不可名状的迷雾包裹，这里的世界遵循着极其诡异的生存准则。`;
-      genRules = Array.isArray(parsed.rules) ? parsed.rules : [
-        "规则一：不要相信任何在午夜12点主动向你借伞的人。",
-        "规则二：如果发现房间角落的影子在独立移动，请立刻拍三下手。",
-        "规则三：同行伙伴（" + charNames + "）如果突然叫你的全名，请忽略并继续向前走。",
-        "规则四：看到红色的告示牌时，请逆时针绕行三圈。",
-        "规则五：当所有灯光熄灭，请待在原处不要发出任何声音。"
-      ];
-      genEndings = Array.isArray(parsed.endings) ? parsed.endings : [
-        { type: "escape", title: "安全逃出", condition: "遵守全部生存法则" },
-        { type: "trapped", title: "永远困住", condition: "触发核心死亡规则" },
-        { type: "hidden", title: "隐藏结局：真相揭晓", condition: "破解怪谈起源" }
-      ];
-    } catch (e) {
-      console.warn("AI Generation fallback for rules horror:", e);
-      genBackground = `【${newInstanceName}】是一个被异常规则笼罩的禁忌之地。你与${charNames}误入其中，周围看似正常的环境下暗藏杀机，唯有严守纸条上的规矩才能活下去。`;
-      genRules = [
-        "规则一：绝不要回应没有源头的敲门声。",
-        "规则二：若同伴的手温突然低于冰点，请立刻给对方递上一杯热饮。",
-        "规则三：午夜过后，走廊尽头的镜子里不会反射你的倒影。",
-        "规则四：永远保持规则清单不离开视线。"
-      ];
-      genEndings = [
-        { type: "escape", title: "安全逃出", condition: "破解异常现象并安全离场" },
-        { type: "trapped", title: "永远困住", condition: "违背两条以上核心禁忌" }
-      ];
-    }
-
-    const newInstance: RulesInstance = {
-      id: `instance-${Date.now()}`,
-      name: newInstanceName.trim(),
-      status: "in_progress",
-      characterIds: [...selectedCharIds],
-      background: genBackground,
-      rules: genRules.map((r, idx) => ({ id: idx + 1, text: r, status: "normal" })),
-      endingProgress: "探索中",
-      possibleEndings: genEndings,
-      messages: [
-        {
-          id: `msg-${Date.now()}`,
-          role: "system",
-          content: `👁️ 【进入怪谈副本】《${newInstanceName}》\n\n📜 副本背景：\n${genBackground}\n\n⚠️ 【注意！你拾到了一张染血的规则纸条】：\n${genRules.map((r) => `- ${r}`).join("\n")}\n\n生存还是陷落？请谨慎做出每一个决定！`,
+          content: finalSysStr.trim(),
           timestamp: Date.now(),
-        },
-      ],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    const updated = [newInstance, ...instances];
-    setInstances(updated);
-    persistInstances(updated);
-    setActiveInstance(newInstance);
-    setShowCreateInstanceModal(false);
-    setNewInstanceName("");
-    setSelectedCharIds([]);
-    setIsGenerating(false);
-    setActiveTab("rules_play");
-  };
-
-  const handleRulesUserSend = async (customAction?: string) => {
-    if (!activeInstance || isGenerating) return;
-    const input = customAction || inputText.trim();
-    if (!input && !customAction) return;
-
-    const userMsg = {
-      id: `msg-${Date.now()}`,
-      role: "user" as const,
-      senderName: "我",
-      content: input,
-      timestamp: Date.now(),
-    };
-
-    const updatedMessages = [...activeInstance.messages, userMsg];
-    let updatedInstance: RulesInstance = {
-      ...activeInstance,
-      messages: updatedMessages,
-      updatedAt: Date.now(),
-    };
-
-    setActiveInstance(updatedInstance);
-    if (!customAction) setInputText("");
-    setIsGenerating(true);
-
-    const activeChars = activeInstance.characterIds
-      .map((id) => characters.find(c => c.id === id))
-      .filter(Boolean) as Character[];
-
-    const prompt = `你现在是规则怪谈副本《${activeInstance.name}》的怪谈主宰（Creepypasta DM）。
-副本背景：${activeInstance.background}
-规则清单：
-${activeInstance.rules.map((r) => `${r.id}. ${r.text}`).join("\n")}
-
-同行角色：${activeChars.map((c) => c.name).join("、")}
-
-最新玩家决定/行动：
-"${input}"
-
-请判断玩家的决定是否遵守或触犯了规则，并以充满心理恐惧与压迫感的方式描写场景变化和角色的反应。
-如果玩家的行为触发了某个结局（如安全逃出或被困），请在文末加入标签 [ENDING: 结局名称]。`;
-
-    try {
-      const response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
-      
-      let endingDetected = "";
-      let cleanResponse = response.trim();
-      const endMatch = cleanResponse.match(/\[ENDING:\s*([^\]]+)\]/);
-      if (endMatch) {
-        endingDetected = endMatch[1].trim();
-        cleanResponse = cleanResponse.replace(/\[ENDING:\s*([^\]]+)\]/, "").trim();
+        });
       }
 
-      const aiMsg = {
-        id: `msg-${Date.now() + 1}`,
-        role: "assistant" as const,
-        content: cleanResponse,
-        timestamp: Date.now(),
-      };
-
-      const finalInstance: RulesInstance = {
-        ...updatedInstance,
-        messages: [...updatedInstance.messages, aiMsg],
-        endingProgress: endingDetected ? endingDetected : updatedInstance.endingProgress,
-        status: endingDetected ? "completed" : updatedInstance.status,
-        currentEnding: endingDetected ? endingDetected : updatedInstance.currentEnding,
+      updatedWorld = {
+        ...activeWorld,
+        messages: updatedMessages,
+        characterStates: updatedCharStates,
+        tasks: updatedTasks,
+        actionOptions: nextActionOptions,
+        status: gameEnding ? "completed" : "in_progress",
+        exposureLevel: nextExposure,
+        factionChats: factionChatUpdates,
         updatedAt: Date.now(),
       };
 
-      setActiveInstance(finalInstance);
-      const updatedInstances = instances.map((i) => (i.id === finalInstance.id ? finalInstance : i));
-      setInstances(updatedInstances);
-      persistInstances(updatedInstances);
-      
-      try {
-        if (endingDetected) {
-          storeMemory("universe", `【规则怪谈】世界“${finalInstance.name}”中，达成结局：${endingDetected}`, "宇宙");
-        }
-      } catch(e) {}
-    } catch (e: any) {
-      alert("AI 生成失败: " + (e.message || "请检查网络"));
+      setActiveWorld(updatedWorld);
+      persistWorlds(worlds.map((w) => (w.id === updatedWorld.id ? updatedWorld : w)));
+
+      setTimeout(() => {
+        scrollTransmigrationToBottom(true);
+      }, 100);
+    } catch (e) {
+      console.error(e);
+      setActiveWorld({ ...activeWorld, messages: [...updatedMessages, { id: Date.now().toString(), role: "system", content: "引擎响应异常，请重试。", timestamp: Date.now() }] });
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleCreateScript = async () => {
-    if (!newScriptName.trim()) {
-      alert("请输入剧本名称！");
-      return;
+  const handleDeleteWorld = (worldId: string) => {
+    persistWorlds(worlds.filter((w) => w.id !== worldId));
+    if (activeWorld?.id === worldId) {
+      setActiveWorld(null);
+      setActiveTab("transmigration_list");
     }
-    if (selectedCharIds.length < 2 || selectedCharIds.length > 5) {
-      alert("悬疑剧场模式请选择 2 至 5 位参与角色！");
-      return;
-    }
+  };
 
+  const handleResumeWorld = (worldId: string) => {
+    const world = worlds.find(w => w.id === worldId);
+    if (world) {
+      setActiveWorld(world);
+      setActiveTab("transmigration_play");
+    }
+  };
+
+  const handleAccuseCharacter = async (characterId: string | null, text: string) => {
+    if (!activeWorld || !characterId) return;
     setIsGenerating(true);
-    const selectedChars = selectedCharIds.map((id) => characters.find(c => c.id === id)).filter(Boolean) as Character[];
-
-    const prompt = `你是一个顶级悬疑剧本杀（Murder Mystery Script）编剧。
-请为【${newScriptGenre}】类型的剧本《${newScriptName}》分配角色、案件核心、关键线索与5幕大纲。
-参与角色列表：${selectedChars.map((c) => `${c.name} (${c.description || "普通"})`).join("、")}。
-
-要求：
-1. 剧本背景（150-250字）。
-2. 案件核心（例如：“古堡主人在密室中离奇失踪，现场留下一封无字血书”）。
-3. 3条关键线索。
-4. 为每一个参与角色分配专属角色名称、明面身份、私密秘密（不公开）以及行动动机。
-5. 2个不同分支结局。
-
-请严格按以下 JSON 格式返回，不要包含 markdown 代码块：
-{
-  "background": "剧本背景...",
-  "caseCore": "案件核心...",
-  "keyClues": ["线索1", "线索2", "线索3"],
-  "roleAssignments": [
-    {
-      "characterId": "${selectedChars[0]?.id}",
-      "characterName": "${selectedChars[0]?.name}",
-      "roleName": "角色剧本身份名",
-      "identity": "明面身份",
-      "secret": "隐藏在内心的不可告人秘密",
-      "motive": "行动动机"
-    }
-  ],
-  "endingBranches": [
-    {"title": "真凶伏法", "description": "成功锁定并揭露真相"},
-    {"title": "凶手逃逸", "description": "推理陷入误区，真凶逍遥法外"}
-  ]
-}`;
-
-    try {
-      const response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
-      const cleanJson = response.replace(/```json/g, "").replace(/```/g, "").trim();
-      const parsed = JSON.parse(cleanJson);
-
-      const newScript: SuspenseScript = {
-        id: `script-${Date.now()}`,
-        name: newScriptName.trim(),
-        genre: newScriptGenre,
-        status: "in_progress",
-        characterIds: [...selectedCharIds],
-        currentAct: 1,
-        background: parsed.background,
-        caseCore: parsed.caseCore,
-        keyClues: parsed.keyClues,
-        roleAssignments: parsed.roleAssignments,
-        endingBranches: parsed.endingBranches,
-        messages: [
-          {
-            id: `msg-${Date.now()}`,
-            role: "system",
-            content: `🎭 【剧本杀开启】《${newScriptName}》\n\n📖 剧本背景：\n${parsed.background}\n\n🕵️ 案件核心：\n${parsed.caseCore}\n\n当前处于：第一幕 · 入场`,
-            timestamp: Date.now(),
-          },
-        ],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      const updated = [newScript, ...scripts];
-      setScripts(updated);
-      persistScripts(updated);
-      setActiveScript(newScript);
-      setShowCreateScriptModal(false);
-      setNewScriptName("");
-      setSelectedCharIds([]);
-      setIsGenerating(false);
-      setActiveTab("suspense_play");
-    } catch (e: any) {
-      alert("AI 生成失败: " + (e.message || "请检查网络"));
-    } finally {
-      setIsGenerating(false);
-    }
+    const newUserMessage = { id: Date.now().toString(), role: "user" as const, senderName: "玩家", content: text, timestamp: Date.now() };
+    const updatedMessages = [...activeWorld.messages, newUserMessage];
+    const updatedWorld = { ...activeWorld, messages: updatedMessages };
+    setActiveWorld(updatedWorld);
+    setIsGenerating(false);
   };
 
-  const handleSuspenseUserSend = async (customAction?: string) => {
-    if (!activeScript || isGenerating) return;
-    const input = customAction || inputText.trim();
-    if (!input && !customAction) return;
-
-    const userMsg = {
-      id: `msg-${Date.now()}`,
-      role: "user" as const,
-      senderName: "我",
-      content: input,
-      timestamp: Date.now(),
-    };
-
-    const updatedMessages = [...activeScript.messages, userMsg];
-    let updatedScript: SuspenseScript = {
-      ...activeScript,
-      messages: updatedMessages,
-      updatedAt: Date.now(),
-    };
-
-    setActiveScript(updatedScript);
-    if (!customAction) setInputText("");
-    setIsGenerating(true);
-
-    const actNames = ["入场", "案件发生", "调查推进", "推理高潮", "结局揭晓"];
-    const prompt = `你现在是悬疑剧本杀《${activeScript.name}》中所有角色的联合演播者。
-当前剧本处于：【第 ${activeScript.currentAct} 幕：${actNames[activeScript.currentAct - 1]}】
-
-角色身份与秘密（请让每个角色按自身动机行动并隐藏秘密）：
-${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleName}): 秘密=${r.secret}, 动机=${r.motive}`).join("\n")}
-
-最新玩家互动：
-"${input}"
-
-请扮演这些角色与玩家进行生动的多角色互质与讨论，维护剧本氛围与各自的角色私密动机！字数150-300字。`;
-
-    try {
-      const response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
-      const aiMsg = {
-        id: `msg-${Date.now() + 1}`,
-        role: "assistant" as const,
-        content: response.trim(),
-        timestamp: Date.now(),
-      };
-
-      const finalScript = {
-        ...updatedScript,
-        messages: [...updatedScript.messages, aiMsg],
-        updatedAt: Date.now(),
-      };
-
-      setActiveScript(finalScript);
-      const updatedScripts = scripts.map((s) => (s.id === finalScript.id ? finalScript : s));
-      setScripts(updatedScripts);
-      persistScripts(updatedScripts);
-    } catch (e: any) {
-      alert("AI 生成失败: " + (e.message || "请检查网络"));
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleAdvanceAct = async () => {
-    if (!activeScript || isGenerating || activeScript.currentAct >= 5) return;
-    const nextAct = activeScript.currentAct + 1;
-    const actNames = ["入场", "案件发生", "调查推进", "推理高潮", "结局揭晓"];
-    
-    setIsGenerating(true);
-    const systemMsg = {
-      id: `msg-${Date.now()}`,
-      role: "system" as const,
-      content: `🎭 【剧本推进】剧本进入：【第 ${nextAct} 幕：${actNames[nextAct - 1]}】。请各位角色根据当前进展发表新看法或抛出新线索！`,
-      timestamp: Date.now(),
-    };
-
-    const updatedScript: SuspenseScript = {
-      ...activeScript,
-      currentAct: nextAct,
-      messages: [...activeScript.messages, systemMsg],
-      updatedAt: Date.now(),
-    };
-
-    setActiveScript(updatedScript);
-
-    const prompt = `你现在是悬疑剧本杀《${activeScript.name}》的DM。
-当前剧本刚刚推进到了：【第 ${nextAct} 幕：${actNames[nextAct - 1]}】。
-剧本案件核心：${activeScript.caseCore}
-关键线索：${activeScript.keyClues.join("、")}
-
-请以演播者身份描述当前幕次的场景氛围变化、各角色的新反应或突发事件。字数120-220字。`;
-
-    try {
-      const response = await callLLM(settings.apiUrl, settings.apiKey, settings.model, [{ role: "user", content: prompt }], 0.8, settings.apiFormat);
-      const aiMsg = {
-        id: `msg-${Date.now() + 1}`,
-        role: "assistant" as const,
-        content: response.trim(),
-        timestamp: Date.now(),
-      };
-
-      const finalScript = {
-        ...updatedScript,
-        messages: [...updatedScript.messages, aiMsg],
-        status: nextAct === 5 ? ("completed" as const) : updatedScript.status,
-        updatedAt: Date.now(),
-      };
-
-      setActiveScript(finalScript);
-      const updatedScripts = scripts.map((s) => (s.id === finalScript.id ? finalScript : s));
-      setScripts(updatedScripts);
-      persistScripts(updatedScripts);
-    } catch (e: any) {
-      alert("推进幕次失败: " + (e.message || "请检查网络"));
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const renderCharacterSelector = () => (
-    <div className="space-y-2">
-      <label className="text-xs font-bold text-neutral-300 block">
-        选择参与角色 <span className="text-neutral-500 font-normal">（可多选）</span>
-      </label>
-      {characters.length === 0 ? (
-        <p className="text-xs text-neutral-500 italic">暂无角色，请先在通讯录中创建角色。</p>
-      ) : (
-        <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1">
-          {characters.map((char) => {
-            const isSelected = selectedCharIds.includes(char.id);
-            return (
-              <div
-                key={char.id}
-                onClick={() => {
-                  if (isSelected) {
-                    setSelectedCharIds(selectedCharIds.filter(id => id !== char.id));
-                  } else {
-                    setSelectedCharIds([...selectedCharIds, char.id]);
-                  }
-                }}
-                className={`flex items-center gap-2 p-2 rounded-xl cursor-pointer transition border ${isSelected ? "border-amber-500 bg-amber-500/10" : "border-neutral-800 bg-neutral-900 hover:border-neutral-700"}`}
-              >
-                <CharacterAvatar avatar={char.avatar} name={char.name} size={24} className="rounded-full shadow-xs shrink-0" />
-                <span className="text-[11px] font-bold text-white flex-1 truncate">{char.name}</span>
-                {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-amber-500" />}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
+  const handleSaveWorldSettings = () => {};
+  const handleGenerateMemoryCard = () => {};
+  const handleSendMemoryCardToChar = () => {};
+  const handleRefreshActionOptions = () => {};
+  const handleSendFactionMessage = () => {};
+  const handleAIGenerateFactionChat = () => {};
+  const handleRulesUserSend = (text?: string) => {};
+  const handleAdvanceAct = () => {};
+  const handleSuspenseUserSend = () => {};
+  const renderCharacterSelector = () => <></>;
+  const handleCreateInstance = () => {};
+  const handleCreateScript = () => {};
+  const handleEndAndArchiveWorld = () => {};
 
   useEffect(() => {
     if (
@@ -2619,7 +1556,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDeleteWorld(world.id, world.name);
+                          handleDeleteWorld(world.id);
                         }}
                         className="p-1.5 text-[#A8A39A] hover:text-rose-600 rounded-full hover:bg-rose-50 transition cursor-pointer shrink-0"
                         title={isArchived ? "删除存档" : "删除世界"}
@@ -2653,7 +1590,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                       <div className="flex items-center justify-end pt-1 gap-2">
                         {isArchived ? (
                           <button
-                            onClick={() => handleResumeWorld(world)}
+                            onClick={() => handleResumeWorld(world.id)}
                             className="px-3.5 py-1.5 bg-[#1A1A1A] hover:bg-neutral-800 text-white text-xs font-medium rounded-full transition flex items-center gap-1.5 cursor-pointer shadow-2xs border border-[#1A1A1A]"
                           >
                             <Play className="w-3.5 h-3.5 stroke-[1.5]" />
@@ -3026,13 +1963,13 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                               key={msg.id || idx}
                               className="flex flex-col items-end mb-3"
                             >
-                              <div className="flex items-center gap-1.5 mb-1 px-1 text-[11px] text-[#A8A39A]">
+                              <div className="flex items-center gap-1.5 mb-1 px-1 text-[12px] text-[#A8A39A]">
                                 <span>{msg.senderName || "我"}</span>
                                 <span className="text-[10px] opacity-70">
                                   {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </span>
                               </div>
-                              <div className="max-w-[88%] sm:max-w-[80%] p-3.5 rounded-2xl text-xs sm:text-sm leading-relaxed bg-[#1A1A1A] text-white rounded-tr-none shadow-xs">
+                              <div className="max-w-[88%] sm:max-w-[80%] p-3.5 rounded-2xl text-[14px] leading-relaxed bg-[#1A1A1A] text-white rounded-tr-none shadow-xs">
                                 {msg.content}
                               </div>
                             </div>
@@ -3043,7 +1980,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                           return (
                             <div
                               key={msg.id || idx}
-                              className="p-3.5 my-2 bg-[#F5F3F0] border border-[#EFECE8] rounded-2xl text-xs text-[#78716C] whitespace-pre-wrap leading-relaxed shadow-2xs"
+                              className="p-3.5 my-2 bg-[#F5F3F0] border border-[#EFECE8] rounded-2xl text-[14px] text-[#78716C] whitespace-pre-wrap leading-relaxed shadow-2xs"
                             >
                               {msg.content}
                             </div>
@@ -3240,7 +2177,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         onChange={(e) => setInputText(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleTransmigrationUserSend()}
                         disabled={isGenerating || (activeWorld.status as string) === "completed"}
-                        className="flex-1 bg-white border border-[#E5E2DC] rounded-full px-4 py-2 text-xs sm:text-sm  text-[#1A1A1A] outline-none focus:border-[#1A1A1A] placeholder-[#A8A39A] disabled:opacity-50"
+                        className="flex-1 bg-white border border-[#E5E2DC] rounded-full px-4 py-2 text-[14px]  text-[#1A1A1A] outline-none focus:border-[#1A1A1A] placeholder-[#A8A39A] disabled:opacity-50"
                       />
                       <button
                         type="button"
@@ -3431,10 +2368,7 @@ ${activeScript.roleAssignments.map((r) => `- ${r.characterName} (扮 ${r.roleNam
                         <span className="text-[#78716C] text-[10px] block">好感羁绊：</span>
                         <span className="text-[#1A1A1A] font-semibold font-mono text-base">{charState.favorability || 0}%</span>
                       </div>
-                      <div className="bg-[#FAFAF9] p-2.5 rounded-xl border border-[#EFECE8]">
-                        <span className="text-[#78716C] text-[10px] block">怀疑度：</span>
-                        <span className="text-[#1A1A1A] font-semibold font-mono text-base">{charState.suspicion || 0}%</span>
-                      </div>
+
                     </div>
                   </div>
 
